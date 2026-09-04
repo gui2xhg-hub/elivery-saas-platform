@@ -105,6 +105,7 @@ export default function CardapioTenant() {
     }
   };
 
+  // Calcula o valor unitário (Base + Adicionais selecionados)
   const calculateUnitTotal = () => {
     if (!selectedProduct) return 0;
     const addonsTotal = selectedAddons.reduce((acc, a) => acc + Number(a.price), 0);
@@ -113,12 +114,12 @@ export default function CardapioTenant() {
 
   const handleAddToCart = () => {
     const unitPrice = calculateUnitTotal();
-    const addonsText = selectedAddons.map(a => a.name).join(', ');
+    const addonsText = selectedAddons.map(a => `${a.name} (+R$${a.price.toFixed(2)})`).join(', ');
     let details = addonsText ? `Adicionais: ${addonsText}` : '';
     if (itemObs) details += details ? ` | Obs: ${itemObs}` : `Obs: ${itemObs}`;
 
     const newItem = {
-      id: selectedProduct.id,
+      id: `${selectedProduct.id}-${Date.now()}`,
       name: selectedProduct.name,
       quantity,
       unitPrice,
@@ -216,7 +217,6 @@ export default function CardapioTenant() {
       </div>
 
       <div className="mt-8 px-4 space-y-6">
-        {/* LISTA DE PRODUTOS POR CATEGORIA */}
         {categories.map(cat => {
           const catProducts = products.filter(p => p.category_id === cat.id);
           if (catProducts.length === 0) return null;
@@ -235,9 +235,14 @@ export default function CardapioTenant() {
                     <div className="flex-1 pr-3">
                       <h3 className="font-bold text-xs text-white">{prod.name}</h3>
                       {prod.description && <p className="text-[10px] text-gray-400 line-clamp-2 mt-0.5">{prod.description}</p>}
-                      <span className="text-xs font-bold mt-1 block" style={{ color: primaryColor }}>
-                        R$ {Number(prod.price).toFixed(2)}
-                      </span>
+                      <div className="flex items-center space-x-2 mt-1.5">
+                        <span className="text-xs font-bold" style={{ color: primaryColor }}>
+                          R$ {Number(prod.price).toFixed(2)}
+                        </span>
+                        <span className="text-[10px] bg-gray-800 px-2 py-0.5 rounded font-bold border border-gray-700 text-gray-300">
+                          + Pedir
+                        </span>
+                      </div>
                     </div>
                     {prod.image && (
                       <img src={prod.image} alt={prod.name} className="w-16 h-16 rounded-lg object-cover bg-gray-800 border border-gray-800" />
@@ -250,7 +255,7 @@ export default function CardapioTenant() {
         })}
       </div>
 
-      {/* BARRA FIXA CARRINHO COM COR PERSONALIZADA */}
+      {/* BARRA FIXA CARRINHO */}
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-3 bg-gray-950 border-t border-gray-800 z-40">
           <button 
@@ -279,7 +284,10 @@ export default function CardapioTenant() {
 
             {parsedAddons.length > 0 && (
               <div className="space-y-2">
-                <label className="text-xs text-gray-400 font-bold block">Adicionais:</label>
+                <div className="flex justify-between items-center">
+                  <label className="text-xs text-gray-400 font-bold block">Adicionais Opcionais:</label>
+                  <span className="text-[10px] text-gray-500">(Aplicado a cada unidade)</span>
+                </div>
                 <div className="space-y-1.5">
                   {parsedAddons.map((ad, idx) => {
                     const isChecked = selectedAddons.some(a => a.name === ad.name);
@@ -306,7 +314,7 @@ export default function CardapioTenant() {
               <label className="text-xs text-gray-400 font-bold block mb-1">Observações:</label>
               <input 
                 type="text" 
-                placeholder="Ex: Sem cebola, pão bem selado..."
+                placeholder="Ex: Sem cebola, molho à parte..."
                 value={itemObs}
                 onChange={(e) => setItemObs(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
@@ -324,7 +332,7 @@ export default function CardapioTenant() {
                 onClick={handleAddToCart}
                 style={{ backgroundColor: primaryColor }}
                 className="flex-1 ml-3 font-bold py-2.5 rounded-lg text-xs text-white">
-                Adicionar (R$ {(calculateUnitTotal() * quantity).toFixed(2)})
+                Adicionar ({quantity}x = R$ {(calculateUnitTotal() * quantity).toFixed(2)})
               </button>
             </div>
           </div>
