@@ -6,6 +6,7 @@ export default function MasterAdmin() {
   const [masterPassword, setMasterPassword] = useState('');
   const [tenants, setTenants] = useState([]);
 
+  // FORMULÁRIO DE NOVO CLIENTE
   const [newTenant, setNewTenant] = useState({
     name: '',
     slug: '',
@@ -20,8 +21,11 @@ export default function MasterAdmin() {
     due_date: '',
     monthly_fee: '99.00',
     admin_password: '',
-    business_type: 'delivery' // 'delivery' OU 'agendamento'
+    business_type: 'delivery'
   });
+
+  // ESTADO DE EDIÇÃO DE CLIENTE EXISTENTE
+  const [editingTenant, setEditingTenant] = useState(null);
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -38,7 +42,7 @@ export default function MasterAdmin() {
     if (data) setTenants(data);
   };
 
-  // PREDEFINIÇÕES RÁPIDAS DE CORES
+  // PREDEFINIÇÕES RÁPIDAS DE CORES PARA NOVO CLIENTE
   const applyPreset = (type) => {
     if (type === 'dark_orange') {
       setNewTenant(prev => ({
@@ -52,16 +56,49 @@ export default function MasterAdmin() {
     } else if (type === 'light_pink') {
       setNewTenant(prev => ({
         ...prev,
-        primary_color: '#EC4899', // Rosa
+        primary_color: '#EC4899',
         button_text_color: '#FFFFFF',
-        secondary_color: '#F9FAFB', // Fundo Branco/Claro
-        card_bg_color: '#FFFFFF',   // Card Branco
-        text_color: '#111827'       // Texto Escuro
+        secondary_color: '#F9FAFB',
+        card_bg_color: '#FFFFFF',
+        text_color: '#111827'
       }));
     } else if (type === 'purple_barber') {
       setNewTenant(prev => ({
         ...prev,
-        primary_color: '#A855F7', // Roxo
+        primary_color: '#A855F7',
+        button_text_color: '#FFFFFF',
+        secondary_color: '#0F172A',
+        card_bg_color: '#1E293B',
+        text_color: '#F8FAFC'
+      }));
+    }
+  };
+
+  // PREDEFINIÇÕES RÁPIDAS DE CORES PARA EDIÇÃO
+  const applyEditPreset = (type) => {
+    if (!editingTenant) return;
+    if (type === 'dark_orange') {
+      setEditingTenant(prev => ({
+        ...prev,
+        primary_color: '#FF8C00',
+        button_text_color: '#FFFFFF',
+        secondary_color: '#090D16',
+        card_bg_color: '#111827',
+        text_color: '#FFFFFF'
+      }));
+    } else if (type === 'light_pink') {
+      setEditingTenant(prev => ({
+        ...prev,
+        primary_color: '#EC4899',
+        button_text_color: '#FFFFFF',
+        secondary_color: '#F9FAFB',
+        card_bg_color: '#FFFFFF',
+        text_color: '#111827'
+      }));
+    } else if (type === 'purple_barber') {
+      setEditingTenant(prev => ({
+        ...prev,
+        primary_color: '#A855F7',
         button_text_color: '#FFFFFF',
         secondary_color: '#0F172A',
         card_bg_color: '#1E293B',
@@ -122,6 +159,36 @@ export default function MasterAdmin() {
         due_date: '', monthly_fee: '99.00', admin_password: '',
         business_type: 'delivery'
       });
+      fetchTenants();
+    }
+  };
+
+  const handleUpdateTenant = async (e) => {
+    e.preventDefault();
+    if (!editingTenant) return;
+
+    const cleanPhone = editingTenant.whatsapp ? editingTenant.whatsapp.replace(/\D/g, '') : '';
+
+    const { error } = await supabase.from('tenants').update({
+      name: editingTenant.name.trim(),
+      whatsapp: cleanPhone,
+      admin_password: editingTenant.admin_password,
+      monthly_fee: parseFloat(editingTenant.monthly_fee) || 99.00,
+      due_date: editingTenant.due_date || null,
+      logo_url: editingTenant.logo_url,
+      banner_url: editingTenant.banner_url,
+      primary_color: editingTenant.primary_color,
+      button_text_color: editingTenant.button_text_color,
+      secondary_color: editingTenant.secondary_color,
+      card_bg_color: editingTenant.card_bg_color,
+      text_color: editingTenant.text_color
+    }).eq('id', editingTenant.id);
+
+    if (error) {
+      alert("Erro ao atualizar cliente: " + error.message);
+    } else {
+      alert("Cliente atualizado com sucesso!");
+      setEditingTenant(null);
       fetchTenants();
     }
   };
@@ -247,7 +314,6 @@ export default function MasterAdmin() {
             <div className="flex justify-between items-center">
               <label className="text-[11px] font-bold text-orange-400 uppercase tracking-wider block">🎨 Personalização do Tema:</label>
               
-              {/* BOTÕES DE PREDEFINIÇÃO RÁPIDA */}
               <div className="flex space-x-1.5 text-[10px]">
                 <button type="button" onClick={() => applyPreset('dark_orange')} className="bg-gray-900 border border-orange-500/50 text-orange-400 px-2 py-1 rounded font-bold">Dark Laranja</button>
                 <button type="button" onClick={() => applyPreset('light_pink')} className="bg-pink-500/20 border border-pink-500 text-pink-300 px-2 py-1 rounded font-bold">Rosa / Claro</button>
@@ -362,18 +428,27 @@ export default function MasterAdmin() {
                   </p>
                 </div>
 
-                <div className="flex flex-col items-end space-y-2">
+                {/* AÇÕES DO CLIENTE */}
+                <div className="flex flex-col items-end space-y-1.5">
                   <button 
                     onClick={() => toggleTenantActive(t.id, t.active)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${t.active ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
+                    className={`px-3 py-1 rounded-lg text-xs font-bold border ${t.active ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
                     {t.active ? '🟢 Ativo' : '🔴 Pausado'}
                   </button>
 
-                  <button 
-                    onClick={() => handleDeleteTenant(t.id, t.name)}
-                    className="bg-red-500/10 text-red-400 p-1.5 rounded-lg text-[10px] font-bold">
-                    🗑 Excluir
-                  </button>
+                  <div className="flex space-x-1">
+                    <button 
+                      onClick={() => setEditingTenant(t)}
+                      className="bg-blue-600/20 text-blue-400 px-2.5 py-1 rounded-lg text-[10px] font-bold border border-blue-500/30 hover:bg-blue-600/30 transition">
+                      ✏️ Editar
+                    </button>
+
+                    <button 
+                      onClick={() => handleDeleteTenant(t.id, t.name)}
+                      className="bg-red-500/10 text-red-400 px-2 py-1 rounded-lg text-[10px] font-bold hover:bg-red-500/20 transition">
+                      🗑
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -401,6 +476,157 @@ export default function MasterAdmin() {
           );
         })}
       </section>
+
+      {/* MODAL DE EDIÇÃO DO CLIENTE */}
+      {editingTenant && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleUpdateTenant} className="bg-gray-900 w-full max-w-xl rounded-2xl p-5 border border-blue-500/40 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="font-bold text-sm text-blue-400">✏️ Editar Cliente: <span className="text-white">{editingTenant.name}</span></h3>
+              <button type="button" onClick={() => setEditingTenant(null)} className="text-xs text-gray-400 hover:text-white font-bold">✕ Fechar</button>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
+              <input 
+                type="text" value={editingTenant.name || ''} 
+                onChange={(e) => setEditingTenant({ ...editingTenant, name: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">WhatsApp (DDD + Número):</label>
+                <input 
+                  type="text" value={editingTenant.whatsapp || ''} 
+                  onChange={(e) => setEditingTenant({ ...editingTenant, whatsapp: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Senha de Admin:</label>
+                <input 
+                  type="text" value={editingTenant.admin_password || ''} 
+                  onChange={(e) => setEditingTenant({ ...editingTenant, admin_password: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Valor da Mensalidade (R$):</label>
+                <input 
+                  type="text" value={editingTenant.monthly_fee || ''} 
+                  onChange={(e) => setEditingTenant({ ...editingTenant, monthly_fee: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Data de Vencimento:</label>
+                <input 
+                  type="date" value={editingTenant.due_date || ''} 
+                  onChange={(e) => setEditingTenant({ ...editingTenant, due_date: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">URL da Logo:</label>
+                <input 
+                  type="text" value={editingTenant.logo_url || ''} 
+                  onChange={(e) => setEditingTenant({ ...editingTenant, logo_url: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">URL do Banner:</label>
+                <input 
+                  type="text" value={editingTenant.banner_url || ''} 
+                  onChange={(e) => setEditingTenant({ ...editingTenant, banner_url: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+                />
+              </div>
+            </div>
+
+            {/* SEÇÃO DE EDITAR TEMA E CORES */}
+            <div className="bg-gray-800/80 p-3.5 rounded-xl border border-gray-700 space-y-3">
+              <div className="flex justify-between items-center">
+                <label className="text-[11px] font-bold text-blue-400 uppercase tracking-wider block">🎨 Alterar Cores do Tema:</label>
+                
+                <div className="flex space-x-1 text-[10px]">
+                  <button type="button" onClick={() => applyEditPreset('dark_orange')} className="bg-gray-900 border border-orange-500/50 text-orange-400 px-2 py-0.5 rounded font-bold">Dark</button>
+                  <button type="button" onClick={() => applyEditPreset('light_pink')} className="bg-pink-500/20 border border-pink-500 text-pink-300 px-2 py-0.5 rounded font-bold">Rosa</button>
+                  <button type="button" onClick={() => applyEditPreset('purple_barber')} className="bg-purple-500/20 border border-purple-500 text-purple-300 px-2 py-0.5 rounded font-bold">Roxo</button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Cor do Botão:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={editingTenant.primary_color || '#FF8C00'} onChange={(e) => setEditingTenant({ ...editingTenant, primary_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={editingTenant.primary_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, primary_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Texto do Botão:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={editingTenant.button_text_color || '#FFFFFF'} onChange={(e) => setEditingTenant({ ...editingTenant, button_text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={editingTenant.button_text_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, button_text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Fundo do Site:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={editingTenant.secondary_color || '#090D16'} onChange={(e) => setEditingTenant({ ...editingTenant, secondary_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={editingTenant.secondary_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, secondary_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Fundo dos Cards:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={editingTenant.card_bg_color || '#111827'} onChange={(e) => setEditingTenant({ ...editingTenant, card_bg_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={editingTenant.card_bg_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, card_bg_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Cor da Fonte/Texto:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={editingTenant.text_color || '#FFFFFF'} onChange={(e) => setEditingTenant({ ...editingTenant, text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={editingTenant.text_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex space-x-2 pt-2">
+              <button 
+                type="button" 
+                onClick={() => setEditingTenant(null)} 
+                className="w-1/2 bg-gray-800 text-gray-300 font-bold py-2.5 rounded-xl text-xs">
+                Cancelar
+              </button>
+
+              <button 
+                type="submit" 
+                className="w-1/2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs transition">
+                Salvar Alterações 💾
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
