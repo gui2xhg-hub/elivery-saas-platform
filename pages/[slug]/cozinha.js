@@ -72,7 +72,6 @@ export default function CozinhaTenant() {
     if (tenant) fetchOrders(tenant.id);
   };
 
-  // ALTERAR STATUS MANUAL DE PAGAMENTO DO PIX
   const togglePaymentStatus = async (orderId, currentPaidStatus) => {
     await supabase.from('orders').update({ is_paid: !currentPaidStatus }).eq('id', orderId);
     if (tenant) fetchOrders(tenant.id);
@@ -81,6 +80,13 @@ export default function CozinhaTenant() {
   const archiveOrder = async (orderId) => {
     await supabase.from('orders').update({ archived: true, status: 'arquivado' }).eq('id', orderId);
     if (tenant) fetchOrders(tenant.id);
+  };
+
+  const clearAllArchived = async () => {
+    if (confirm("Deseja apagar definitivamente todos os pedidos arquivados da tela? (Os relatórios continuam mantidos)")) {
+      await supabase.from('orders').delete().eq('tenant_id', tenant.id).eq('archived', true);
+      if (tenant) fetchOrders(tenant.id);
+    }
   };
 
   const sendWhatsAppStatus = (order, msgType) => {
@@ -106,10 +112,117 @@ export default function CozinhaTenant() {
   if (loading) return <div className="p-4 text-white text-center font-sans">Carregando Cozinha...</div>;
   if (!tenant) return <div className="p-4 text-white text-center font-sans">Restaurante não encontrado.</div>;
 
-  const displayedOrders = orders.filter(o => showArchived ? o.archived === true : !o.archived);
+  // DIVISÃO DOS PEDIDOS EM 3 COLUNAS KANBAN
+  const activeOrders = orders.filter(o => !o.archived);
+  const recebidosOrders = activeOrders.filter(o => !o.status || o.status === 'recebido');
+  const producaoOrders = activeOrders.filter(o => o.status === 'em_producao');
+  const entregaOrders = activeOrders.filter(o => o.status === 'saiu_entrega');
+
+  const archivedOrders = orders.filter(o => o.archived === true);
+
+  // COMPONENTE DO CARD DE PEDIDO
+  const renderOrderCard = (order) => {
+    const isPix = (order.payment_method || '').toUpperCase().includes('PIX');
+    const isMoney = (order.payment_method || '').toUpperCase().includes('DINHEIRO');
+
+    return (
+      <div key={order.id} className="bg-gray-900 border border-gray-800 p-3.5 rounded-2xl space-y-2.5 shadow-lg">
+        <div className="flex justify-between items-start border-b border-gray-800 pb-2">
+          <div>
+            <span className="font-bold text-xs text-orange-400">PEDIDO #{order.id}</span>
+            <h3 className="font-bold text-xs text-white">{order.customer_name}</h3>
+            <p className="text-[11px] text-gray-400">📱 {order.customer_phone}</p>
+          </div>
+        </div>
+
+        <div className="text-[11px] text-gray-300 bg-gray-800/50 p-2 rounded-xl border border-gray-800 space-y-1">
+          <p><b>Tipo:</b> {order.order_type === 'delivery' ? '🛵 Entrega' : '🛍️ Retirada'}</p>
+          {order.order_type === 'delivery' && (
+            <>
+              <p><b>Bairro:</b> {order.neighborhood}</p>
+              <p><b>End:</b> {order.address}</p>
+              {order.reference && <p className="text-gray-400"><b>Ref:</b> {order.reference}</p>}
+            </>
+          )}
+
+          {/* CONTROLE DE PAGAMENTO PIX/DINHEIRO/CARTÃO */}
+          <div className="pt-1 flex justify-between items-center border-t border-gray-700/50">
+            {isPix ? (
+              <div className="flex items-center justify-between w-full">
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                  order.is_paid ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                }`}>
+                  {order.is_paid ? '🟢 PIX Confirmado' : '🟡 PIX Pendente'}
+                </span>
+                <button 
+                  onClick={() => togglePaymentStatus(order.id, order.is_paid)}
+                  className="text-[10px] bg-gray-700 px-1.5 py-0.5 rounded text-gray-200 font-bold border border-gray-600">
+                  {order.is_paid ? 'Desmarcar' : '✅ Validar'}
+                </button>
+              </div>
+            ) : isMoney ? (
+              <span className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
+                💵 Dinheiro (R$ {Number(order.total).toFixed(2)})
+              </span>
+            ) : (
+              <span className="bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
+                💳 Cartão na Entrega
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* ITENS */}
+        <div className="space-y-1 border-t border-b border-gray-800 py-1.5">
+          {order.items && Array.isArray(order.items) && order.items.map((it, idx) => (
+            <div key={idx} className="text-[11px]">
+              <span className="font-bold text-white">{it.quantity}x {it.name}</span>
+              {it.details && <p className="text-[10px] text-orange-300 italic pl-2">{it.details}</p>}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex justify-between items-center text-xs font-bold">
+          <span>TOTAL:</span>
+          <span className="text-green-400">R$ {Number(order.total || 0).toFixed(2)}</span>
+        </div>
+
+        {/* BOTÕES DE AÇÃO DO KANBAN */}
+        <div className="space-y-1.5 pt-1">
+          <div className="flex space-x-1 text-[10px] font-bold">
+            {(!order.status || order.status === 'recebido') && (
+              <button onClick={() => { updateOrderStatus(order.id, 'em_producao'); sendWhatsAppStatus(order, 'producao'); }} className="flex-1 bg-blue-600 hover:bg-blue-700 py-1.5 rounded-lg text-white">
+                👨‍🍳 Mover p/ Produção ➔
+              </button>
+            )}
+
+            {order.status === 'em_producao' && (
+              <button onClick={() => { updateOrderStatus(order.id, 'saiu_entrega'); sendWhatsAppStatus(order, 'entrega'); }} className="flex-1 bg-purple-600 hover:bg-purple-700 py-1.5 rounded-lg text-white">
+                🛵 Mover p/ Entrega ➔
+              </button>
+            )}
+
+            {order.status === 'saiu_entrega' && (
+              <button onClick={() => archiveOrder(order.id)} className="flex-1 bg-green-600 hover:bg-green-700 py-1.5 rounded-lg text-white">
+                ✅ Concluir & Arquivar
+              </button>
+            )}
+
+            <button onClick={() => archiveOrder(order.id)} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1.5 rounded-lg border border-gray-700">
+              📦
+            </button>
+          </div>
+
+          <button onClick={() => handlePrintSingleOrder(order)} className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 py-1.5 rounded-lg text-[10px] font-bold text-gray-300">
+            🛈 Imprimir
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-4 font-sans max-w-4xl mx-auto pb-12">
+    <div className="min-h-screen bg-gray-950 text-white p-4 font-sans max-w-7xl mx-auto pb-12">
       <style jsx global>{`
         @media print {
           body * { visibility: hidden !important; }
@@ -128,7 +241,7 @@ export default function CozinhaTenant() {
         }
       `}</style>
 
-      {/* COMPROVANTE INDIVIDUAL */}
+      {/* COMPROVANTE TÉRMICO */}
       {selectedOrderToPrint && (
         <div id="print-receipt-area" className="hidden print:block text-black text-xs font-mono">
           <div className="text-center border-b border-black pb-2 mb-2">
@@ -168,17 +281,17 @@ export default function CozinhaTenant() {
         </div>
       )}
 
-      {/* CABEÇALHO */}
+      {/* CABEÇALHO DA COZINHA */}
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6 no-print">
         <div>
-          <h1 className="font-bold text-xl text-orange-500">👨‍🍳 Cozinha — {tenant.name}</h1>
-          <p className="text-xs text-gray-400">Gestão de Pedidos e Confirmação de PIX 🔔</p>
+          <h1 className="font-bold text-xl text-orange-500">👨‍🍳 Painel Kanban — {tenant.name}</h1>
+          <p className="text-xs text-gray-400">Notificação de novos pedidos ativa 🔔</p>
         </div>
         <div className="flex space-x-2">
           <button 
             onClick={() => setShowArchived(!showArchived)} 
-            className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${showArchived ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-gray-800 text-gray-300 border-gray-700'}`}>
-            {showArchived ? '📋 Ver Fila Ativa' : '📦 Arquivados'}
+            className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${showArchived ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-800 text-gray-300 border-gray-700'}`}>
+            {showArchived ? '📋 Voltar ao Kanban' : `📦 Arquivados (${archivedOrders.length})`}
           </button>
           <button onClick={() => fetchOrders(tenant.id)} className="bg-orange-500 hover:bg-orange-600 px-3 py-2 rounded-xl text-xs font-bold transition">
             🔄
@@ -186,109 +299,73 @@ export default function CozinhaTenant() {
         </div>
       </header>
 
-      {/* LISTA DE PEDIDOS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 no-print">
-        {displayedOrders.length === 0 ? (
-          <p className="text-sm text-gray-400">
-            {showArchived ? 'Nenhum pedido arquivado.' : 'Nenhum pedido ativo na fila da cozinha.'}
-          </p>
-        ) : (
-          displayedOrders.map(order => {
-            const isPix = (order.payment_method || '').toUpperCase().includes('PIX');
-            const isMoney = (order.payment_method || '').toUpperCase().includes('DINHEIRO');
+      {/* VISUALIZAÇÃO DOS ARQUIVADOS OU KANBAN */}
+      {showArchived ? (
+        <div className="space-y-4 no-print">
+          <div className="flex justify-between items-center bg-gray-900 p-4 rounded-2xl border border-gray-800">
+            <div>
+              <h3 className="font-bold text-sm text-gray-200">📦 Histórico de Pedidos Arquivados</h3>
+              <p className="text-xs text-gray-400">Total: {archivedOrders.length} pedidos arquivados nesta sessão.</p>
+            </div>
+            {archivedOrders.length > 0 && (
+              <button 
+                onClick={clearAllArchived}
+                className="bg-red-600/20 hover:bg-red-600/30 text-red-400 font-bold px-4 py-2 rounded-xl text-xs border border-red-500/30 transition">
+                🧹 Limpar Todos os Arquivados
+              </button>
+            )}
+          </div>
 
-            return (
-              <div key={order.id} className="bg-gray-900 border border-gray-800 p-4 rounded-2xl space-y-3">
-                <div className="flex justify-between items-start border-b border-gray-800 pb-2">
-                  <div>
-                    <span className="font-bold text-sm text-orange-400">PEDIDO #{order.id}</span>
-                    <h3 className="font-bold text-sm text-white">{order.customer_name}</h3>
-                    <p className="text-xs text-gray-400">📱 {order.customer_phone}</p>
-                  </div>
-                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase ${
-                    order.status === 'recebido' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
-                    order.status === 'em_producao' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
-                    order.status === 'saiu_entrega' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
-                    'bg-gray-800 text-gray-400'
-                  }`}>
-                    {order.status || 'recebido'}
-                  </span>
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {archivedOrders.map(order => renderOrderCard(order))}
+          </div>
+        </div>
+      ) : (
+        /* KANBAN EM 3 COLUNAS */
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 no-print">
+          {/* COLUNA 1: RECEBIDOS */}
+          <div className="bg-gray-900/60 p-3 rounded-2xl border border-yellow-500/30 space-y-3">
+            <div className="flex justify-between items-center border-b border-yellow-500/30 pb-2">
+              <h2 className="font-bold text-xs text-yellow-400 uppercase tracking-wider">🟡 1. RECEBIDOS ({recebidosOrders.length})</h2>
+            </div>
+            <div className="space-y-3">
+              {recebidosOrders.length === 0 ? (
+                <p className="text-xs text-gray-500 text-center py-4">Sem novos pedidos</p>
+              ) : (
+                recebidosOrders.map(order => renderOrderCard(order))
+              )}
+            </div>
+          </div>
 
-                {/* ENDEREÇO + CONTROLE MANUAL DE PIX/PAGAMENTO */}
-                <div className="text-xs text-gray-300 bg-gray-800/50 p-2.5 rounded-xl border border-gray-800 space-y-1.5">
-                  <p><b>Tipo:</b> {order.order_type === 'delivery' ? '🛵 Entrega' : '🛍️ Retirada'}</p>
-                  {order.order_type === 'delivery' && (
-                    <>
-                      <p><b>Bairro:</b> {order.neighborhood}</p>
-                      <p><b>Endereço:</b> {order.address}</p>
-                      {order.reference && <p className="text-gray-400"><b>Ref:</b> {order.reference}</p>}
-                    </>
-                  )}
-                  
-                  {/* ALERTA E BOTÃO DE CONFIRMAÇÃO DE PAGAMENTO */}
-                  <div className="pt-1 flex justify-between items-center border-t border-gray-700/50">
-                    {isPix ? (
-                      <div className="flex items-center justify-between w-full">
-                        <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${
-                          order.is_paid 
-                            ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
-                            : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                        }`}>
-                          {order.is_paid ? '🟢 PIX Confirmado' : '🟡 PIX Aguardando Validação'}
-                        </span>
+          {/* COLUNA 2: EM PRODUÇÃO */}
+          <div className="bg-gray-900/60 p-3 rounded-2xl border border-blue-500/30 space-y-3">
+            <div className="flex justify-between items-center border-b border-blue-500/30 pb-2">
+              <h2 className="font-bold text-xs text-blue-400 uppercase tracking-wider">👨‍🍳 2. EM PRODUÇÃO ({producaoOrders.length})</h2>
+            </div>
+            <div className="space-y-3">
+              {producaoOrders.length === 0 ? (
+                <p className="text-xs text-gray-500 text-center py-4">Nenhum item em preparo</p>
+              ) : (
+                producaoOrders.map(order => renderOrderCard(order))
+              )}
+            </div>
+          </div>
 
-                        <button 
-                          onClick={() => togglePaymentStatus(order.id, order.is_paid)}
-                          className="text-[10px] bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-gray-200 font-bold border border-gray-600">
-                          {order.is_paid ? 'Desmarcar' : '✅ Validar PIX'}
-                        </button>
-                      </div>
-                    ) : isMoney ? (
-                      <span className="inline-block bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2.5 py-1 rounded-lg text-[10px] font-bold">
-                        💵 Dinheiro (Cobrar R$ {Number(order.total).toFixed(2)} na entrega)
-                      </span>
-                    ) : (
-                      <span className="inline-block bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2.5 py-1 rounded-lg text-[10px] font-bold">
-                        💳 Cartão (Passar Maquininha na entrega)
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* ITENS */}
-                <div className="space-y-1.5 border-t border-b border-gray-800 py-2">
-                  <span className="text-[11px] font-bold text-gray-400 block uppercase">Itens:</span>
-                  {order.items && Array.isArray(order.items) && order.items.map((it, idx) => (
-                    <div key={idx} className="text-xs">
-                      <span className="font-bold text-white">{it.quantity}x {it.name}</span>
-                      {it.details && <p className="text-[10px] text-orange-300 italic pl-2">{it.details}</p>}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex justify-between items-center text-xs font-bold">
-                  <span>TOTAL:</span>
-                  <span className="text-green-400 text-sm">R$ {Number(order.total || 0).toFixed(2)}</span>
-                </div>
-
-                {/* BOTÕES DE AÇÃO */}
-                <div className="space-y-2 pt-1">
-                  <div className="flex space-x-1.5 text-[11px]">
-                    <button onClick={() => { updateOrderStatus(order.id, 'em_producao'); sendWhatsAppStatus(order, 'producao'); }} className="flex-1 bg-blue-600 hover:bg-blue-700 py-1.5 rounded-lg font-bold">👨‍🍳 Em Produção</button>
-                    <button onClick={() => { updateOrderStatus(order.id, 'saiu_entrega'); sendWhatsAppStatus(order, 'entrega'); }} className="flex-1 bg-purple-600 hover:bg-purple-700 py-1.5 rounded-lg font-bold">🛵 Saiu Entrega</button>
-                    <button onClick={() => archiveOrder(order.id)} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 py-1.5 rounded-lg font-bold border border-gray-700">📦 Arquivar</button>
-                  </div>
-
-                  <button onClick={() => handlePrintSingleOrder(order)} className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 py-2 rounded-xl text-xs font-bold text-gray-200">
-                    🛈 Imprimir Comprovante
-                  </button>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+          {/* COLUNA 3: SAIU PARA ENTREGA */}
+          <div className="bg-gray-900/60 p-3 rounded-2xl border border-purple-500/30 space-y-3">
+            <div className="flex justify-between items-center border-b border-purple-500/30 pb-2">
+              <h2 className="font-bold text-xs text-purple-400 uppercase tracking-wider">🛵 3. SAIU P/ ENTREGA ({entregaOrders.length})</h2>
+            </div>
+            <div className="space-y-3">
+              {entregaOrders.length === 0 ? (
+                <p className="text-xs text-gray-500 text-center py-4">Nenhum pedido a caminho</p>
+              ) : (
+                entregaOrders.map(order => renderOrderCard(order))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
