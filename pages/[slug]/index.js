@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import Head from 'next/head';
 import { supabase } from '../../lib/supabase';
 
 export default function CardapioTenant() {
@@ -68,6 +69,25 @@ export default function CardapioTenant() {
     setLoading(false);
   };
 
+  // VALIDAÇÃO DE HORÁRIO DE FUNCIONAMENTO
+  const checkIfStoreIsOpen = () => {
+    if (!tenant?.opening_time || !tenant?.closing_time) return true;
+    const now = new Date();
+    const currentMin = now.getHours() * 60 + now.getMinutes();
+
+    const [openH, openM] = tenant.opening_time.split(':').map(Number);
+    const [closeH, closeM] = tenant.closing_time.split(':').map(Number);
+
+    const openMin = openH * 60 + openM;
+    let closeMin = closeH * 60 + closeM;
+
+    if (closeMin < openMin) closeMin += 24 * 60; // Caso o horário passe da meia-noite
+
+    return currentMin >= openMin && currentMin <= closeMin;
+  };
+
+  const isOpen = checkIfStoreIsOpen();
+
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-sm text-gray-400">Carregando cardápio...</p></div>;
 
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Restaurante não encontrado</h1></div>;
@@ -96,6 +116,7 @@ export default function CardapioTenant() {
   const total = subtotal + deliveryFee;
 
   const handleOpenModal = (prod) => {
+    if (!isOpen) return;
     setSelectedProduct(prod);
     setQuantity(1);
     setSelectedAddons([]);
@@ -135,6 +156,7 @@ export default function CardapioTenant() {
 
   const handleSendOrder = async (e) => {
     e.preventDefault();
+    if (!isOpen) return alert("O estabelecimento está fechado no momento.");
     if (!customerName || !customerPhone) return alert("Preencha seu Nome e WhatsApp!");
     if (orderType === 'delivery' && (!address || !selectedNeigh)) return alert("Preencha o Endereço!");
 
@@ -168,6 +190,10 @@ export default function CardapioTenant() {
     });
     text += `\n*TOTAL:* *R$ ${total.toFixed(2)}*`;
 
+    if (tenant.custom_message) {
+      text += `\n\n📌 _${tenant.custom_message}_`;
+    }
+
     const cleanWhatsapp = tenant.whatsapp.replace(/\D/g, '');
     window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(text)}`, '_blank');
     setCart([]);
@@ -181,6 +207,28 @@ export default function CardapioTenant() {
 
   return (
     <div className="min-h-screen text-white font-sans pb-24 max-w-md mx-auto" style={{ backgroundColor: secondaryColor }}>
+      {/* INTEGRAÇÃO DO META PIXEL */}
+      {tenant.pixel_id && (
+        <Head>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `
+                !function(f,b,e,v,n,t,s)
+                {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+                n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+                if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+                n.queue=[];t=b.createElement(e);t.async=!0;
+                t.src=v;s=b.getElementsByTagName(e)[0];
+                s.parentNode.insertBefore(t,s)}(window, document,'script',
+                'https://connect.facebook.net/en_US/fbevents.js');
+                fbq('init', '${tenant.pixel_id}');
+                fbq('track', 'PageView');
+              `,
+            }}
+          />
+        </Head>
+      )}
+
       {/* BANNER E LOGO */}
       <div className="relative h-40 bg-gray-900 border-b border-gray-800">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80'} alt="Banner" className="w-full h-full object-cover opacity-60" />
@@ -188,7 +236,9 @@ export default function CardapioTenant() {
           <img src={tenant.logo_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=150&auto=format&fit=crop&q=80'} alt="Logo" className="w-16 h-16 rounded-full border-2 border-gray-950 object-cover bg-gray-800 shadow-lg" />
           <div className="pt-6">
             <h1 className="font-bold text-lg text-white leading-tight">{tenant.name}</h1>
-            <span className="text-[10px] bg-green-500/20 text-green-400 px-2 py-0.5 rounded font-bold">🟢 Aberto Agora</span>
+            <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${isOpen ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+              {isOpen ? '🟢 Aberto Agora' : `🔴 Fechado (Abre às ${tenant.opening_time || '18:00'})`}
+            </span>
           </div>
         </div>
       </div>
@@ -256,13 +306,15 @@ export default function CardapioTenant() {
               </h2>
               <div className="space-y-2.5">
                 {catProducts.map(prod => (
-                  <div key={prod.id} onClick={() => handleOpenModal(prod)} className="bg-black/30 p-3 rounded-xl border border-white/10 flex justify-between items-center cursor-pointer hover:border-white/20 transition">
+                  <div key={prod.id} onClick={() => handleOpenModal(prod)} className={`bg-black/30 p-3 rounded-xl border border-white/10 flex justify-between items-center transition ${isOpen ? 'cursor-pointer hover:border-white/20' : 'opacity-60 cursor-not-allowed'}`}>
                     <div className="flex-1 pr-3">
                       <h3 className="font-bold text-xs text-white">{prod.name}</h3>
                       {prod.description && <p className="text-[10px] text-gray-400 line-clamp-2 mt-0.5">{prod.description}</p>}
                       <div className="flex items-center space-x-2 mt-1.5">
                         <span className="text-xs font-bold" style={{ color: primaryColor }}>R$ {Number(prod.price).toFixed(2)}</span>
-                        <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded font-bold text-gray-200">+ Pedir</span>
+                        <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded font-bold text-gray-200">
+                          {isOpen ? '+ Pedir' : 'Fechado'}
+                        </span>
                       </div>
                     </div>
                     {prod.image && <img src={prod.image} alt={prod.name} className="w-16 h-16 rounded-lg object-cover bg-gray-800" />}
@@ -275,7 +327,7 @@ export default function CardapioTenant() {
       </div>
 
       {/* BARRA CARRINHO */}
-      {cart.length > 0 && (
+      {cart.length > 0 && isOpen && (
         <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-3 bg-black/80 backdrop-blur border-t border-white/10 z-40">
           <button onClick={() => setIsCheckoutOpen(true)} style={{ backgroundColor: primaryColor }} className="w-full font-bold py-3 px-4 rounded-xl text-xs flex justify-between items-center text-white shadow-lg">
             <span>🛒 Ver Pedido ({cart.length})</span>
