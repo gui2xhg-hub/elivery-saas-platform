@@ -19,14 +19,11 @@ export default function AdminTenant() {
   const [allOrders, setAllOrders] = useState([]);
   const [reportFilter, setReportFilter] = useState('7days');
 
-  // Modal Reset
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetPasswordInput, setResetPasswordInput] = useState('');
 
-  // Forms
   const [newProd, setNewProd] = useState({ name: '', price: '', category_id: '', description: '', image: '', addons_list: '' });
   const [editingProduct, setEditingProduct] = useState(null);
-  const [editingAddon, setEditingAddon] = useState(null);
   const [newCatName, setNewCatName] = useState('');
   const [newAddon, setNewAddon] = useState({ name: '', price: '' });
   const [newNeigh, setNewNeigh] = useState({ name: '', fee: '' });
@@ -94,7 +91,7 @@ export default function AdminTenant() {
     if (error) {
       alert("Erro ao salvar: " + error.message);
     } else {
-      alert("Configurações salvas com sucesso!");
+      alert("Configurações e cores salvas com sucesso!");
       fetchData();
     }
   };
@@ -138,7 +135,6 @@ export default function AdminTenant() {
 
   const filteredOrders = getFilteredOrders();
   const totalRevenue = filteredOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
-  const totalDeliveryFees = filteredOrders.reduce((sum, o) => sum + Number(o.delivery_fee || 0), 0);
 
   const productSalesMap = {};
   filteredOrders.forEach(o => {
@@ -179,27 +175,6 @@ export default function AdminTenant() {
       setNewProd({ name: '', price: '', category_id: categories[0]?.id || '', description: '', image: '', addons_list: '' });
       fetchData();
       alert("Lanche salvo!");
-    }
-  };
-
-  const handleUpdateProduct = async (e) => {
-    e.preventDefault();
-    const formattedPrice = parseFloat(String(editingProduct.price).replace(',', '.'));
-
-    const { error } = await supabase.from('products').update({
-      name: editingProduct.name,
-      price: formattedPrice,
-      description: editingProduct.description,
-      category_id: parseInt(editingProduct.category_id),
-      image: editingProduct.image,
-      addons_list: editingProduct.addons_list
-    }).eq('id', editingProduct.id);
-
-    if (error) alert("Erro: " + error.message);
-    else {
-      setEditingProduct(null);
-      fetchData();
-      alert("Produto atualizado!");
     }
   };
 
@@ -333,7 +308,7 @@ export default function AdminTenant() {
               
               {globalAddons.length > 0 && (
                 <div className="border-t border-gray-800 pt-2">
-                  <label className="text-[11px] text-gray-400 block mb-1">Selecione os Adicionais deste Lanche:</label>
+                  <label className="text-[11px] text-gray-400 block mb-1">Adicionais Deste Lanche:</label>
                   <div className="grid grid-cols-2 gap-2">
                     {globalAddons.map(a => {
                       const formattedStr = `${a.name}:${a.price}`;
@@ -366,7 +341,6 @@ export default function AdminTenant() {
                   <span className="text-xs text-orange-400 font-bold">R$ {Number(item.price).toFixed(2)}</span>
                 </div>
                 <div className="flex items-center space-x-1.5">
-                  <button onClick={() => setEditingProduct(item)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold">✏️ Editar</button>
                   <button onClick={() => toggleProductActive(item.id, item.active)} className={`text-[10px] font-bold px-2 py-1.5 rounded-lg ${item.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{item.active ? 'Ativo' : 'Pausado'}</button>
                   <button onClick={() => deleteProduct(item.id)} className="text-xs bg-red-500/20 text-red-400 p-1.5 rounded-lg font-bold">🗑</button>
                 </div>
@@ -453,23 +427,22 @@ export default function AdminTenant() {
               <button onClick={() => setReportFilter('7days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '7days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>7 Dias</button>
               <button onClick={() => setReportFilter('15days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '15days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>15 Dias</button>
               <button onClick={() => setReportFilter('30days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '30days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>30 Dias</button>
-              <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Tudo</button>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
-              <span className="text-[11px] text-gray-400 block mb-1">Faturamento Total</span>
+              <span className="text-[11px] text-gray-400 block mb-1">Faturamento</span>
               <span className="text-lg font-bold text-green-400">R$ {totalRevenue.toFixed(2)}</span>
             </div>
             <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
-              <span className="text-[11px] text-gray-400 block mb-1">Pedidos Realizados</span>
+              <span className="text-[11px] text-gray-400 block mb-1">Pedidos</span>
               <span className="text-lg font-bold text-orange-400">{filteredOrders.length}</span>
             </div>
           </div>
 
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">🏆 ITENS MAIS VENDIDOS</h3>
+            <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">🏆 MAIS VENDIDOS</h3>
             <div className="space-y-2">
               {topProducts.map((p, idx) => (
                 <div key={idx} className="flex justify-between items-center bg-gray-800 p-2.5 rounded-lg text-xs">
@@ -491,29 +464,44 @@ export default function AdminTenant() {
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-sm text-orange-400">⚙️ Configurações</h3>
+            <h3 className="font-bold text-sm text-orange-400">⚙️ Configurações da Loja</h3>
             <form onSubmit={handleSaveTenantSettings} className="space-y-3">
               <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Nome do Restaurante:</label>
+                <label className="text-[11px] text-gray-400 block mb-1">Nome da Loja:</label>
                 <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
               </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Cor Principal do Cardápio:</label>
+                <div className="flex space-x-2 items-center">
+                  <input 
+                    type="color" 
+                    value={tenant.primary_color || '#FF8C00'} 
+                    onChange={(e) => setTenant({ ...tenant, primary_color: e.target.value })}
+                    className="h-9 w-12 bg-gray-800 border border-gray-700 rounded cursor-pointer"
+                  />
+                  <input 
+                    type="text" 
+                    value={tenant.primary_color || '#FF8C00'} 
+                    onChange={(e) => setTenant({ ...tenant, primary_color: e.target.value })}
+                    className="flex-1 bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="text-[11px] text-gray-400 block mb-1">WhatsApp (DDD + Número):</label>
                 <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
               </div>
+
               <div>
-                <label className="text-[11px] text-gray-400 block mb-1">URL da Logo:</label>
-                <input type="text" value={tenant.logo_url || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, logo_url: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">URL do Banner:</label>
-                <input type="text" value={tenant.banner_url || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, banner_url: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Senha do Admin da Loja:</label>
+                <label className="text-[11px] text-gray-400 block mb-1">Senha de Acesso do Admin:</label>
                 <input type="text" value={tenant.admin_password || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, admin_password: e.target.value })} />
               </div>
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs mt-2">Salvar Configurações</button>
+
+              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs mt-2">
+                Salvar Configurações e Cor
+              </button>
             </form>
           </section>
         </div>
