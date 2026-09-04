@@ -6,17 +6,16 @@ export default function MasterAdmin() {
   const [masterPassword, setMasterPassword] = useState('');
   const [tenants, setTenants] = useState([]);
 
-  // Formulário Novo Cliente
   const [newTenant, setNewTenant] = useState({
     name: '',
     slug: '',
     whatsapp: '',
+    primary_color: '#FF8C00',
     admin_password: ''
   });
 
   const handleLogin = (e) => {
     e.preventDefault();
-    // Senha do Dono do SaaS (Você)
     if (masterPassword === 'master123') {
       setIsAuthenticated(true);
       fetchTenants();
@@ -46,28 +45,28 @@ export default function MasterAdmin() {
       admin_password: newTenant.admin_password || '123456',
       logo_url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=150&auto=format&fit=crop&q=80',
       banner_url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80',
-      primary_color: '#FF8C00'
+      primary_color: newTenant.primary_color || '#FF8C00'
     }]).select().single();
 
     if (error) {
-      alert("Erro ao criar cliente (o link/slug já existe?): " + error.message);
+      alert("Erro ao criar cliente: " + error.message);
     } else {
-      // Criar categoria padrão para o novo cliente
       await supabase.from('categories').insert([
         { tenant_id: data.id, name: 'Lanches' },
         { tenant_id: data.id, name: 'Bebidas' }
       ]);
 
       alert(`Restaurante "${data.name}" criado com sucesso!\nLink do Cardápio: /${data.slug}`);
-      setNewTenant({ name: '', slug: '', whatsapp: '', admin_password: '' });
+      setNewTenant({ name: '', slug: '', whatsapp: '', primary_color: '#FF8C00', admin_password: '' });
       fetchTenants();
     }
   };
 
   const handleDeleteTenant = async (id, name) => {
-    if (confirm(`TEM CERTEZA que deseja excluir o cliente "${name}"? Todos os produtos e pedidos dele serão apagados definitivamente!`)) {
+    if (confirm(`TEM CERTEZA que deseja apagar o cliente "${name}"?\nIsso vai liberar espaço limpando todos os produtos e histórico de pedidos dele definitivamente!`)) {
       await supabase.from('tenants').delete().eq('id', id);
       fetchTenants();
+      alert(`Cliente ${name} removido com sucesso.`);
     }
   };
 
@@ -114,7 +113,7 @@ export default function MasterAdmin() {
             <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
             <input 
               type="text" 
-              placeholder="Ex: Pizzaria do Silva" 
+              placeholder="Ex: Santo Burguer e HotDog" 
               value={newTenant.name}
               onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })}
               className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
@@ -126,7 +125,7 @@ export default function MasterAdmin() {
               <label className="text-[11px] text-gray-400 block mb-1">Slug / Link (Sem espaços):</label>
               <input 
                 type="text" 
-                placeholder="Ex: pizzariasilva" 
+                placeholder="Ex: santoburguer" 
                 value={newTenant.slug}
                 onChange={(e) => setNewTenant({ ...newTenant, slug: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
@@ -137,7 +136,7 @@ export default function MasterAdmin() {
               <label className="text-[11px] text-gray-400 block mb-1">WhatsApp (DDD + Número):</label>
               <input 
                 type="text" 
-                placeholder="Ex: 5547999999999" 
+                placeholder="Ex: 47996302864" 
                 value={newTenant.whatsapp}
                 onChange={(e) => setNewTenant({ ...newTenant, whatsapp: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
@@ -145,15 +144,35 @@ export default function MasterAdmin() {
             </div>
           </div>
 
-          <div>
-            <label className="text-[11px] text-gray-400 block mb-1">Senha de Acesso do Admin Dele:</label>
-            <input 
-              type="text" 
-              placeholder="Ex: silva123 (Padrão: 123456)" 
-              value={newTenant.admin_password}
-              onChange={(e) => setNewTenant({ ...newTenant, admin_password: e.target.value })}
-              className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
-            />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">Cor Principal do Cardápio:</label>
+              <div className="flex space-x-2 items-center">
+                <input 
+                  type="color" 
+                  value={newTenant.primary_color} 
+                  onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })}
+                  className="h-9 w-12 bg-gray-800 border border-gray-700 rounded cursor-pointer"
+                />
+                <input 
+                  type="text" 
+                  value={newTenant.primary_color} 
+                  onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">Senha Admin Dele:</label>
+              <input 
+                type="text" 
+                placeholder="Ex: teste123" 
+                value={newTenant.admin_password}
+                onChange={(e) => setNewTenant({ ...newTenant, admin_password: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+              />
+            </div>
           </div>
 
           <button type="submit" className="w-full bg-green-600 hover:bg-green-700 font-bold py-3 rounded-xl text-xs transition">
@@ -170,15 +189,18 @@ export default function MasterAdmin() {
           <div key={t.id} className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2">
             <div className="flex justify-between items-start">
               <div>
-                <h3 className="font-bold text-md text-white">{t.name}</h3>
+                <div className="flex items-center space-x-2">
+                  <span className="w-3 h-3 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.primary_color || '#FF8C00' }}></span>
+                  <h3 className="font-bold text-md text-white">{t.name}</h3>
+                </div>
                 <p className="text-xs text-orange-400 font-mono mt-0.5">Link: /{t.slug}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">Zap: {t.whatsapp} • Senha Admin: <span className="font-mono text-gray-200">{t.admin_password}</span></p>
+                <p className="text-[11px] text-gray-400 mt-0.5">Zap: {t.whatsapp} • Senha: <span className="font-mono text-gray-200">{t.admin_password}</span></p>
               </div>
 
               <button 
                 onClick={() => handleDeleteTenant(t.id, t.name)}
-                className="bg-red-500/20 text-red-400 p-2 rounded-lg text-xs font-bold border border-red-500/30">
-                🗑 Excluir
+                className="bg-red-500/20 text-red-400 p-2 rounded-lg text-xs font-bold border border-red-500/30 hover:bg-red-500/30 transition">
+                🗑 Excluir Cliente
               </button>
             </div>
 
@@ -188,21 +210,21 @@ export default function MasterAdmin() {
                 target="_blank" 
                 rel="noreferrer"
                 className="flex-1 bg-gray-800 hover:bg-gray-700 text-center py-1.5 rounded-lg font-bold text-gray-300">
-                🍔 Ver Cardápio
+                🍔 Cardápio
               </a>
               <a 
                 href={`/${t.slug}/cozinha`} 
                 target="_blank" 
                 rel="noreferrer"
                 className="flex-1 bg-gray-800 hover:bg-gray-700 text-center py-1.5 rounded-lg font-bold text-orange-400">
-                👨‍🍳 Painel Cozinha
+                👨‍🍳 Cozinha
               </a>
               <a 
                 href={`/${t.slug}/admin`} 
                 target="_blank" 
                 rel="noreferrer"
                 className="flex-1 bg-gray-800 hover:bg-gray-700 text-center py-1.5 rounded-lg font-bold text-blue-400">
-                ⚙️ Admin Dele
+                ⚙️ Admin
               </a>
             </div>
           </div>
