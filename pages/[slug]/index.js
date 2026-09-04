@@ -23,7 +23,7 @@ export default function CardapioTenant() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [orderType, setOrderType] = useState('delivery'); // 'delivery' ou 'pickup'
+  const [orderType, setOrderType] = useState('delivery');
   const [selectedNeigh, setSelectedNeigh] = useState('');
   const [address, setAddress] = useState('');
   const [reference, setReference] = useState('');
@@ -37,7 +37,6 @@ export default function CardapioTenant() {
 
   const fetchTenantData = async () => {
     setLoading(true);
-    // 1. Busca o cliente pelo slug da URL
     const { data: tData, error: tErr } = await supabase
       .from('tenants')
       .select('*')
@@ -52,7 +51,6 @@ export default function CardapioTenant() {
 
     setTenant(tData);
 
-    // 2. Busca categorias, produtos e bairros filtrando pelo tenant_id
     const { data: cData } = await supabase.from('categories').select('*').eq('tenant_id', tData.id).order('id', { ascending: true });
     const { data: pData } = await supabase.from('products').select('*').eq('tenant_id', tData.id).eq('active', true).order('id', { ascending: true });
     const { data: nData } = await supabase.from('neighborhoods').select('*').eq('tenant_id', tData.id).order('id', { ascending: true });
@@ -79,12 +77,13 @@ export default function CardapioTenant() {
     return (
       <div className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center p-4 text-center font-sans">
         <h1 className="text-2xl font-bold text-orange-500 mb-2">Restaurante não encontrado</h1>
-        <p className="text-xs text-gray-400">Verifique o endereço digitado ou entre em contato com o suporte.</p>
+        <p className="text-xs text-gray-400">Verifique o endereço digitado.</p>
       </div>
     );
   }
 
-  // Cálculos do Carrinho
+  const primaryColor = tenant.primary_color || '#FF8C00';
+
   const subtotal = cart.reduce((acc, item) => acc + (item.totalPrice * item.quantity), 0);
   const currentNeighObj = neighborhoods.find(n => n.name === selectedNeigh);
   const deliveryFee = orderType === 'delivery' ? Number(currentNeighObj?.fee || 0) : 0;
@@ -160,7 +159,6 @@ export default function CardapioTenant() {
       return;
     }
 
-    // Formatar mensagem para o WhatsApp da loja
     let text = `*NOVO PEDIDO #${createdOrder.id} - ${tenant.name.toUpperCase()}*\n\n`;
     text += `*Cliente:* ${customerName}\n`;
     text += `*Telefone:* ${customerPhone}\n`;
@@ -192,7 +190,6 @@ export default function CardapioTenant() {
     alert("Pedido enviado com sucesso!");
   };
 
-  // Parsing adicionais do produto
   const parsedAddons = selectedProduct?.addons_list ? selectedProduct.addons_list.split(',').filter(Boolean).map(str => {
     const parts = str.split(':');
     return { name: parts[0], price: parseFloat(parts[1] || 0) };
@@ -226,7 +223,9 @@ export default function CardapioTenant() {
 
           return (
             <div key={cat.id} className="space-y-3">
-              <h2 className="font-bold text-sm text-orange-400 uppercase tracking-wider border-b border-gray-800 pb-1">{cat.name}</h2>
+              <h2 className="font-bold text-sm uppercase tracking-wider border-b border-gray-800 pb-1" style={{ color: primaryColor }}>
+                {cat.name}
+              </h2>
               <div className="space-y-2.5">
                 {catProducts.map(prod => (
                   <div 
@@ -236,7 +235,9 @@ export default function CardapioTenant() {
                     <div className="flex-1 pr-3">
                       <h3 className="font-bold text-xs text-white">{prod.name}</h3>
                       {prod.description && <p className="text-[10px] text-gray-400 line-clamp-2 mt-0.5">{prod.description}</p>}
-                      <span className="text-xs font-bold text-orange-400 mt-1 block">R$ {Number(prod.price).toFixed(2)}</span>
+                      <span className="text-xs font-bold mt-1 block" style={{ color: primaryColor }}>
+                        R$ {Number(prod.price).toFixed(2)}
+                      </span>
                     </div>
                     {prod.image && (
                       <img src={prod.image} alt={prod.name} className="w-16 h-16 rounded-lg object-cover bg-gray-800 border border-gray-800" />
@@ -249,12 +250,13 @@ export default function CardapioTenant() {
         })}
       </div>
 
-      {/* BARRA FIXA CARRINHO */}
+      {/* BARRA FIXA CARRINHO COM COR PERSONALIZADA */}
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-3 bg-gray-950 border-t border-gray-800 z-40">
           <button 
             onClick={() => setIsCheckoutOpen(true)}
-            className="w-full bg-orange-500 hover:bg-orange-600 font-bold py-3 px-4 rounded-xl text-xs flex justify-between items-center text-white shadow-lg">
+            style={{ backgroundColor: primaryColor }}
+            className="w-full font-bold py-3 px-4 rounded-xl text-xs flex justify-between items-center text-white shadow-lg transition opacity-90 hover:opacity-100">
             <span>🛒 Ver Pedido ({cart.length})</span>
             <span>R$ {subtotal.toFixed(2)} ➔</span>
           </button>
@@ -268,7 +270,9 @@ export default function CardapioTenant() {
             <div className="flex justify-between items-start border-b border-gray-800 pb-2">
               <div>
                 <h3 className="font-bold text-sm text-white">{selectedProduct.name}</h3>
-                <span className="text-xs text-orange-400 font-bold">R$ {Number(selectedProduct.price).toFixed(2)}</span>
+                <span className="text-xs font-bold" style={{ color: primaryColor }}>
+                  R$ {Number(selectedProduct.price).toFixed(2)}
+                </span>
               </div>
               <button onClick={() => setSelectedProduct(null)} className="text-gray-400 font-bold text-sm">✕</button>
             </div>
@@ -286,11 +290,11 @@ export default function CardapioTenant() {
                             type="checkbox" 
                             checked={isChecked}
                             onChange={() => handleToggleAddon(ad)}
-                            className="rounded bg-gray-700 border-gray-600 text-orange-500"
+                            className="rounded bg-gray-700 border-gray-600"
                           />
                           <span>{ad.name}</span>
                         </div>
-                        <span className="text-orange-400 font-bold">+ R$ {ad.price.toFixed(2)}</span>
+                        <span className="font-bold" style={{ color: primaryColor }}>+ R$ {ad.price.toFixed(2)}</span>
                       </label>
                     );
                   })}
@@ -318,7 +322,8 @@ export default function CardapioTenant() {
 
               <button 
                 onClick={handleAddToCart}
-                className="flex-1 ml-3 bg-orange-500 font-bold py-2.5 rounded-lg text-xs text-white">
+                style={{ backgroundColor: primaryColor }}
+                className="flex-1 ml-3 font-bold py-2.5 rounded-lg text-xs text-white">
                 Adicionar (R$ {(calculateUnitTotal() * quantity).toFixed(2)})
               </button>
             </div>
@@ -331,7 +336,7 @@ export default function CardapioTenant() {
         <div className="fixed inset-0 bg-black bg-opacity-80 flex items-end justify-center z-50">
           <div className="bg-gray-900 w-full max-w-md rounded-t-2xl p-5 border-t border-gray-800 max-h-[90vh] overflow-y-auto space-y-4">
             <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-              <h3 className="font-bold text-sm text-orange-400">🛍️ Finalizar Pedido</h3>
+              <h3 className="font-bold text-sm" style={{ color: primaryColor }}>🛍️ Finalizar Pedido</h3>
               <button onClick={() => setIsCheckoutOpen(false)} className="text-gray-400 font-bold text-sm">✕</button>
             </div>
 
@@ -358,13 +363,15 @@ export default function CardapioTenant() {
                 <button 
                   type="button" 
                   onClick={() => setOrderType('delivery')}
-                  className={`flex-1 py-2 rounded-lg text-xs font-bold border ${orderType === 'delivery' ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
+                  style={{ backgroundColor: orderType === 'delivery' ? primaryColor : '', borderColor: orderType === 'delivery' ? primaryColor : '' }}
+                  className={`flex-1 py-2 rounded-lg text-xs font-bold border ${orderType === 'delivery' ? 'text-white' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
                   🛵 Delivery
                 </button>
                 <button 
                   type="button" 
                   onClick={() => setOrderType('pickup')}
-                  className={`flex-1 py-2 rounded-lg text-xs font-bold border ${orderType === 'pickup' ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
+                  style={{ backgroundColor: orderType === 'pickup' ? primaryColor : '', borderColor: orderType === 'pickup' ? primaryColor : '' }}
+                  className={`flex-1 py-2 rounded-lg text-xs font-bold border ${orderType === 'pickup' ? 'text-white' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
                   🛍️ Retirada
                 </button>
               </div>
