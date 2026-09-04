@@ -19,7 +19,7 @@ export default function MasterAdmin() {
     card_bg_color: '#111827',       // Fundo dos Cards
     text_color: '#FFFFFF',          // Texto Geral do Site
     due_date: '',
-    monthly_fee: '99.00',
+    monthly_fee: '99.99',
     admin_password: '',
     business_type: 'delivery'
   });
