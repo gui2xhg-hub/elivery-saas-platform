@@ -17,8 +17,8 @@ export default function AdminTenant() {
   const [globalAddons, setGlobalAddons] = useState([]);
   const [neighborhoods, setNeighborhoods] = useState([]);
   const [allOrders, setAllOrders] = useState([]);
+  const [reportFilter, setReportFilter] = useState('all');
 
-  // Modais de Edição
   const [newProd, setNewProd] = useState({ name: '', price: '', category_id: '', description: '', image: '', addons_list: '' });
   const [editingProduct, setEditingProduct] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
@@ -77,6 +77,7 @@ export default function AdminTenant() {
       whatsapp: cleanWhatsapp,
       logo_url: tenant.logo_url,
       banner_url: tenant.banner_url,
+      promo_banners: tenant.promo_banners || '',
       primary_color: tenant.primary_color || '#FF8C00',
       secondary_color: tenant.secondary_color || '#111827',
       admin_password: tenant.admin_password
@@ -86,7 +87,7 @@ export default function AdminTenant() {
     else { alert("Configurações salvas!"); fetchData(); }
   };
 
-  // HANDLERS DE PRODUTOS
+  // HANDLERS
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if (!newProd.name || !newProd.price) return alert("Preencha nome e preço!");
@@ -120,7 +121,6 @@ export default function AdminTenant() {
     fetchData();
   };
 
-  // HANDLERS DE ADICIONAIS (COM EDIÇÃO)
   const handleAddGlobalAddon = async (e) => {
     e.preventDefault();
     const formattedPrice = parseFloat(String(newAddon.price).replace(',', '.'));
@@ -137,7 +137,6 @@ export default function AdminTenant() {
     fetchData();
   };
 
-  // HANDLERS DE BAIRROS (COM EDIÇÃO)
   const handleAddNeighborhood = async (e) => {
     e.preventDefault();
     const formattedFee = parseFloat(String(newNeigh.fee).replace(',', '.'));
@@ -154,7 +153,6 @@ export default function AdminTenant() {
     fetchData();
   };
 
-  // HANDLERS DE CATEGORIAS (COM EDIÇÃO)
   const handleAddCategory = async (e) => {
     e.preventDefault();
     if (!newCatName.trim()) return;
@@ -169,6 +167,40 @@ export default function AdminTenant() {
     setEditingCategory(null);
     fetchData();
   };
+
+  // CÁLCULO SEGURO DO RELATÓRIO
+  const getFilteredOrders = () => {
+    const now = new Date();
+    return allOrders.filter(o => {
+      if (o.status === 'cancelado') return false;
+      if (reportFilter === 'all') return true;
+      if (!o.created_at) return true;
+      const orderDate = new Date(o.created_at);
+      const diffDays = (now - orderDate) / (1000 * 60 * 60 * 24);
+      if (reportFilter === 'today') return orderDate.toDateString() === now.toDateString();
+      if (reportFilter === '7days') return diffDays <= 7;
+      if (reportFilter === '15days') return diffDays <= 15;
+      if (reportFilter === '30days') return diffDays <= 30;
+      return true;
+    });
+  };
+
+  const filteredOrders = getFilteredOrders();
+  const totalRevenue = filteredOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+
+  const productSalesMap = {};
+  filteredOrders.forEach(o => {
+    if (o.items && Array.isArray(o.items)) {
+      o.items.forEach(it => {
+        const q = it.quantity || 1;
+        productSalesMap[it.name] = (productSalesMap[it.name] || 0) + q;
+      });
+    }
+  });
+
+  const topProducts = Object.entries(productSalesMap)
+    .map(([name, qty]) => ({ name, qty }))
+    .sort((a, b) => b.qty - a.qty);
 
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-sm text-gray-400">Carregando admin...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Restaurante não encontrado</h1></div>;
@@ -196,6 +228,7 @@ export default function AdminTenant() {
         <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 px-3 py-1.5 rounded-lg text-red-400 font-bold">Sair</button>
       </header>
 
+      {/* ABAS */}
       <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto">
         <button onClick={() => setActiveTab('products')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🍔 Itens</button>
         <button onClick={() => setActiveTab('categories')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🏷️ Categorias</button>
@@ -205,7 +238,7 @@ export default function AdminTenant() {
         <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
       </div>
 
-      {/* PRODUTOS */}
+      {/* ITENS */}
       {activeTab === 'products' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -224,7 +257,7 @@ export default function AdminTenant() {
               {globalAddons.length > 0 && (
                 <div className="border-t border-gray-800 pt-2">
                   <label className="text-[11px] text-gray-400 block mb-1">Adicionais Opcionais Vinculados:</label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
                     {globalAddons.map(a => {
                       const formattedStr = `${a.name}:${a.price}`;
                       const isSelected = (newProd.addons_list || '').includes(a.name);
@@ -266,7 +299,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ADICIONAIS COM BOTÃO EDITAR */}
+      {/* ADICIONAIS */}
       {activeTab === 'addons' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -294,7 +327,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* BAIRROS COM BOTÃO EDITAR */}
+      {/* BAIRROS */}
       {activeTab === 'neighborhoods' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -322,7 +355,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* CATEGORIAS COM BOTÃO EDITAR */}
+      {/* CATEGORIAS */}
       {activeTab === 'categories' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -346,97 +379,49 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* MODAL EDITAR ADICIONAL */}
-      {editingAddon && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
-          <form onSubmit={handleUpdateAddon} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
-            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Adicional</h3>
-            <input type="text" value={editingAddon.name} onChange={(e) => setEditingAddon({ ...editingAddon, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <input type="text" value={editingAddon.price} onChange={(e) => setEditingAddon({ ...editingAddon, price: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <div className="flex space-x-2">
-              <button type="button" onClick={() => setEditingAddon(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button>
-              <button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Salvar</button>
+      {/* RELATÓRIOS TOTALMENTE CORRIGIDOS */}
+      {activeTab === 'reports' && (
+        <div className="space-y-4">
+          <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs">
+            <span className="text-gray-400 font-bold">Período de Vendas:</span>
+            <div className="flex space-x-1 overflow-x-auto pb-1">
+              <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Tudo</button>
+              <button onClick={() => setReportFilter('today')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'today' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Hoje</button>
+              <button onClick={() => setReportFilter('7days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '7days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>7 Dias</button>
+              <button onClick={() => setReportFilter('30days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '30days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>30 Dias</button>
             </div>
-          </form>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+              <span className="text-[11px] text-gray-400 block mb-1">Faturamento</span>
+              <span className="text-lg font-bold text-green-400">R$ {totalRevenue.toFixed(2)}</span>
+            </div>
+            <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+              <span className="text-[11px] text-gray-400 block mb-1">Total de Pedidos</span>
+              <span className="text-lg font-bold text-orange-400">{filteredOrders.length}</span>
+            </div>
+          </div>
+
+          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+            <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">🏆 ITENS MAIS VENDIDOS</h3>
+            <div className="space-y-2">
+              {topProducts.length === 0 ? (
+                <p className="text-xs text-gray-400">Nenhum pedido registrado ainda.</p>
+              ) : (
+                topProducts.map((p, idx) => (
+                  <div key={idx} className="flex justify-between items-center bg-gray-800 p-2.5 rounded-lg text-xs">
+                    <span className="font-bold text-white">{idx + 1}. {p.name}</span>
+                    <span className="bg-orange-500/20 text-orange-400 px-2.5 py-1 rounded-md font-bold">{p.qty} un.</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
         </div>
       )}
 
-      {/* MODAL EDITAR BAIRRO */}
-      {editingNeigh && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
-          <form onSubmit={handleUpdateNeigh} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
-            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Bairro</h3>
-            <input type="text" value={editingNeigh.name} onChange={(e) => setEditingNeigh({ ...editingNeigh, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <input type="text" value={editingNeigh.fee} onChange={(e) => setEditingNeigh({ ...editingNeigh, fee: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <div className="flex space-x-2">
-              <button type="button" onClick={() => setEditingNeigh(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button>
-              <button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Salvar</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* MODAL EDITAR CATEGORIA */}
-      {editingCategory && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
-          <form onSubmit={handleUpdateCategory} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
-            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Categoria</h3>
-            <input type="text" value={editingCategory.name} onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <div className="flex space-x-2">
-              <button type="button" onClick={() => setEditingCategory(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button>
-              <button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Salvar</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* MODAL EDITAR PRODUTO */}
-      {editingProduct && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
-          <form onSubmit={handleUpdateProduct} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
-            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Produto</h3>
-            <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <input type="text" value={editingProduct.description || ''} onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <div className="flex space-x-2">
-              <input type="text" value={editingProduct.price} onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-              <select value={editingProduct.category_id} onChange={(e) => setEditingProduct({ ...editingProduct, category_id: e.target.value })} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none">
-                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <input type="text" value={editingProduct.image || ''} onChange={(e) => setEditingProduct({ ...editingProduct, image: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            
-            {globalAddons.length > 0 && (
-              <div className="border-t border-gray-800 pt-2">
-                <label className="text-[11px] text-gray-400 block mb-1">Adicionais Opcionais Vinculados:</label>
-                <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
-                  {globalAddons.map(a => {
-                    const formattedStr = `${a.name}:${a.price}`;
-                    const isSelected = (editingProduct.addons_list || '').includes(a.name);
-                    return (
-                      <label key={a.id} className="flex items-center space-x-1.5 bg-gray-800 p-2 rounded text-[11px] cursor-pointer">
-                        <input type="checkbox" checked={isSelected} onChange={(e) => {
-                          let currentArr = editingProduct.addons_list ? editingProduct.addons_list.split(',').filter(Boolean) : [];
-                          if (e.target.checked) currentArr.push(formattedStr);
-                          else currentArr = currentArr.filter(item => !item.startsWith(a.name));
-                          setEditingProduct({ ...editingProduct, addons_list: currentArr.join(',') });
-                        }} />
-                        <span className="truncate">{a.name} (+R${Number(a.price).toFixed(2)})</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div className="flex space-x-2 pt-2">
-              <button type="button" onClick={() => setEditingProduct(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-lg text-xs font-bold text-gray-300">Cancelar</button>
-              <button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-lg text-xs font-bold text-white">Atualizar</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* CONFIGURAÇÕES COM COR SECUNDÁRIA */}
+      {/* CONFIGURAÇÕES + PROMO BANNERS */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -457,21 +442,19 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.banner_url || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, banner_url: e.target.value })} />
               </div>
 
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">URLs dos Banners de Promoção (Separados por vírgula):</label>
+                <input type="text" placeholder="https://link1.com, https://link2.com" value={tenant.promo_banners || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, promo_banners: e.target.value })} />
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Cor Principal (Botões):</label>
-                  <div className="flex space-x-1 items-center">
-                    <input type="color" value={tenant.primary_color || '#FF8C00'} onChange={(e) => setTenant({ ...tenant, primary_color: e.target.value })} className="h-9 w-10 bg-gray-800 rounded cursor-pointer" />
-                    <input type="text" value={tenant.primary_color || '#FF8C00'} onChange={(e) => setTenant({ ...tenant, primary_color: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono" />
-                  </div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Cor Principal:</label>
+                  <input type="color" value={tenant.primary_color || '#FF8C00'} onChange={(e) => setTenant({ ...tenant, primary_color: e.target.value })} className="h-9 w-full bg-gray-800 rounded cursor-pointer" />
                 </div>
-
                 <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Cor Secundária (Fundo):</label>
-                  <div className="flex space-x-1 items-center">
-                    <input type="color" value={tenant.secondary_color || '#111827'} onChange={(e) => setTenant({ ...tenant, secondary_color: e.target.value })} className="h-9 w-10 bg-gray-800 rounded cursor-pointer" />
-                    <input type="text" value={tenant.secondary_color || '#111827'} onChange={(e) => setTenant({ ...tenant, secondary_color: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono" />
-                  </div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Cor Secundária:</label>
+                  <input type="color" value={tenant.secondary_color || '#111827'} onChange={(e) => setTenant({ ...tenant, secondary_color: e.target.value })} className="h-9 w-full bg-gray-800 rounded cursor-pointer" />
                 </div>
               </div>
 
@@ -480,14 +463,60 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
               </div>
 
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Senha de Admin:</label>
-                <input type="text" value={tenant.admin_password || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, admin_password: e.target.value })} />
-              </div>
-
               <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs">Salvar Alterações</button>
             </form>
           </section>
+        </div>
+      )}
+
+      {/* MODAIS EDITAR */}
+      {editingAddon && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleUpdateAddon} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
+            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Adicional</h3>
+            <input type="text" value={editingAddon.name} onChange={(e) => setEditingAddon({ ...editingAddon, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+            <input type="text" value={editingAddon.price} onChange={(e) => setEditingAddon({ ...editingAddon, price: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+            <div className="flex space-x-2"><button type="button" onClick={() => setEditingAddon(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Salvar</button></div>
+          </form>
+        </div>
+      )}
+
+      {editingNeigh && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleUpdateNeigh} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
+            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Bairro</h3>
+            <input type="text" value={editingNeigh.name} onChange={(e) => setEditingNeigh({ ...editingNeigh, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+            <input type="text" value={editingNeigh.fee} onChange={(e) => setEditingNeigh({ ...editingNeigh, fee: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+            <div className="flex space-x-2"><button type="button" onClick={() => setEditingNeigh(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Salvar</button></div>
+          </form>
+        </div>
+      )}
+
+      {editingCategory && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleUpdateCategory} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
+            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Categoria</h3>
+            <input type="text" value={editingCategory.name} onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+            <div className="flex space-x-2"><button type="button" onClick={() => setEditingCategory(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Salvar</button></div>
+          </form>
+        </div>
+      )}
+
+      {editingProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleUpdateProduct} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
+            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Produto</h3>
+            <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+            <input type="text" value={editingProduct.description || ''} onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+            <div className="flex space-x-2">
+              <input type="text" value={editingProduct.price} onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+              <select value={editingProduct.category_id} onChange={(e) => setEditingProduct({ ...editingProduct, category_id: e.target.value })} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none">
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <input type="text" value={editingProduct.image || ''} onChange={(e) => setEditingProduct({ ...editingProduct, image: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+            <div className="flex space-x-2 pt-2"><button type="button" onClick={() => setEditingProduct(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-lg text-xs font-bold text-gray-300">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-lg text-xs font-bold text-white">Atualizar</button></div>
+          </form>
         </div>
       )}
     </div>
