@@ -13,6 +13,9 @@ export default function MasterAdmin() {
     logo_url: '',
     banner_url: '',
     primary_color: '#FF8C00',
+    secondary_color: '#111827',
+    due_date: '',
+    monthly_fee: '99.00',
     admin_password: ''
   });
 
@@ -50,7 +53,11 @@ export default function MasterAdmin() {
       logo_url: newTenant.logo_url || fallbackLogo,
       banner_url: newTenant.banner_url || fallbackBanner,
       admin_password: newTenant.admin_password || '123456',
-      primary_color: newTenant.primary_color || '#FF8C00'
+      primary_color: newTenant.primary_color || '#FF8C00',
+      secondary_color: newTenant.secondary_color || '#111827',
+      due_date: newTenant.due_date || null,
+      monthly_fee: parseFloat(newTenant.monthly_fee) || 99.00,
+      active: true
     }]).select().single();
 
     if (error) {
@@ -61,10 +68,15 @@ export default function MasterAdmin() {
         { tenant_id: data.id, name: 'Bebidas' }
       ]);
 
-      alert(`Restaurante "${data.name}" criado com sucesso!\nLink do Cardápio: /${data.slug}`);
-      setNewTenant({ name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '', primary_color: '#FF8C00', admin_password: '' });
+      alert(`Restaurante "${data.name}" criado com sucesso!\nLink: /${data.slug}`);
+      setNewTenant({ name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '', primary_color: '#FF8C00', secondary_color: '#111827', due_date: '', monthly_fee: '99.00', admin_password: '' });
       fetchTenants();
     }
+  };
+
+  const toggleTenantActive = async (id, currentStatus) => {
+    await supabase.from('tenants').update({ active: !currentStatus }).eq('id', id);
+    fetchTenants();
   };
 
   const handleDeleteTenant = async (id, name) => {
@@ -80,8 +92,8 @@ export default function MasterAdmin() {
       <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4 font-sans">
         <form onSubmit={handleLogin} className="bg-gray-900 p-6 rounded-2xl border border-orange-500/30 w-full max-w-sm space-y-4">
           <div className="text-center">
-            <h1 className="text-xl font-bold text-orange-500">👑 Painel Super Admin</h1>
-            <p className="text-xs text-gray-400">Gestão Geral do SaaS de Delivery</p>
+            <h1 className="text-xl font-bold text-orange-500">🚀 Sinerge Delivery SaaS</h1>
+            <p className="text-xs text-gray-400">Painel Geral de Gestão</p>
           </div>
           <input 
             type="password" 
@@ -102,8 +114,8 @@ export default function MasterAdmin() {
     <div className="min-h-screen bg-gray-950 text-white p-4 max-w-2xl mx-auto font-sans pb-12">
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6">
         <div>
-          <h1 className="font-bold text-xl text-orange-500">👑 Super Admin SaaS</h1>
-          <p className="text-xs text-gray-400">Gestão de Clientes e Licenças</p>
+          <h1 className="font-bold text-xl text-orange-500">🚀 Sinerge Delivery SaaS</h1>
+          <p className="text-xs text-gray-400">Gestão de Clientes & Financeiro</p>
         </div>
         <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 px-3 py-1.5 rounded-lg text-red-400 font-bold">
           Sair
@@ -117,9 +129,7 @@ export default function MasterAdmin() {
           <div>
             <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
             <input 
-              type="text" 
-              placeholder="Ex: Santo Dog" 
-              value={newTenant.name}
+              type="text" placeholder="Ex: Santo Dog" value={newTenant.name}
               onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })}
               className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
             />
@@ -129,9 +139,7 @@ export default function MasterAdmin() {
             <div>
               <label className="text-[11px] text-gray-400 block mb-1">Slug / Link (Sem espaços):</label>
               <input 
-                type="text" 
-                placeholder="Ex: santodog" 
-                value={newTenant.slug}
+                type="text" placeholder="Ex: santodog" value={newTenant.slug}
                 onChange={(e) => setNewTenant({ ...newTenant, slug: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
               />
@@ -140,9 +148,7 @@ export default function MasterAdmin() {
             <div>
               <label className="text-[11px] text-gray-400 block mb-1">WhatsApp (DDD + Número):</label>
               <input 
-                type="text" 
-                placeholder="Ex: 47996302864" 
-                value={newTenant.whatsapp}
+                type="text" placeholder="Ex: 47996302864" value={newTenant.whatsapp}
                 onChange={(e) => setNewTenant({ ...newTenant, whatsapp: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
               />
@@ -153,9 +159,7 @@ export default function MasterAdmin() {
             <div>
               <label className="text-[11px] text-gray-400 block mb-1">URL da Logo (Opcional):</label>
               <input 
-                type="text" 
-                placeholder="https://..." 
-                value={newTenant.logo_url}
+                type="text" placeholder="https://..." value={newTenant.logo_url}
                 onChange={(e) => setNewTenant({ ...newTenant, logo_url: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
               />
@@ -164,9 +168,7 @@ export default function MasterAdmin() {
             <div>
               <label className="text-[11px] text-gray-400 block mb-1">URL do Banner (Opcional):</label>
               <input 
-                type="text" 
-                placeholder="https://..." 
-                value={newTenant.banner_url}
+                type="text" placeholder="https://..." value={newTenant.banner_url}
                 onChange={(e) => setNewTenant({ ...newTenant, banner_url: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
               />
@@ -175,29 +177,45 @@ export default function MasterAdmin() {
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Cor do Cardápio:</label>
+              <label className="text-[11px] text-gray-400 block mb-1">Cor Principal (Botões):</label>
               <div className="flex space-x-2 items-center">
-                <input 
-                  type="color" 
-                  value={newTenant.primary_color} 
-                  onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })}
-                  className="h-9 w-12 bg-gray-800 border border-gray-700 rounded cursor-pointer"
-                />
-                <input 
-                  type="text" 
-                  value={newTenant.primary_color} 
-                  onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })}
-                  className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono"
-                />
+                <input type="color" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="h-9 w-10 bg-gray-800 border border-gray-700 rounded cursor-pointer" />
+                <input type="text" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono" />
               </div>
             </div>
 
             <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Senha Admin Dele:</label>
+              <label className="text-[11px] text-gray-400 block mb-1">Cor Secundária (Fundo):</label>
+              <div className="flex space-x-2 items-center">
+                <input type="color" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="h-9 w-10 bg-gray-800 border border-gray-700 rounded cursor-pointer" />
+                <input type="text" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono" />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">Vencimento:</label>
               <input 
-                type="text" 
-                placeholder="Ex: teste123" 
-                value={newTenant.admin_password}
+                type="date" value={newTenant.due_date}
+                onChange={(e) => setNewTenant({ ...newTenant, due_date: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">Valor R$/mês:</label>
+              <input 
+                type="text" placeholder="99.00" value={newTenant.monthly_fee}
+                onChange={(e) => setNewTenant({ ...newTenant, monthly_fee: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">Senha Admin:</label>
+              <input 
+                type="text" placeholder="teste123" value={newTenant.admin_password}
                 onChange={(e) => setNewTenant({ ...newTenant, admin_password: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
               />
@@ -210,51 +228,47 @@ export default function MasterAdmin() {
         </form>
       </section>
 
-      {/* LISTA DE CLIENTES ATIVOS */}
+      {/* LISTA DE CLIENTES ATIVOS COM PAUSAR E VENCIMENTO */}
       <section className="space-y-3">
         <h2 className="font-bold text-sm text-gray-300">🏢 Clientes Cadastrados ({tenants.length})</h2>
 
         {tenants.map(t => (
-          <div key={t.id} className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2">
+          <div key={t.id} className={`bg-gray-900 p-4 rounded-xl border ${t.active ? 'border-gray-800' : 'border-red-500/50 opacity-80'} space-y-3`}>
             <div className="flex justify-between items-start">
               <div>
                 <div className="flex items-center space-x-2">
                   <span className="w-3 h-3 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.primary_color || '#FF8C00' }}></span>
+                  <span className="w-3 h-3 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.secondary_color || '#111827' }}></span>
                   <h3 className="font-bold text-md text-white">{t.name}</h3>
                 </div>
                 <p className="text-xs text-orange-400 font-mono mt-0.5">Link: /{t.slug}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">Zap: {t.whatsapp} • Senha: <span className="font-mono text-gray-200">{t.admin_password}</span></p>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  Zap: {t.whatsapp} • Senha: <span className="font-mono text-gray-200">{t.admin_password}</span>
+                </p>
+                <p className="text-[11px] text-gray-300 mt-1">
+                  💰 Mensalidade: <b>R$ {Number(t.monthly_fee || 99).toFixed(2)}</b> • Vencimento: <span className="font-mono text-yellow-400">{t.due_date || 'Não definido'}</span>
+                </p>
               </div>
 
-              <button 
-                onClick={() => handleDeleteTenant(t.id, t.name)}
-                className="bg-red-500/20 text-red-400 p-2 rounded-lg text-xs font-bold border border-red-500/30 hover:bg-red-500/30 transition">
-                🗑 Excluir Cliente
-              </button>
+              <div className="flex flex-col items-end space-y-2">
+                <button 
+                  onClick={() => toggleTenantActive(t.id, t.active)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${t.active ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
+                  {t.active ? '🟢 Ativo' : '🔴 Pausado'}
+                </button>
+
+                <button 
+                  onClick={() => handleDeleteTenant(t.id, t.name)}
+                  className="bg-red-500/10 text-red-400 p-1.5 rounded-lg text-[10px] font-bold">
+                  🗑 Excluir
+                </button>
+              </div>
             </div>
 
             <div className="flex space-x-2 pt-2 border-t border-gray-800 text-[11px]">
-              <a 
-                href={`/${t.slug}`} 
-                target="_blank" 
-                rel="noreferrer"
-                className="flex-1 bg-gray-800 hover:bg-gray-700 text-center py-1.5 rounded-lg font-bold text-gray-300">
-                🍔 Cardápio
-              </a>
-              <a 
-                href={`/${t.slug}/cozinha`} 
-                target="_blank" 
-                rel="noreferrer"
-                className="flex-1 bg-gray-800 hover:bg-gray-700 text-center py-1.5 rounded-lg font-bold text-orange-400">
-                👨‍🍳 Cozinha
-              </a>
-              <a 
-                href={`/${t.slug}/admin`} 
-                target="_blank" 
-                rel="noreferrer"
-                className="flex-1 bg-gray-800 hover:bg-gray-700 text-center py-1.5 rounded-lg font-bold text-blue-400">
-                ⚙️ Admin
-              </a>
+              <a href={`/${t.slug}`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1.5 rounded-lg font-bold text-gray-300">🍔 Cardápio</a>
+              <a href={`/${t.slug}/cozinha`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1.5 rounded-lg font-bold text-orange-400">👨‍🍳 Cozinha</a>
+              <a href={`/${t.slug}/admin`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1.5 rounded-lg font-bold text-blue-400">⚙️ Admin</a>
             </div>
           </div>
         ))}
