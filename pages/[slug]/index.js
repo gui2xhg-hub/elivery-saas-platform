@@ -13,6 +13,11 @@ export default function CardapioTenant() {
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // FILTROS DE CATEGORIA E BUSCA
+  const [selectedCategory, setSelectedCategory] = useState('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // MODAL E CHECKOUT
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedAddons, setSelectedAddons] = useState([]);
@@ -67,16 +72,13 @@ export default function CardapioTenant() {
 
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Restaurante não encontrado</h1></div>;
 
-  // TELA DE CLIENTE PAUSADO POR FALTA DE PAGAMENTO
   if (tenant.active === false) {
     return (
       <div className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center p-6 text-center font-sans">
         <div className="bg-gray-900 border border-red-500/30 p-8 rounded-3xl max-w-sm space-y-3">
           <span className="text-4xl block">🛑</span>
           <h1 className="font-bold text-lg text-red-400">Estabelecimento Indisponível</h1>
-          <p className="text-xs text-gray-400">
-            O cardápio de <b>{tenant.name}</b> está temporariamente suspenso. Se você é o responsável, entre em contato com o suporte para reativação.
-          </p>
+          <p className="text-xs text-gray-400">O cardápio de <b>{tenant.name}</b> está suspenso temporariamente.</p>
         </div>
       </div>
     );
@@ -84,6 +86,9 @@ export default function CardapioTenant() {
 
   const primaryColor = tenant.primary_color || '#FF8C00';
   const secondaryColor = tenant.secondary_color || '#111827';
+
+  // LISTA DE BANNERS DE PROMOÇÃO
+  const promoBannersList = tenant.promo_banners ? tenant.promo_banners.split(',').map(s => s.trim()).filter(Boolean) : [];
 
   const subtotal = cart.reduce((acc, item) => acc + (item.totalPrice * item.quantity), 0);
   const currentNeighObj = neighborhoods.find(n => n.name === selectedNeigh);
@@ -154,19 +159,14 @@ export default function CardapioTenant() {
     if (error) return alert("Erro ao enviar pedido: " + error.message);
 
     let text = `*NOVO PEDIDO #${createdOrder.id} - ${tenant.name.toUpperCase()}*\n\n`;
-    text += `*Cliente:* ${customerName}\n`;
-    text += `*Telefone:* ${customerPhone}\n`;
-    text += `*Tipo:* ${orderType === 'delivery' ? 'Entrega 🛵' : 'Retirada 🛍️'}\n`;
-    if (orderType === 'delivery') {
-      text += `*Bairro:* ${selectedNeigh}\n*Endereço:* ${address}\n`;
-      if (reference) text += `*Ref:* ${reference}\n`;
-    }
-    text += `*Pagamento:* ${paymentMethod}\n\n*ITENS DO PEDIDO:*\n`;
+    text += `*Cliente:* ${customerName}\n*Telefone:* ${customerPhone}\n*Tipo:* ${orderType === 'delivery' ? 'Entrega 🛵' : 'Retirada 🛍️'}\n`;
+    if (orderType === 'delivery') text += `*Bairro:* ${selectedNeigh}\n*Endereço:* ${address}\n`;
+    text += `*Pagamento:* ${paymentMethod}\n\n*ITENS:*\n`;
     cart.forEach(it => {
       text += `• ${it.quantity}x ${it.name} (R$ ${Number(it.totalPrice * it.quantity).toFixed(2)})\n`;
       if (it.details) text += `   _${it.details}_\n`;
     });
-    text += `\n*Subtotal:* R$ ${subtotal.toFixed(2)}\n*Taxa Entrega:* R$ ${deliveryFee.toFixed(2)}\n*TOTAL:* *R$ ${total.toFixed(2)}*`;
+    text += `\n*TOTAL:* *R$ ${total.toFixed(2)}*`;
 
     const cleanWhatsapp = tenant.whatsapp.replace(/\D/g, '');
     window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(text)}`, '_blank');
@@ -193,13 +193,64 @@ export default function CardapioTenant() {
         </div>
       </div>
 
-      <div className="mt-8 px-4 space-y-6">
+      <div className="mt-8 px-4 space-y-4">
+        {/* CARROSSEL DE PROMOÇÕES */}
+        {promoBannersList.length > 0 && (
+          <div className="space-y-1">
+            <span className="text-[11px] font-bold text-gray-300 block">🔥 Destaques e Promoções</span>
+            <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none">
+              {promoBannersList.map((url, idx) => (
+                <img key={idx} src={url} alt={`Promo ${idx}`} className="w-64 h-28 object-cover rounded-xl flex-shrink-0 border border-white/10 shadow-md" />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* CAMPO DE BUSCA */}
+        <div>
+          <input 
+            type="text" 
+            placeholder="🔍 Buscar no cardápio..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full bg-black/40 border border-white/10 p-2.5 rounded-xl text-xs text-white focus:outline-none placeholder-gray-400"
+          />
+        </div>
+
+        {/* BARRA FIXA DESLIZANTE DE CATEGORIAS */}
+        <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none border-b border-white/10">
+          <button 
+            onClick={() => setSelectedCategory('ALL')}
+            style={{ backgroundColor: selectedCategory === 'ALL' ? primaryColor : 'rgba(255,255,255,0.05)' }}
+            className="px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap text-white">
+            Todos
+          </button>
+          {categories.map(cat => (
+            <button 
+              key={cat.id} 
+              onClick={() => setSelectedCategory(cat.id)}
+              style={{ backgroundColor: selectedCategory === cat.id ? primaryColor : 'rgba(255,255,255,0.05)' }}
+              className="px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap text-white">
+              {cat.name}
+            </button>
+          ))}
+        </div>
+
+        {/* LISTA DE PRODUTOS */}
         {categories.map(cat => {
-          const catProducts = products.filter(p => p.category_id === cat.id);
+          if (selectedCategory !== 'ALL' && selectedCategory !== cat.id) return null;
+
+          const catProducts = products.filter(p => {
+            const matchesCat = p.category_id === cat.id;
+            const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                                  (p.description && p.description.toLowerCase().includes(searchTerm.toLowerCase()));
+            return matchesCat && matchesSearch;
+          });
+
           if (catProducts.length === 0) return null;
 
           return (
-            <div key={cat.id} className="space-y-3">
+            <div key={cat.id} className="space-y-3 pt-2">
               <h2 className="font-bold text-sm uppercase tracking-wider border-b border-gray-800/40 pb-1" style={{ color: primaryColor }}>
                 {cat.name}
               </h2>
@@ -223,7 +274,7 @@ export default function CardapioTenant() {
         })}
       </div>
 
-      {/* CARRINHO FIXO */}
+      {/* BARRA CARRINHO */}
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-3 bg-black/80 backdrop-blur border-t border-white/10 z-40">
           <button onClick={() => setIsCheckoutOpen(true)} style={{ backgroundColor: primaryColor }} className="w-full font-bold py-3 px-4 rounded-xl text-xs flex justify-between items-center text-white shadow-lg">
