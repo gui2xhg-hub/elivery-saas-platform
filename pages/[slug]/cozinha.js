@@ -17,7 +17,6 @@ export default function CozinhaTenant() {
   useEffect(() => {
     if (slug) {
       fetchTenantAndOrders();
-      // Atualiza os pedidos a cada 10 segundos
       const interval = setInterval(() => {
         if (tenant?.id) fetchOrders(tenant.id, true);
       }, 10000);
@@ -40,12 +39,12 @@ export default function CozinhaTenant() {
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, audioCtx.currentTime); // Tom alto 880Hz
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime);
       gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
       osc.connect(gain);
       gain.connect(audioCtx.destination);
       osc.start();
-      osc.stop(audioCtx.currentTime + 0.5); // Beep de 0.5s
+      osc.stop(audioCtx.currentTime + 0.5);
     } catch (e) {
       console.log("Erro ao tocar áudio: ", e);
     }
@@ -61,7 +60,7 @@ export default function CozinhaTenant() {
     if (oData) {
       const activeRecebidos = oData.filter(o => o.status === 'recebido' && !o.archived).length;
       if (isInterval && activeRecebidos > prevOrdersCountRef.current) {
-        playBeepSound(); // Toca alerta se entrou pedido novo!
+        playBeepSound();
       }
       prevOrdersCountRef.current = activeRecebidos;
       setOrders(oData);
@@ -70,6 +69,12 @@ export default function CozinhaTenant() {
 
   const updateOrderStatus = async (orderId, newStatus) => {
     await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
+    if (tenant) fetchOrders(tenant.id);
+  };
+
+  // ALTERAR STATUS MANUAL DE PAGAMENTO DO PIX
+  const togglePaymentStatus = async (orderId, currentPaidStatus) => {
+    await supabase.from('orders').update({ is_paid: !currentPaidStatus }).eq('id', orderId);
     if (tenant) fetchOrders(tenant.id);
   };
 
@@ -101,12 +106,10 @@ export default function CozinhaTenant() {
   if (loading) return <div className="p-4 text-white text-center font-sans">Carregando Cozinha...</div>;
   if (!tenant) return <div className="p-4 text-white text-center font-sans">Restaurante não encontrado.</div>;
 
-  // Filtra ativos (não arquivados) ou lista de arquivados
   const displayedOrders = orders.filter(o => showArchived ? o.archived === true : !o.archived);
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 font-sans max-w-4xl mx-auto pb-12">
-      {/* IMPRESSÃO TÉRMICA */}
       <style jsx global>{`
         @media print {
           body * { visibility: hidden !important; }
@@ -145,7 +148,7 @@ export default function CozinhaTenant() {
                 {selectedOrderToPrint.reference && <p><b>REF:</b> {selectedOrderToPrint.reference}</p>}
               </>
             )}
-            <p><b>PAGAMENTO:</b> {selectedOrderToPrint.payment_method}</p>
+            <p><b>PAGAMENTO:</b> {selectedOrderToPrint.payment_method} ({selectedOrderToPrint.is_paid ? 'PAGO' : 'PENDENTE'})</p>
           </div>
 
           <div className="border-b border-black pb-2 mb-2">
@@ -169,7 +172,7 @@ export default function CozinhaTenant() {
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6 no-print">
         <div>
           <h1 className="font-bold text-xl text-orange-500">👨‍🍳 Cozinha — {tenant.name}</h1>
-          <p className="text-xs text-gray-400">Notificação de novos pedidos ativa 🔔</p>
+          <p className="text-xs text-gray-400">Gestão de Pedidos e Confirmação de PIX 🔔</p>
         </div>
         <div className="flex space-x-2">
           <button 
@@ -212,8 +215,8 @@ export default function CozinhaTenant() {
                   </span>
                 </div>
 
-                {/* ENDEREÇO + BADGE DE COBRANÇA */}
-                <div className="text-xs text-gray-300 bg-gray-800/50 p-2.5 rounded-xl border border-gray-800 space-y-1">
+                {/* ENDEREÇO + CONTROLE MANUAL DE PIX/PAGAMENTO */}
+                <div className="text-xs text-gray-300 bg-gray-800/50 p-2.5 rounded-xl border border-gray-800 space-y-1.5">
                   <p><b>Tipo:</b> {order.order_type === 'delivery' ? '🛵 Entrega' : '🛍️ Retirada'}</p>
                   {order.order_type === 'delivery' && (
                     <>
@@ -223,12 +226,24 @@ export default function CozinhaTenant() {
                     </>
                   )}
                   
-                  {/* ALERTA DE COBRANÇA DE PAGAMENTO */}
-                  <div className="pt-1.5">
+                  {/* ALERTA E BOTÃO DE CONFIRMAÇÃO DE PAGAMENTO */}
+                  <div className="pt-1 flex justify-between items-center border-t border-gray-700/50">
                     {isPix ? (
-                      <span className="inline-block bg-green-500/20 text-green-400 border border-green-500/30 px-2.5 py-1 rounded-lg text-[10px] font-bold">
-                        🟢 PIX (Pago / Transferido)
-                      </span>
+                      <div className="flex items-center justify-between w-full">
+                        <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${
+                          order.is_paid 
+                            ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
+                            : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                        }`}>
+                          {order.is_paid ? '🟢 PIX Confirmado' : '🟡 PIX Aguardando Validação'}
+                        </span>
+
+                        <button 
+                          onClick={() => togglePaymentStatus(order.id, order.is_paid)}
+                          className="text-[10px] bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-gray-200 font-bold border border-gray-600">
+                          {order.is_paid ? 'Desmarcar' : '✅ Validar PIX'}
+                        </button>
+                      </div>
                     ) : isMoney ? (
                       <span className="inline-block bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2.5 py-1 rounded-lg text-[10px] font-bold">
                         💵 Dinheiro (Cobrar R$ {Number(order.total).toFixed(2)} na entrega)
