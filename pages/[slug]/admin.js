@@ -84,7 +84,10 @@ export default function AdminTenant() {
       closing_time: tenant.closing_time || '23:30',
       pixel_id: tenant.pixel_id || '',
       custom_message: tenant.custom_message || '',
-      admin_password: tenant.admin_password
+      admin_password: tenant.admin_password,
+      pix_enabled: tenant.pix_enabled || false,
+      pix_provider: tenant.pix_provider || 'mercadopago',
+      pix_access_token: tenant.pix_access_token || ''
     }).eq('id', tenant.id);
 
     if (error) alert("Erro ao salvar: " + error.message);
@@ -425,7 +428,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* CONFIGURAÇÕES + NOVOS CAMPOS */}
+      {/* CONFIGURAÇÕES + NOVOS CAMPOS PIX AUTOMÁTICO */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -488,7 +491,53 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
               </div>
 
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs">Salvar Alterações</button>
+              {/* BLOCO PREPARADO PARA PIX DINÂMICO AUTOMÁTICO */}
+              <div className="pt-3 border-t border-gray-800 space-y-3">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h4 className="font-bold text-xs text-green-400">⚡ PIX Dinâmico com Baixa Automática</h4>
+                    <p className="text-[10px] text-gray-400">Confirma o pagamento sozinho sem conferir comprovante.</p>
+                  </div>
+
+                  <input
+                    type="checkbox"
+                    checked={tenant.pix_enabled || false}
+                    onChange={(e) => setTenant({ ...tenant, pix_enabled: e.target.checked })}
+                    className="w-4 h-4 accent-green-500 cursor-pointer"
+                  />
+                </div>
+
+                {tenant.pix_enabled && (
+                  <div className="space-y-2 bg-gray-800/60 p-3 rounded-xl border border-gray-700">
+                    <div>
+                      <label className="text-[11px] text-gray-400 block mb-1">Gateway de Pagamento:</label>
+                      <select
+                        value={tenant.pix_provider || 'mercadopago'}
+                        onChange={(e) => setTenant({ ...tenant, pix_provider: e.target.value })}
+                        className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none">
+                        <option value="mercadopago">Mercado Pago</option>
+                        <option value="efi">Efí (Gerencianet)</option>
+                        <option value="asaas">Asaas</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] text-gray-400 block mb-1">Token de Acesso / Chave de API:</label>
+                      <input
+                        type="password"
+                        placeholder="Ex: APP_USR-xxxx-xxxx..."
+                        value={tenant.pix_access_token || ''}
+                        className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none"
+                        onChange={(e) => setTenant({ ...tenant, pix_access_token: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs transition hover:bg-green-700">
+                Salvar Alterações
+              </button>
             </form>
           </section>
         </div>
