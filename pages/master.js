@@ -17,8 +17,7 @@ export default function MasterAdmin() {
     due_date: '',
     monthly_fee: '99.00',
     admin_password: '',
-    has_delivery: true,
-    has_agendamento: true
+    business_type: 'delivery' // 'delivery' OU 'agendamento'
   });
 
   const handleLogin = (e) => {
@@ -32,7 +31,7 @@ export default function MasterAdmin() {
   };
 
   const fetchTenants = async () => {
-    const { data } = await supabase.from('tenants').select('*').order('id', { ascending: true });
+    const { data } = await supabase.from('tenants').select('*').order('id', { ascending: false });
     if (data) setTenants(data);
   };
 
@@ -48,6 +47,9 @@ export default function MasterAdmin() {
     const fallbackLogo = 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=150&auto=format&fit=crop&q=80';
     const fallbackBanner = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80';
 
+    const isDelivery = newTenant.business_type === 'delivery';
+    const isAgendamento = newTenant.business_type === 'agendamento';
+
     const { data, error } = await supabase.from('tenants').insert([{
       name: newTenant.name.trim(),
       slug: cleanSlug,
@@ -60,27 +62,27 @@ export default function MasterAdmin() {
       due_date: newTenant.due_date || null,
       monthly_fee: parseFloat(newTenant.monthly_fee) || 99.00,
       active: true,
-      has_delivery: newTenant.has_delivery,
-      has_agendamento: newTenant.has_agendamento
+      has_delivery: isDelivery,
+      has_agendamento: isAgendamento
     }]).select().single();
 
     if (error) {
       alert("Erro ao criar cliente: " + error.message);
     } else {
-      // Se tiver módulo de delivery ativo, cadastra as categorias padrão
-      if (data.has_delivery) {
+      // Se for do tipo Delivery, cria as categorias padrão
+      if (isDelivery) {
         await supabase.from('categories').insert([
           { tenant_id: data.id, name: 'Lanches' },
           { tenant_id: data.id, name: 'Bebidas' }
         ]);
       }
 
-      alert(`Estabelecimento "${data.name}" criado com sucesso!\nSlug: /${data.slug}`);
+      alert(`Cliente "${data.name}" criado com sucesso como ${isDelivery ? 'DELIVERY' : 'AGENDAMENTO'}!\nLink: /${data.slug}`);
       setNewTenant({
         name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '',
         primary_color: '#FF8C00', secondary_color: '#111827',
         due_date: '', monthly_fee: '99.00', admin_password: '',
-        has_delivery: true, has_agendamento: true
+        business_type: 'delivery'
       });
       fetchTenants();
     }
@@ -91,13 +93,8 @@ export default function MasterAdmin() {
     fetchTenants();
   };
 
-  const toggleModule = async (id, field, currentStatus) => {
-    await supabase.from('tenants').update({ [field]: !currentStatus }).eq('id', id);
-    fetchTenants();
-  };
-
   const handleDeleteTenant = async (id, name) => {
-    if (confirm(`TEM CERTEZA que deseja apagar o cliente "${name}"?\nIsso apaga todos os dados definitivamente!`)) {
+    if (confirm(`TEM CERTEZA que deseja apagar o cliente "${name}"?`)) {
       await supabase.from('tenants').delete().eq('id', id);
       fetchTenants();
       alert(`Cliente ${name} removido com sucesso.`);
@@ -109,8 +106,8 @@ export default function MasterAdmin() {
       <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4 font-sans">
         <form onSubmit={handleLogin} className="bg-gray-900 p-6 rounded-2xl border border-orange-500/30 w-full max-w-sm space-y-4 shadow-xl">
           <div className="text-center">
-            <h1 className="text-xl font-bold text-orange-500">🚀 Sinerge SaaS Master</h1>
-            <p className="text-xs text-gray-400">Painel Geral de Gestão Unificada</p>
+            <h1 className="text-xl font-bold text-orange-500">🚀 Sinerge Master Admin</h1>
+            <p className="text-xs text-gray-400">Painel Geral de Gestão</p>
           </div>
           <input 
             type="password" 
@@ -132,7 +129,7 @@ export default function MasterAdmin() {
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6">
         <div>
           <h1 className="font-bold text-xl text-orange-500">🚀 Sinerge Multi-SaaS Master</h1>
-          <p className="text-xs text-gray-400">Gestão de Clientes • Delivery & Agendamento</p>
+          <p className="text-xs text-gray-400">Gestão Exclusiva: Delivery ou Agendamento</p>
         </div>
         <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 px-3 py-1.5 rounded-lg text-red-400 font-bold">
           Sair
@@ -141,8 +138,43 @@ export default function MasterAdmin() {
 
       {/* CADASTRAR NOVO CLIENTE */}
       <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4 mb-8">
-        <h2 className="font-bold text-sm text-orange-400">➕ Cadastrar Novo Cliente / Estabelecimento</h2>
+        <h2 className="font-bold text-sm text-orange-400">➕ Cadastrar Novo Cliente</h2>
         <form onSubmit={handleCreateTenant} className="space-y-3">
+          
+          {/* SELEÇÃO EXCLUSIVA DE NICHO */}
+          <div className="bg-gray-800 p-3 rounded-xl border border-gray-700 space-y-2">
+            <label className="text-[11px] font-bold text-gray-300 block uppercase">Tipo de Negócio (Nicho):</label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className={`flex items-center justify-center space-x-2 p-2.5 rounded-lg border cursor-pointer font-bold text-xs transition ${
+                newTenant.business_type === 'delivery' ? 'bg-orange-500/20 text-orange-400 border-orange-500' : 'bg-gray-900 text-gray-400 border-gray-800'
+              }`}>
+                <input 
+                  type="radio" 
+                  name="business_type" 
+                  value="delivery" 
+                  checked={newTenant.business_type === 'delivery'} 
+                  onChange={() => setNewTenant({ ...newTenant, business_type: 'delivery' })}
+                  className="hidden"
+                />
+                <span>🍔 Delivery (Alimentação)</span>
+              </label>
+
+              <label className={`flex items-center justify-center space-x-2 p-2.5 rounded-lg border cursor-pointer font-bold text-xs transition ${
+                newTenant.business_type === 'agendamento' ? 'bg-purple-500/20 text-purple-400 border-purple-500' : 'bg-gray-900 text-gray-400 border-gray-800'
+              }`}>
+                <input 
+                  type="radio" 
+                  name="business_type" 
+                  value="agendamento" 
+                  checked={newTenant.business_type === 'agendamento'} 
+                  onChange={() => setNewTenant({ ...newTenant, business_type: 'agendamento' })}
+                  className="hidden"
+                />
+                <span>💈 Agendamento (Barbearia/Salão)</span>
+              </label>
+            </div>
+          </div>
+
           <div>
             <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
             <input 
@@ -172,69 +204,6 @@ export default function MasterAdmin() {
             </div>
           </div>
 
-          {/* MÓDULOS CONTRATADOS */}
-          <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 space-y-2">
-            <label className="text-[11px] font-bold text-gray-300 block uppercase tracking-wider">Módulos Ativos para este Cliente:</label>
-            <div className="flex space-x-4 text-xs font-bold">
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  checked={newTenant.has_delivery} 
-                  onChange={(e) => setNewTenant({ ...newTenant, has_delivery: e.target.checked })}
-                  className="rounded accent-orange-500"
-                />
-                <span className="text-orange-400">🛵 Módulo Delivery</span>
-              </label>
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  checked={newTenant.has_agendamento} 
-                  onChange={(e) => setNewTenant({ ...newTenant, has_agendamento: e.target.checked })}
-                  className="rounded accent-purple-500"
-                />
-                <span className="text-purple-400">📅 Módulo Agendamento</span>
-              </label>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">URL da Logo (Opcional):</label>
-              <input 
-                type="text" placeholder="https://..." value={newTenant.logo_url}
-                onChange={(e) => setNewTenant({ ...newTenant, logo_url: e.target.value })}
-                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">URL do Banner (Opcional):</label>
-              <input 
-                type="text" placeholder="https://..." value={newTenant.banner_url}
-                onChange={(e) => setNewTenant({ ...newTenant, banner_url: e.target.value })}
-                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Cor Principal (Botões):</label>
-              <div className="flex space-x-2 items-center">
-                <input type="color" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="h-9 w-10 bg-gray-800 border border-gray-700 rounded cursor-pointer" />
-                <input type="text" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono" />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Cor Secundária (Fundo):</label>
-              <div className="flex space-x-2 items-center">
-                <input type="color" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="h-9 w-10 bg-gray-800 border border-gray-700 rounded cursor-pointer" />
-                <input type="text" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono" />
-              </div>
-            </div>
-          </div>
-
           <div className="grid grid-cols-3 gap-2">
             <div>
               <label className="text-[11px] text-gray-400 block mb-1">Vencimento:</label>
@@ -257,7 +226,7 @@ export default function MasterAdmin() {
             <div>
               <label className="text-[11px] text-gray-400 block mb-1">Senha Admin:</label>
               <input 
-                type="text" placeholder="teste123" value={newTenant.admin_password}
+                type="text" placeholder="123456" value={newTenant.admin_password}
                 onChange={(e) => setNewTenant({ ...newTenant, admin_password: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
               />
@@ -274,78 +243,66 @@ export default function MasterAdmin() {
       <section className="space-y-3">
         <h2 className="font-bold text-sm text-gray-300">🏢 Clientes Cadastrados ({tenants.length})</h2>
 
-        {tenants.map(t => (
-          <div key={t.id} className={`bg-gray-900 p-4 rounded-xl border ${t.active ? 'border-gray-800' : 'border-red-500/50 opacity-80'} space-y-3`}>
-            <div className="flex justify-between items-start">
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="w-3 h-3 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.primary_color || '#FF8C00' }}></span>
-                  <span className="w-3 h-3 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.secondary_color || '#111827' }}></span>
-                  <h3 className="font-bold text-md text-white">{t.name}</h3>
-                </div>
-                <p className="text-xs text-orange-400 font-mono mt-0.5">Slug: /{t.slug}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">
-                  Zap: {t.whatsapp} • Senha: <span className="font-mono text-gray-200">{t.admin_password}</span>
-                </p>
-                <p className="text-[11px] text-gray-300 mt-1">
-                  💰 Mensalidade: <b>R$ {Number(t.monthly_fee || 99).toFixed(2)}</b> • Vencimento: <span className="font-mono text-yellow-400">{t.due_date || 'Não definido'}</span>
-                </p>
+        {tenants.map(t => {
+          const isAgendamento = t.has_agendamento && !t.has_delivery;
 
-                {/* BOTÕES TOGGLE DE MÓDULOS */}
-                <div className="flex space-x-2 mt-2">
+          return (
+            <div key={t.id} className={`bg-gray-900 p-4 rounded-xl border ${t.active ? 'border-gray-800' : 'border-red-500/50 opacity-80'} space-y-3`}>
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${isAgendamento ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
+                      {isAgendamento ? '💈 Agendamento' : '🍔 Delivery'}
+                    </span>
+                    <h3 className="font-bold text-md text-white">{t.name}</h3>
+                  </div>
+                  <p className="text-xs text-gray-400 font-mono mt-1">Slug: /{t.slug}</p>
+                  <p className="text-[11px] text-gray-400">
+                    Zap: {t.whatsapp} • Senha: <span className="font-mono text-gray-200">{t.admin_password}</span>
+                  </p>
+                  <p className="text-[11px] text-gray-300 mt-1">
+                    💰 Mensalidade: <b>R$ {Number(t.monthly_fee || 99).toFixed(2)}</b> • Vencimento: <span className="font-mono text-yellow-400">{t.due_date || 'Não definido'}</span>
+                  </p>
+                </div>
+
+                <div className="flex flex-col items-end space-y-2">
                   <button 
-                    onClick={() => toggleModule(t.id, 'has_delivery', t.has_delivery)}
-                    className={`px-2 py-1 rounded text-[10px] font-bold border ${t.has_delivery ? 'bg-orange-500/20 text-orange-400 border-orange-500/40' : 'bg-gray-800 text-gray-500 border-gray-700'}`}>
-                    🛵 Delivery: {t.has_delivery ? 'ATIVO' : 'DESATIVADO'}
+                    onClick={() => toggleTenantActive(t.id, t.active)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${t.active ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
+                    {t.active ? '🟢 Ativo' : '🔴 Pausado'}
                   </button>
+
                   <button 
-                    onClick={() => toggleModule(t.id, 'has_agendamento', t.has_agendamento)}
-                    className={`px-2 py-1 rounded text-[10px] font-bold border ${t.has_agendamento ? 'bg-purple-500/20 text-purple-400 border-purple-500/40' : 'bg-gray-800 text-gray-500 border-gray-700'}`}>
-                    📅 Agendamento: {t.has_agendamento ? 'ATIVO' : 'DESATIVADO'}
+                    onClick={() => handleDeleteTenant(t.id, t.name)}
+                    className="bg-red-500/10 text-red-400 p-1.5 rounded-lg text-[10px] font-bold">
+                    🗑 Excluir
                   </button>
                 </div>
               </div>
 
-              <div className="flex flex-col items-end space-y-2">
-                <button 
-                  onClick={() => toggleTenantActive(t.id, t.active)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${t.active ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
-                  {t.active ? '🟢 Ativo' : '🔴 Pausado'}
-                </button>
-
-                <button 
-                  onClick={() => handleDeleteTenant(t.id, t.name)}
-                  className="bg-red-500/10 text-red-400 p-1.5 rounded-lg text-[10px] font-bold">
-                  🗑 Excluir
-                </button>
-              </div>
+              {/* MOSTRA APENAS OS LINKS DO NICHO SELECIONADO */}
+              {isAgendamento ? (
+                <div className="pt-2 border-t border-gray-800 space-y-1">
+                  <span className="text-[10px] font-bold text-purple-400 uppercase">📅 Links de Agendamento:</span>
+                  <div className="flex space-x-2 text-[11px]">
+                    <a href={`https://agendamento.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1.5 rounded-lg font-bold text-gray-300 hover:bg-gray-700">Cliente</a>
+                    <a href={`https://agendamento.sinergemkt.com/${t.slug}/agenda`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1.5 rounded-lg font-bold text-purple-400 hover:bg-gray-700">Agenda Equipe</a>
+                    <a href={`https://agendamento.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1.5 rounded-lg font-bold text-blue-400 hover:bg-gray-700">Admin Agendamento</a>
+                  </div>
+                </div>
+              ) : (
+                <div className="pt-2 border-t border-gray-800 space-y-1">
+                  <span className="text-[10px] font-bold text-orange-400 uppercase">🛵 Links de Delivery:</span>
+                  <div className="flex space-x-2 text-[11px]">
+                    <a href={`https://delivery.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1.5 rounded-lg font-bold text-gray-300 hover:bg-gray-700">Cardápio</a>
+                    <a href={`https://delivery.sinergemkt.com/${t.slug}/cozinha`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1.5 rounded-lg font-bold text-orange-400 hover:bg-gray-700">Cozinha</a>
+                    <a href={`https://delivery.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1.5 rounded-lg font-bold text-blue-400 hover:bg-gray-700">Admin Delivery</a>
+                  </div>
+                </div>
+              )}
             </div>
-
-            {/* LINKS DELIVERY */}
-            {t.has_delivery && (
-              <div className="pt-2 border-t border-gray-800 space-y-1">
-                <span className="text-[10px] font-bold text-orange-400 uppercase">🛵 Links Delivery:</span>
-                <div className="flex space-x-2 text-[11px]">
-                  <a href={`https://delivery.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1 rounded font-bold text-gray-300">Cardápio</a>
-                  <a href={`https://delivery.sinergemkt.com/${t.slug}/cozinha`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1 rounded font-bold text-orange-400">Cozinha</a>
-                  <a href={`https://delivery.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1 rounded font-bold text-blue-400">Admin</a>
-                </div>
-              </div>
-            )}
-
-            {/* LINKS AGENDAMENTO */}
-            {t.has_agendamento && (
-              <div className="pt-2 border-t border-gray-800 space-y-1">
-                <span className="text-[10px] font-bold text-purple-400 uppercase">📅 Links Agendamento:</span>
-                <div className="flex space-x-2 text-[11px]">
-                  <a href={`https://agendamento.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1 rounded font-bold text-gray-300">Cliente</a>
-                  <a href={`https://agendamento.sinergemkt.com/${t.slug}/agenda`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1 rounded font-bold text-purple-400">Agenda Equipe</a>
-                  <a href={`https://agendamento.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-800 text-center py-1 rounded font-bold text-blue-400">Admin Agendamento</a>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </section>
     </div>
   );
