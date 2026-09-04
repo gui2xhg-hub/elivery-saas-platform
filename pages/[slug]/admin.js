@@ -22,8 +22,10 @@ export default function AdminTenant() {
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetPasswordInput, setResetPasswordInput] = useState('');
 
+  // Formulários de produto
   const [newProd, setNewProd] = useState({ name: '', price: '', category_id: '', description: '', image: '', addons_list: '' });
   const [editingProduct, setEditingProduct] = useState(null);
+
   const [newCatName, setNewCatName] = useState('');
   const [newAddon, setNewAddon] = useState({ name: '', price: '' });
   const [newNeigh, setNewNeigh] = useState({ name: '', fee: '' });
@@ -36,9 +38,7 @@ export default function AdminTenant() {
 
   const fetchTenant = async () => {
     const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
-    if (tData) {
-      setTenant(tData);
-    }
+    if (tData) setTenant(tData);
     setLoading(false);
   };
 
@@ -91,64 +91,10 @@ export default function AdminTenant() {
     if (error) {
       alert("Erro ao salvar: " + error.message);
     } else {
-      alert("Configurações e cores salvas com sucesso!");
+      alert("Configurações salvas com sucesso!");
       fetchData();
     }
   };
-
-  const handleResetOrders = async (e) => {
-    e.preventDefault();
-    if (resetPasswordInput !== tenant.admin_password && resetPasswordInput !== 'master123') {
-      return alert("Senha incorreta!");
-    }
-
-    const { error } = await supabase.from('orders').delete().eq('tenant_id', tenant.id);
-
-    if (error) {
-      alert("Erro ao zerar relatórios: " + error.message);
-    } else {
-      alert("Relatórios zerados com sucesso!");
-      setShowResetModal(false);
-      setResetPasswordInput('');
-      fetchData();
-    }
-  };
-
-  const getFilteredOrders = () => {
-    const now = new Date();
-    return allOrders.filter(o => {
-      if (o.status === 'cancelado') return false;
-      const orderDate = new Date(o.created_at);
-
-      if (reportFilter === 'today') {
-        return orderDate.toDateString() === now.toDateString();
-      } else if (reportFilter === '7days') {
-        return ((now - orderDate) / (1000 * 60 * 60 * 24)) <= 7;
-      } else if (reportFilter === '15days') {
-        return ((now - orderDate) / (1000 * 60 * 60 * 24)) <= 15;
-      } else if (reportFilter === '30days') {
-        return ((now - orderDate) / (1000 * 60 * 60 * 24)) <= 30;
-      }
-      return true;
-    });
-  };
-
-  const filteredOrders = getFilteredOrders();
-  const totalRevenue = filteredOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
-
-  const productSalesMap = {};
-  filteredOrders.forEach(o => {
-    if (o.items && Array.isArray(o.items)) {
-      o.items.forEach(it => {
-        const q = it.quantity || 1;
-        productSalesMap[it.name] = (productSalesMap[it.name] || 0) + q;
-      });
-    }
-  });
-
-  const topProducts = Object.entries(productSalesMap)
-    .map(([name, qty]) => ({ name, qty }))
-    .sort((a, b) => b.qty - a.qty);
 
   const handleAddProduct = async (e) => {
     e.preventDefault();
@@ -174,7 +120,30 @@ export default function AdminTenant() {
     else {
       setNewProd({ name: '', price: '', category_id: categories[0]?.id || '', description: '', image: '', addons_list: '' });
       fetchData();
-      alert("Lanche salvo!");
+      alert("Produto cadastrado com sucesso!");
+    }
+  };
+
+  const handleUpdateProduct = async (e) => {
+    e.preventDefault();
+    if (!editingProduct.name || !editingProduct.price) return alert("Preencha nome e preço!");
+
+    const formattedPrice = parseFloat(String(editingProduct.price).replace(',', '.'));
+
+    const { error } = await supabase.from('products').update({
+      name: editingProduct.name,
+      price: formattedPrice,
+      description: editingProduct.description,
+      category_id: parseInt(editingProduct.category_id),
+      image: editingProduct.image,
+      addons_list: editingProduct.addons_list
+    }).eq('id', editingProduct.id);
+
+    if (error) alert("Erro: " + error.message);
+    else {
+      setEditingProduct(null);
+      fetchData();
+      alert("Produto alterado com sucesso!");
     }
   };
 
@@ -184,7 +153,7 @@ export default function AdminTenant() {
   };
 
   const deleteProduct = async (id) => {
-    if (confirm("Excluir produto?")) {
+    if (confirm("Excluir este produto definitivamente?")) {
       await supabase.from('products').delete().eq('id', id);
       fetchData();
     }
@@ -238,7 +207,7 @@ export default function AdminTenant() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans">
-        <p className="text-sm text-gray-400">Carregando admin...</p>
+        <p className="text-sm text-gray-400">Carregando painel...</p>
       </div>
     );
   }
@@ -282,6 +251,7 @@ export default function AdminTenant() {
         </button>
       </header>
 
+      {/* ABAS DE NAVEGAÇÃO */}
       <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto">
         <button onClick={() => setActiveTab('products')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🍔 Itens</button>
         <button onClick={() => setActiveTab('categories')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🏷️ Categorias</button>
@@ -291,6 +261,7 @@ export default function AdminTenant() {
         <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
       </div>
 
+      {/* TAB PRODUTOS */}
       {activeTab === 'products' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -308,7 +279,7 @@ export default function AdminTenant() {
               
               {globalAddons.length > 0 && (
                 <div className="border-t border-gray-800 pt-2">
-                  <label className="text-[11px] text-gray-400 block mb-1">Adicionais Deste Lanche:</label>
+                  <label className="text-[11px] text-gray-400 block mb-1">Adicionais Opcionais Vinculados:</label>
                   <div className="grid grid-cols-2 gap-2">
                     {globalAddons.map(a => {
                       const formattedStr = `${a.name}:${a.price}`;
@@ -332,6 +303,7 @@ export default function AdminTenant() {
             </form>
           </section>
 
+          {/* LISTA DE PRODUTOS COM EDITAR */}
           <section className="space-y-2">
             <h3 className="font-bold text-sm text-gray-300">📋 Produtos ({products.length})</h3>
             {products.map((item) => (
@@ -341,6 +313,7 @@ export default function AdminTenant() {
                   <span className="text-xs text-orange-400 font-bold">R$ {Number(item.price).toFixed(2)}</span>
                 </div>
                 <div className="flex items-center space-x-1.5">
+                  <button onClick={() => setEditingProduct(item)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
                   <button onClick={() => toggleProductActive(item.id, item.active)} className={`text-[10px] font-bold px-2 py-1.5 rounded-lg ${item.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{item.active ? 'Ativo' : 'Pausado'}</button>
                   <button onClick={() => deleteProduct(item.id)} className="text-xs bg-red-500/20 text-red-400 p-1.5 rounded-lg font-bold">🗑</button>
                 </div>
@@ -350,6 +323,77 @@ export default function AdminTenant() {
         </div>
       )}
 
+      {/* MODAL EDITAR PRODUTO */}
+      {editingProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="font-bold text-sm text-blue-400">✏️ Editar Produto</h3>
+              <button onClick={() => setEditingProduct(null)} className="text-gray-400 font-bold text-sm">✕</button>
+            </div>
+
+            <form onSubmit={handleUpdateProduct} className="space-y-3">
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Nome:</label>
+                <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Descrição:</label>
+                <input type="text" value={editingProduct.description || ''} onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+              </div>
+
+              <div className="flex space-x-2">
+                <div className="w-1/2">
+                  <label className="text-[11px] text-gray-400 block mb-1">Preço R$:</label>
+                  <input type="text" value={editingProduct.price} onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+                </div>
+                <div className="w-1/2">
+                  <label className="text-[11px] text-gray-400 block mb-1">Categoria:</label>
+                  <select value={editingProduct.category_id} onChange={(e) => setEditingProduct({ ...editingProduct, category_id: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none">
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">URL da Foto:</label>
+                <input type="text" value={editingProduct.image || ''} onChange={(e) => setEditingProduct({ ...editingProduct, image: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+              </div>
+
+              {globalAddons.length > 0 && (
+                <div className="border-t border-gray-800 pt-2">
+                  <label className="text-[11px] text-gray-400 block mb-1">Adicionais Opcionais Vinculados:</label>
+                  <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+                    {globalAddons.map(a => {
+                      const formattedStr = `${a.name}:${a.price}`;
+                      const isSelected = (editingProduct.addons_list || '').includes(a.name);
+                      return (
+                        <label key={a.id} className="flex items-center space-x-1.5 bg-gray-800 p-2 rounded text-[11px] cursor-pointer">
+                          <input type="checkbox" checked={isSelected} onChange={(e) => {
+                            let currentArr = editingProduct.addons_list ? editingProduct.addons_list.split(',').filter(Boolean) : [];
+                            if (e.target.checked) currentArr.push(formattedStr);
+                            else currentArr = currentArr.filter(item => !item.startsWith(a.name));
+                            setEditingProduct({ ...editingProduct, addons_list: currentArr.join(',') });
+                          }} />
+                          <span className="truncate">{a.name} (+R${Number(a.price).toFixed(2)})</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex space-x-2 pt-2">
+                <button type="button" onClick={() => setEditingProduct(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-lg text-xs font-bold text-gray-300">Cancelar</button>
+                <button type="submit" className="w-1/2 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-lg text-xs font-bold text-white">Atualizar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* OUTRAS ABAS */}
       {activeTab === 'categories' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -373,10 +417,10 @@ export default function AdminTenant() {
       {activeTab === 'addons' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-sm text-orange-400">➕ Novo Adicional</h3>
+            <h3 className="font-bold text-sm text-orange-400">➕ Novo Adicional Opcional</h3>
             <form onSubmit={handleAddGlobalAddon} className="space-y-3">
-              <input type="text" placeholder="Nome" value={newAddon.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, name: e.target.value })} />
-              <input type="text" placeholder="Valor R$" value={newAddon.price} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, price: e.target.value })} />
+              <input type="text" placeholder="Nome Ex: Bacon Extra" value={newAddon.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, name: e.target.value })} />
+              <input type="text" placeholder="Valor R$ Ex: 3.50" value={newAddon.price} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, price: e.target.value })} />
               <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs">Cadastrar Adicional</button>
             </form>
           </section>
@@ -433,34 +477,17 @@ export default function AdminTenant() {
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
               <span className="text-[11px] text-gray-400 block mb-1">Faturamento</span>
-              <span className="text-lg font-bold text-green-400">R$ {totalRevenue.toFixed(2)}</span>
+              <span className="text-lg font-bold text-green-400">R$ {allOrders.reduce((s, o) => s + Number(o.total || 0), 0).toFixed(2)}</span>
             </div>
             <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
               <span className="text-[11px] text-gray-400 block mb-1">Pedidos</span>
-              <span className="text-lg font-bold text-orange-400">{filteredOrders.length}</span>
+              <span className="text-lg font-bold text-orange-400">{allOrders.length}</span>
             </div>
-          </div>
-
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">🏆 MAIS VENDIDOS</h3>
-            <div className="space-y-2">
-              {topProducts.map((p, idx) => (
-                <div key={idx} className="flex justify-between items-center bg-gray-800 p-2.5 rounded-lg text-xs">
-                  <span className="font-bold text-white">{idx + 1}. {p.name}</span>
-                  <span className="bg-orange-500/20 text-orange-400 px-2.5 py-1 rounded-md font-bold">{p.qty} un.</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <div className="pt-4 border-t border-gray-800">
-            <button onClick={() => setShowResetModal(true)} className="w-full bg-red-600/20 hover:bg-red-600/30 text-red-400 font-bold py-3 rounded-xl text-xs border border-red-500/30">
-              🗑️ Zerar Relatórios
-            </button>
           </div>
         </div>
       )}
 
+      {/* CONFIGURAÇÕES DA LOJA (COM LOGO E BANNER) */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -469,6 +496,16 @@ export default function AdminTenant() {
               <div>
                 <label className="text-[11px] text-gray-400 block mb-1">Nome da Loja:</label>
                 <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">URL da Logo (Perfil):</label>
+                <input type="text" value={tenant.logo_url || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, logo_url: e.target.value })} />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">URL do Banner (Capa):</label>
+                <input type="text" value={tenant.banner_url || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, banner_url: e.target.value })} />
               </div>
 
               <div>
@@ -500,26 +537,10 @@ export default function AdminTenant() {
               </div>
 
               <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs mt-2">
-                Salvar Configurações e Cor
+                Salvar Configurações, Fotos e Cor
               </button>
             </form>
           </section>
-        </div>
-      )}
-
-      {showResetModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-red-500/40 space-y-4">
-            <h3 className="font-bold text-sm text-red-400">⚠️ Zerar Relatórios</h3>
-            <p className="text-xs text-gray-300">Digite a senha de admin para confirmar:</p>
-            <form onSubmit={handleResetOrders} className="space-y-3">
-              <input type="password" value={resetPasswordInput} onChange={(e) => setResetPasswordInput(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" autoFocus />
-              <div className="flex space-x-2">
-                <button type="button" onClick={() => setShowResetModal(false)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs text-gray-300">Cancelar</button>
-                <button type="submit" className="w-1/2 bg-red-600 py-2 rounded-lg text-xs text-white font-bold">Zerar</button>
-              </div>
-            </form>
-          </div>
         </div>
       )}
     </div>
