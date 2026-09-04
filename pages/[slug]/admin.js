@@ -80,11 +80,15 @@ export default function AdminTenant() {
       promo_banners: tenant.promo_banners || '',
       primary_color: tenant.primary_color || '#FF8C00',
       secondary_color: tenant.secondary_color || '#111827',
+      opening_time: tenant.opening_time || '18:00',
+      closing_time: tenant.closing_time || '23:30',
+      pixel_id: tenant.pixel_id || '',
+      custom_message: tenant.custom_message || '',
       admin_password: tenant.admin_password
     }).eq('id', tenant.id);
 
     if (error) alert("Erro ao salvar: " + error.message);
-    else { alert("Configurações salvas!"); fetchData(); }
+    else { alert("Configurações salvas com sucesso!"); fetchData(); }
   };
 
   // HANDLERS
@@ -379,7 +383,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* RELATÓRIOS TOTALMENTE CORRIGIDOS */}
+      {/* RELATÓRIOS */}
       {activeTab === 'reports' && (
         <div className="space-y-4">
           <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs">
@@ -421,7 +425,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* CONFIGURAÇÕES + PROMO BANNERS */}
+      {/* CONFIGURAÇÕES + NOVOS CAMPOS */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -430,6 +434,27 @@ export default function AdminTenant() {
               <div>
                 <label className="text-[11px] text-gray-400 block mb-1">Nome da Loja:</label>
                 <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Horário Abertura:</label>
+                  <input type="time" value={tenant.opening_time || '18:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, opening_time: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Horário Fechamento:</label>
+                  <input type="time" value={tenant.closing_time || '23:30'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, closing_time: e.target.value })} />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">ID do Pixel do Meta (Facebook/Instagram):</label>
+                <input type="text" placeholder="Ex: 123456789012345" value={tenant.pixel_id || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none font-mono" onChange={(e) => setTenant({ ...tenant, pixel_id: e.target.value })} />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Aviso/Instrução Adicional no Pedido:</label>
+                <input type="text" placeholder="Ex: Chave PIX: CNPJ 00.000.000/0001-00. Entrega em 40 min." value={tenant.custom_message || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, custom_message: e.target.value })} />
               </div>
 
               <div>
