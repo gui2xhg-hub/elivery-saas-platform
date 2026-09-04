@@ -69,7 +69,7 @@ export default function MasterAdmin() {
     if (error) {
       alert("Erro ao criar cliente: " + error.message);
     } else {
-      // Se for do tipo Delivery, cria as categorias padrão
+      // Se for do tipo Delivery, cadastra as categorias padrão
       if (isDelivery) {
         await supabase.from('categories').insert([
           { tenant_id: data.id, name: 'Lanches' },
@@ -77,7 +77,7 @@ export default function MasterAdmin() {
         ]);
       }
 
-      alert(`Cliente "${data.name}" criado com sucesso como ${isDelivery ? 'DELIVERY' : 'AGENDAMENTO'}!\nLink: /${data.slug}`);
+      alert(`Cliente "${data.name}" criado com sucesso como ${isDelivery ? 'DELIVERY' : 'AGENDAMENTO'}!\nSlug: /${data.slug}`);
       setNewTenant({
         name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '',
         primary_color: '#FF8C00', secondary_color: '#111827',
@@ -94,7 +94,7 @@ export default function MasterAdmin() {
   };
 
   const handleDeleteTenant = async (id, name) => {
-    if (confirm(`TEM CERTEZA que deseja apagar o cliente "${name}"?`)) {
+    if (confirm(`TEM CERTEZA que deseja apagar o cliente "${name}"?\nIsso apaga todos os dados definitivamente!`)) {
       await supabase.from('tenants').delete().eq('id', id);
       fetchTenants();
       alert(`Cliente ${name} removido com sucesso.`);
@@ -138,10 +138,10 @@ export default function MasterAdmin() {
 
       {/* CADASTRAR NOVO CLIENTE */}
       <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4 mb-8">
-        <h2 className="font-bold text-sm text-orange-400">➕ Cadastrar Novo Cliente</h2>
+        <h2 className="font-bold text-sm text-orange-400">➕ Cadastrar Novo Cliente / Estabelecimento</h2>
         <form onSubmit={handleCreateTenant} className="space-y-3">
           
-          {/* SELEÇÃO EXCLUSIVA DE NICHO */}
+          {/* SELEÇÃO DE NICHO */}
           <div className="bg-gray-800 p-3 rounded-xl border border-gray-700 space-y-2">
             <label className="text-[11px] font-bold text-gray-300 block uppercase">Tipo de Negócio (Nicho):</label>
             <div className="grid grid-cols-2 gap-2">
@@ -204,6 +204,47 @@ export default function MasterAdmin() {
             </div>
           </div>
 
+          {/* PERSONALIZAÇÃO VISUAL: LOGO E BANNER */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">URL da Logo (Opcional):</label>
+              <input 
+                type="text" placeholder="https://..." value={newTenant.logo_url}
+                onChange={(e) => setNewTenant({ ...newTenant, logo_url: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">URL do Banner (Opcional):</label>
+              <input 
+                type="text" placeholder="https://..." value={newTenant.banner_url}
+                onChange={(e) => setNewTenant({ ...newTenant, banner_url: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {/* CORES PERSONALIZADAS */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">Cor Principal (Botões):</label>
+              <div className="flex space-x-2 items-center">
+                <input type="color" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="h-9 w-10 bg-gray-800 border border-gray-700 rounded cursor-pointer" />
+                <input type="text" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">Cor Secundária (Fundo):</label>
+              <div className="flex space-x-2 items-center">
+                <input type="color" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="h-9 w-10 bg-gray-800 border border-gray-700 rounded cursor-pointer" />
+                <input type="text" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono" />
+              </div>
+            </div>
+          </div>
+
+          {/* DADOS FINANCEIROS E ACESSO */}
           <div className="grid grid-cols-3 gap-2">
             <div>
               <label className="text-[11px] text-gray-400 block mb-1">Vencimento:</label>
@@ -251,6 +292,8 @@ export default function MasterAdmin() {
               <div className="flex justify-between items-start">
                 <div>
                   <div className="flex items-center space-x-2">
+                    <span className="w-3 h-3 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.primary_color || '#FF8C00' }}></span>
+                    <span className="w-3 h-3 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.secondary_color || '#111827' }}></span>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${isAgendamento ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
                       {isAgendamento ? '💈 Agendamento' : '🍔 Delivery'}
                     </span>
@@ -280,7 +323,7 @@ export default function MasterAdmin() {
                 </div>
               </div>
 
-              {/* MOSTRA APENAS OS LINKS DO NICHO SELECIONADO */}
+              {/* EXIBIÇÃO DE LINKS CONFORME O NICHO */}
               {isAgendamento ? (
                 <div className="pt-2 border-t border-gray-800 space-y-1">
                   <span className="text-[10px] font-bold text-purple-400 uppercase">📅 Links de Agendamento:</span>
