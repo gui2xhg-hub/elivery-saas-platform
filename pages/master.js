@@ -10,6 +10,8 @@ export default function MasterAdmin() {
     name: '',
     slug: '',
     whatsapp: '',
+    logo_url: '',
+    banner_url: '',
     primary_color: '#FF8C00',
     admin_password: ''
   });
@@ -38,13 +40,16 @@ export default function MasterAdmin() {
     const cleanSlug = newTenant.slug.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
     const cleanPhone = newTenant.whatsapp.replace(/\D/g, '');
 
+    const fallbackLogo = 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=150&auto=format&fit=crop&q=80';
+    const fallbackBanner = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80';
+
     const { data, error } = await supabase.from('tenants').insert([{
       name: newTenant.name.trim(),
       slug: cleanSlug,
       whatsapp: cleanPhone,
+      logo_url: newTenant.logo_url || fallbackLogo,
+      banner_url: newTenant.banner_url || fallbackBanner,
       admin_password: newTenant.admin_password || '123456',
-      logo_url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=150&auto=format&fit=crop&q=80',
-      banner_url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80',
       primary_color: newTenant.primary_color || '#FF8C00'
     }]).select().single();
 
@@ -57,13 +62,13 @@ export default function MasterAdmin() {
       ]);
 
       alert(`Restaurante "${data.name}" criado com sucesso!\nLink do Cardápio: /${data.slug}`);
-      setNewTenant({ name: '', slug: '', whatsapp: '', primary_color: '#FF8C00', admin_password: '' });
+      setNewTenant({ name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '', primary_color: '#FF8C00', admin_password: '' });
       fetchTenants();
     }
   };
 
   const handleDeleteTenant = async (id, name) => {
-    if (confirm(`TEM CERTEZA que deseja apagar o cliente "${name}"?\nIsso vai liberar espaço limpando todos os produtos e histórico de pedidos dele definitivamente!`)) {
+    if (confirm(`TEM CERTEZA que deseja apagar o cliente "${name}"?\nIsso apaga todos os produtos e pedidos dele definitivamente liberando espaço!`)) {
       await supabase.from('tenants').delete().eq('id', id);
       fetchTenants();
       alert(`Cliente ${name} removido com sucesso.`);
@@ -113,7 +118,7 @@ export default function MasterAdmin() {
             <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
             <input 
               type="text" 
-              placeholder="Ex: Santo Burguer e HotDog" 
+              placeholder="Ex: Santo Dog" 
               value={newTenant.name}
               onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })}
               className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
@@ -125,7 +130,7 @@ export default function MasterAdmin() {
               <label className="text-[11px] text-gray-400 block mb-1">Slug / Link (Sem espaços):</label>
               <input 
                 type="text" 
-                placeholder="Ex: santoburguer" 
+                placeholder="Ex: santodog" 
                 value={newTenant.slug}
                 onChange={(e) => setNewTenant({ ...newTenant, slug: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
@@ -146,7 +151,31 @@ export default function MasterAdmin() {
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Cor Principal do Cardápio:</label>
+              <label className="text-[11px] text-gray-400 block mb-1">URL da Logo (Opcional):</label>
+              <input 
+                type="text" 
+                placeholder="https://..." 
+                value={newTenant.logo_url}
+                onChange={(e) => setNewTenant({ ...newTenant, logo_url: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">URL do Banner (Opcional):</label>
+              <input 
+                type="text" 
+                placeholder="https://..." 
+                value={newTenant.banner_url}
+                onChange={(e) => setNewTenant({ ...newTenant, banner_url: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">Cor do Cardápio:</label>
               <div className="flex space-x-2 items-center">
                 <input 
                   type="color" 
