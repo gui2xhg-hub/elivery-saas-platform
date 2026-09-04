@@ -12,8 +12,11 @@ export default function MasterAdmin() {
     whatsapp: '',
     logo_url: '',
     banner_url: '',
-    primary_color: '#FF8C00',
-    secondary_color: '#111827',
+    primary_color: '#FF8C00',       // Cor do Botão
+    button_text_color: '#FFFFFF',   // Texto do Botão
+    secondary_color: '#090D16',     // Fundo do Site
+    card_bg_color: '#111827',       // Fundo dos Cards
+    text_color: '#FFFFFF',          // Texto Geral do Site
     due_date: '',
     monthly_fee: '99.00',
     admin_password: '',
@@ -33,6 +36,38 @@ export default function MasterAdmin() {
   const fetchTenants = async () => {
     const { data } = await supabase.from('tenants').select('*').order('id', { ascending: false });
     if (data) setTenants(data);
+  };
+
+  // PREDEFINIÇÕES RÁPIDAS DE CORES
+  const applyPreset = (type) => {
+    if (type === 'dark_orange') {
+      setNewTenant(prev => ({
+        ...prev,
+        primary_color: '#FF8C00',
+        button_text_color: '#FFFFFF',
+        secondary_color: '#090D16',
+        card_bg_color: '#111827',
+        text_color: '#FFFFFF'
+      }));
+    } else if (type === 'light_pink') {
+      setNewTenant(prev => ({
+        ...prev,
+        primary_color: '#EC4899', // Rosa
+        button_text_color: '#FFFFFF',
+        secondary_color: '#F9FAFB', // Fundo Branco/Claro
+        card_bg_color: '#FFFFFF',   // Card Branco
+        text_color: '#111827'       // Texto Escuro
+      }));
+    } else if (type === 'purple_barber') {
+      setNewTenant(prev => ({
+        ...prev,
+        primary_color: '#A855F7', // Roxo
+        button_text_color: '#FFFFFF',
+        secondary_color: '#0F172A',
+        card_bg_color: '#1E293B',
+        text_color: '#F8FAFC'
+      }));
+    }
   };
 
   const handleCreateTenant = async (e) => {
@@ -58,7 +93,10 @@ export default function MasterAdmin() {
       banner_url: newTenant.banner_url || fallbackBanner,
       admin_password: newTenant.admin_password || '123456',
       primary_color: newTenant.primary_color || '#FF8C00',
-      secondary_color: newTenant.secondary_color || '#111827',
+      button_text_color: newTenant.button_text_color || '#FFFFFF',
+      secondary_color: newTenant.secondary_color || '#090D16',
+      card_bg_color: newTenant.card_bg_color || '#111827',
+      text_color: newTenant.text_color || '#FFFFFF',
       due_date: newTenant.due_date || null,
       monthly_fee: parseFloat(newTenant.monthly_fee) || 99.00,
       active: true,
@@ -69,7 +107,6 @@ export default function MasterAdmin() {
     if (error) {
       alert("Erro ao criar cliente: " + error.message);
     } else {
-      // Se for do tipo Delivery, cadastra as categorias padrão
       if (isDelivery) {
         await supabase.from('categories').insert([
           { tenant_id: data.id, name: 'Lanches' },
@@ -77,10 +114,11 @@ export default function MasterAdmin() {
         ]);
       }
 
-      alert(`Cliente "${data.name}" criado com sucesso como ${isDelivery ? 'DELIVERY' : 'AGENDAMENTO'}!\nSlug: /${data.slug}`);
+      alert(`Cliente "${data.name}" criado com sucesso!\nSlug: /${data.slug}`);
       setNewTenant({
         name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '',
-        primary_color: '#FF8C00', secondary_color: '#111827',
+        primary_color: '#FF8C00', button_text_color: '#FFFFFF',
+        secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF',
         due_date: '', monthly_fee: '99.00', admin_password: '',
         business_type: 'delivery'
       });
@@ -125,7 +163,7 @@ export default function MasterAdmin() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-4 max-w-3xl mx-auto font-sans pb-12">
+    <div className="min-h-screen bg-gray-950 text-white p-4 max-w-4xl mx-auto font-sans pb-12">
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6">
         <div>
           <h1 className="font-bold text-xl text-orange-500">🚀 Sinerge Multi-SaaS Master</h1>
@@ -139,7 +177,7 @@ export default function MasterAdmin() {
       {/* CADASTRAR NOVO CLIENTE */}
       <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4 mb-8">
         <h2 className="font-bold text-sm text-orange-400">➕ Cadastrar Novo Cliente / Estabelecimento</h2>
-        <form onSubmit={handleCreateTenant} className="space-y-3">
+        <form onSubmit={handleCreateTenant} className="space-y-4">
           
           {/* SELEÇÃO DE NICHO */}
           <div className="bg-gray-800 p-3 rounded-xl border border-gray-700 space-y-2">
@@ -178,7 +216,7 @@ export default function MasterAdmin() {
           <div>
             <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
             <input 
-              type="text" placeholder="Ex: Barbearia Silva ou Santo Dog" value={newTenant.name}
+              type="text" placeholder="Ex: Salão Lanna ou Barbearia Silva" value={newTenant.name}
               onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })}
               className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
             />
@@ -188,7 +226,7 @@ export default function MasterAdmin() {
             <div>
               <label className="text-[11px] text-gray-400 block mb-1">Slug / Link (Sem espaços):</label>
               <input 
-                type="text" placeholder="Ex: barbeariasilva" value={newTenant.slug}
+                type="text" placeholder="Ex: lannadesigner" value={newTenant.slug}
                 onChange={(e) => setNewTenant({ ...newTenant, slug: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
               />
@@ -204,42 +242,58 @@ export default function MasterAdmin() {
             </div>
           </div>
 
-          {/* PERSONALIZAÇÃO VISUAL: LOGO E BANNER */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">URL da Logo (Opcional):</label>
-              <input 
-                type="text" placeholder="https://..." value={newTenant.logo_url}
-                onChange={(e) => setNewTenant({ ...newTenant, logo_url: e.target.value })}
-                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">URL do Banner (Opcional):</label>
-              <input 
-                type="text" placeholder="https://..." value={newTenant.banner_url}
-                onChange={(e) => setNewTenant({ ...newTenant, banner_url: e.target.value })}
-                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {/* CORES PERSONALIZADAS */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Cor Principal (Botões):</label>
-              <div className="flex space-x-2 items-center">
-                <input type="color" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="h-9 w-10 bg-gray-800 border border-gray-700 rounded cursor-pointer" />
-                <input type="text" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono" />
+          {/* PERSONALIZAÇÃO DE CORES DA INTERFACE */}
+          <div className="bg-gray-800/80 p-3.5 rounded-xl border border-gray-700 space-y-3">
+            <div className="flex justify-between items-center">
+              <label className="text-[11px] font-bold text-orange-400 uppercase tracking-wider block">🎨 Personalização do Tema:</label>
+              
+              {/* BOTÕES DE PREDEFINIÇÃO RÁPIDA */}
+              <div className="flex space-x-1.5 text-[10px]">
+                <button type="button" onClick={() => applyPreset('dark_orange')} className="bg-gray-900 border border-orange-500/50 text-orange-400 px-2 py-1 rounded font-bold">Dark Laranja</button>
+                <button type="button" onClick={() => applyPreset('light_pink')} className="bg-pink-500/20 border border-pink-500 text-pink-300 px-2 py-1 rounded font-bold">Rosa / Claro</button>
+                <button type="button" onClick={() => applyPreset('purple_barber')} className="bg-purple-500/20 border border-purple-500 text-purple-300 px-2 py-1 rounded font-bold">Roxo Barber</button>
               </div>
             </div>
 
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Cor Secundária (Fundo):</label>
-              <div className="flex space-x-2 items-center">
-                <input type="color" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="h-9 w-10 bg-gray-800 border border-gray-700 rounded cursor-pointer" />
-                <input type="text" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">Cor do Botão:</label>
+                <div className="flex space-x-1.5 items-center">
+                  <input type="color" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                  <input type="text" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">Texto do Botão:</label>
+                <div className="flex space-x-1.5 items-center">
+                  <input type="color" value={newTenant.button_text_color} onChange={(e) => setNewTenant({ ...newTenant, button_text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                  <input type="text" value={newTenant.button_text_color} onChange={(e) => setNewTenant({ ...newTenant, button_text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">Fundo do Site:</label>
+                <div className="flex space-x-1.5 items-center">
+                  <input type="color" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                  <input type="text" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">Fundo dos Cards:</label>
+                <div className="flex space-x-1.5 items-center">
+                  <input type="color" value={newTenant.card_bg_color} onChange={(e) => setNewTenant({ ...newTenant, card_bg_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                  <input type="text" value={newTenant.card_bg_color} onChange={(e) => setNewTenant({ ...newTenant, card_bg_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">Cor da Fonte/Texto:</label>
+                <div className="flex space-x-1.5 items-center">
+                  <input type="color" value={newTenant.text_color} onChange={(e) => setNewTenant({ ...newTenant, text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                  <input type="text" value={newTenant.text_color} onChange={(e) => setNewTenant({ ...newTenant, text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                </div>
               </div>
             </div>
           </div>
@@ -293,7 +347,7 @@ export default function MasterAdmin() {
                 <div>
                   <div className="flex items-center space-x-2">
                     <span className="w-3 h-3 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.primary_color || '#FF8C00' }}></span>
-                    <span className="w-3 h-3 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.secondary_color || '#111827' }}></span>
+                    <span className="w-3 h-3 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.secondary_color || '#090D16' }}></span>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${isAgendamento ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
                       {isAgendamento ? '💈 Agendamento' : '🍔 Delivery'}
                     </span>
@@ -323,7 +377,7 @@ export default function MasterAdmin() {
                 </div>
               </div>
 
-              {/* EXIBIÇÃO DE LINKS CONFORME O NICHO */}
+              {/* LINKS DE ACESSO */}
               {isAgendamento ? (
                 <div className="pt-2 border-t border-gray-800 space-y-1">
                   <span className="text-[10px] font-bold text-purple-400 uppercase">📅 Links de Agendamento:</span>
