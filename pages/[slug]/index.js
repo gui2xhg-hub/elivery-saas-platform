@@ -13,13 +13,11 @@ export default function CardapioTenant() {
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Modal e Formulário
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedAddons, setSelectedAddons] = useState([]);
   const [itemObs, setItemObs] = useState('');
 
-  // Checkout
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -30,9 +28,7 @@ export default function CardapioTenant() {
   const [paymentMethod, setPaymentMethod] = useState('PIX');
 
   useEffect(() => {
-    if (slug) {
-      fetchTenantData();
-    }
+    if (slug) fetchTenantData();
   }, [slug]);
 
   const fetchTenantData = async () => {
@@ -51,38 +47,43 @@ export default function CardapioTenant() {
 
     setTenant(tData);
 
-    const { data: cData } = await supabase.from('categories').select('*').eq('tenant_id', tData.id).order('id', { ascending: true });
-    const { data: pData } = await supabase.from('products').select('*').eq('tenant_id', tData.id).eq('active', true).order('id', { ascending: true });
-    const { data: nData } = await supabase.from('neighborhoods').select('*').eq('tenant_id', tData.id).order('id', { ascending: true });
+    if (tData.active !== false) {
+      const { data: cData } = await supabase.from('categories').select('*').eq('tenant_id', tData.id).order('id', { ascending: true });
+      const { data: pData } = await supabase.from('products').select('*').eq('tenant_id', tData.id).eq('active', true).order('id', { ascending: true });
+      const { data: nData } = await supabase.from('neighborhoods').select('*').eq('tenant_id', tData.id).order('id', { ascending: true });
 
-    if (cData) setCategories(cData);
-    if (pData) setProducts(pData);
-    if (nData) {
-      setNeighborhoods(nData);
-      if (nData.length > 0) setSelectedNeigh(nData[0].name);
+      if (cData) setCategories(cData);
+      if (pData) setProducts(pData);
+      if (nData) {
+        setNeighborhoods(nData);
+        if (nData.length > 0) setSelectedNeigh(nData[0].name);
+      }
     }
 
     setLoading(false);
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans">
-        <p className="text-sm text-gray-400">Carregando cardápio...</p>
-      </div>
-    );
-  }
+  if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-sm text-gray-400">Carregando cardápio...</p></div>;
 
-  if (!tenant) {
+  if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Restaurante não encontrado</h1></div>;
+
+  // TELA DE CLIENTE PAUSADO POR FALTA DE PAGAMENTO
+  if (tenant.active === false) {
     return (
-      <div className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center p-4 text-center font-sans">
-        <h1 className="text-2xl font-bold text-orange-500 mb-2">Restaurante não encontrado</h1>
-        <p className="text-xs text-gray-400">Verifique o endereço digitado.</p>
+      <div className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center p-6 text-center font-sans">
+        <div className="bg-gray-900 border border-red-500/30 p-8 rounded-3xl max-w-sm space-y-3">
+          <span className="text-4xl block">🛑</span>
+          <h1 className="font-bold text-lg text-red-400">Estabelecimento Indisponível</h1>
+          <p className="text-xs text-gray-400">
+            O cardápio de <b>{tenant.name}</b> está temporariamente suspenso. Se você é o responsável, entre em contato com o suporte para reativação.
+          </p>
+        </div>
       </div>
     );
   }
 
   const primaryColor = tenant.primary_color || '#FF8C00';
+  const secondaryColor = tenant.secondary_color || '#111827';
 
   const subtotal = cart.reduce((acc, item) => acc + (item.totalPrice * item.quantity), 0);
   const currentNeighObj = neighborhoods.find(n => n.name === selectedNeigh);
@@ -98,14 +99,10 @@ export default function CardapioTenant() {
 
   const handleToggleAddon = (addon) => {
     const exists = selectedAddons.find(a => a.name === addon.name);
-    if (exists) {
-      setSelectedAddons(selectedAddons.filter(a => a.name !== addon.name));
-    } else {
-      setSelectedAddons([...selectedAddons, addon]);
-    }
+    if (exists) setSelectedAddons(selectedAddons.filter(a => a.name !== addon.name));
+    else setSelectedAddons([...selectedAddons, addon]);
   };
 
-  // Calcula o valor unitário (Base + Adicionais selecionados)
   const calculateUnitTotal = () => {
     if (!selectedProduct) return 0;
     const addonsTotal = selectedAddons.reduce((acc, a) => acc + Number(a.price), 0);
@@ -133,8 +130,8 @@ export default function CardapioTenant() {
 
   const handleSendOrder = async (e) => {
     e.preventDefault();
-    if (!customerName || !customerPhone) return alert("Preencha seu Nome e Telefone/WhatsApp!");
-    if (orderType === 'delivery' && (!address || !selectedNeigh)) return alert("Preencha o Endereço e Bairro de entrega!");
+    if (!customerName || !customerPhone) return alert("Preencha seu Nome e WhatsApp!");
+    if (orderType === 'delivery' && (!address || !selectedNeigh)) return alert("Preencha o Endereço!");
 
     const orderData = {
       tenant_id: tenant.id,
@@ -154,41 +151,27 @@ export default function CardapioTenant() {
     };
 
     const { data: createdOrder, error } = await supabase.from('orders').insert([orderData]).select().single();
-
-    if (error) {
-      alert("Erro ao enviar pedido: " + error.message);
-      return;
-    }
+    if (error) return alert("Erro ao enviar pedido: " + error.message);
 
     let text = `*NOVO PEDIDO #${createdOrder.id} - ${tenant.name.toUpperCase()}*\n\n`;
     text += `*Cliente:* ${customerName}\n`;
     text += `*Telefone:* ${customerPhone}\n`;
-    text += `*Tipo:* ${orderType === 'delivery' ? 'Entrega 🛵' : 'Retirada no Balcão 🛍️'}\n`;
-
+    text += `*Tipo:* ${orderType === 'delivery' ? 'Entrega 🛵' : 'Retirada 🛍️'}\n`;
     if (orderType === 'delivery') {
-      text += `*Bairro:* ${selectedNeigh}\n`;
-      text += `*Endereço:* ${address}\n`;
+      text += `*Bairro:* ${selectedNeigh}\n*Endereço:* ${address}\n`;
       if (reference) text += `*Ref:* ${reference}\n`;
     }
-
-    text += `*Pagamento:* ${paymentMethod}\n\n`;
-    text += `*ITENS DO PEDIDO:*\n`;
-
+    text += `*Pagamento:* ${paymentMethod}\n\n*ITENS DO PEDIDO:*\n`;
     cart.forEach(it => {
       text += `• ${it.quantity}x ${it.name} (R$ ${Number(it.totalPrice * it.quantity).toFixed(2)})\n`;
       if (it.details) text += `   _${it.details}_\n`;
     });
-
-    text += `\n*Subtotal:* R$ ${subtotal.toFixed(2)}\n`;
-    text += `*Taxa Entrega:* R$ ${deliveryFee.toFixed(2)}\n`;
-    text += `*TOTAL:* *R$ ${total.toFixed(2)}*`;
+    text += `\n*Subtotal:* R$ ${subtotal.toFixed(2)}\n*Taxa Entrega:* R$ ${deliveryFee.toFixed(2)}\n*TOTAL:* *R$ ${total.toFixed(2)}*`;
 
     const cleanWhatsapp = tenant.whatsapp.replace(/\D/g, '');
     window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(text)}`, '_blank');
-
     setCart([]);
     setIsCheckoutOpen(false);
-    alert("Pedido enviado com sucesso!");
   };
 
   const parsedAddons = selectedProduct?.addons_list ? selectedProduct.addons_list.split(',').filter(Boolean).map(str => {
@@ -197,18 +180,12 @@ export default function CardapioTenant() {
   }) : [];
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white font-sans pb-24 max-w-md mx-auto">
+    <div className="min-h-screen text-white font-sans pb-24 max-w-md mx-auto" style={{ backgroundColor: secondaryColor }}>
       {/* BANNER E LOGO */}
       <div className="relative h-40 bg-gray-900 border-b border-gray-800">
-        <img 
-          src={tenant.banner_url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80'} 
-          alt="Banner" className="w-full h-full object-cover opacity-60" 
-        />
+        <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80'} alt="Banner" className="w-full h-full object-cover opacity-60" />
         <div className="absolute -bottom-6 left-4 flex items-center space-x-3">
-          <img 
-            src={tenant.logo_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=150&auto=format&fit=crop&q=80'} 
-            alt="Logo" className="w-16 h-16 rounded-full border-2 border-gray-950 object-cover bg-gray-800 shadow-lg" 
-          />
+          <img src={tenant.logo_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=150&auto=format&fit=crop&q=80'} alt="Logo" className="w-16 h-16 rounded-full border-2 border-gray-950 object-cover bg-gray-800 shadow-lg" />
           <div className="pt-6">
             <h1 className="font-bold text-lg text-white leading-tight">{tenant.name}</h1>
             <span className="text-[10px] bg-green-500/20 text-green-400 px-2 py-0.5 rounded font-bold">🟢 Aberto Agora</span>
@@ -223,30 +200,21 @@ export default function CardapioTenant() {
 
           return (
             <div key={cat.id} className="space-y-3">
-              <h2 className="font-bold text-sm uppercase tracking-wider border-b border-gray-800 pb-1" style={{ color: primaryColor }}>
+              <h2 className="font-bold text-sm uppercase tracking-wider border-b border-gray-800/40 pb-1" style={{ color: primaryColor }}>
                 {cat.name}
               </h2>
               <div className="space-y-2.5">
                 {catProducts.map(prod => (
-                  <div 
-                    key={prod.id} 
-                    onClick={() => handleOpenModal(prod)}
-                    className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center cursor-pointer hover:border-gray-700 transition">
+                  <div key={prod.id} onClick={() => handleOpenModal(prod)} className="bg-black/30 p-3 rounded-xl border border-white/10 flex justify-between items-center cursor-pointer hover:border-white/20 transition">
                     <div className="flex-1 pr-3">
                       <h3 className="font-bold text-xs text-white">{prod.name}</h3>
                       {prod.description && <p className="text-[10px] text-gray-400 line-clamp-2 mt-0.5">{prod.description}</p>}
                       <div className="flex items-center space-x-2 mt-1.5">
-                        <span className="text-xs font-bold" style={{ color: primaryColor }}>
-                          R$ {Number(prod.price).toFixed(2)}
-                        </span>
-                        <span className="text-[10px] bg-gray-800 px-2 py-0.5 rounded font-bold border border-gray-700 text-gray-300">
-                          + Pedir
-                        </span>
+                        <span className="text-xs font-bold" style={{ color: primaryColor }}>R$ {Number(prod.price).toFixed(2)}</span>
+                        <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded font-bold text-gray-200">+ Pedir</span>
                       </div>
                     </div>
-                    {prod.image && (
-                      <img src={prod.image} alt={prod.name} className="w-16 h-16 rounded-lg object-cover bg-gray-800 border border-gray-800" />
-                    )}
+                    {prod.image && <img src={prod.image} alt={prod.name} className="w-16 h-16 rounded-lg object-cover bg-gray-800" />}
                   </div>
                 ))}
               </div>
@@ -255,13 +223,10 @@ export default function CardapioTenant() {
         })}
       </div>
 
-      {/* BARRA FIXA CARRINHO */}
+      {/* CARRINHO FIXO */}
       {cart.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-3 bg-gray-950 border-t border-gray-800 z-40">
-          <button 
-            onClick={() => setIsCheckoutOpen(true)}
-            style={{ backgroundColor: primaryColor }}
-            className="w-full font-bold py-3 px-4 rounded-xl text-xs flex justify-between items-center text-white shadow-lg transition opacity-90 hover:opacity-100">
+        <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-3 bg-black/80 backdrop-blur border-t border-white/10 z-40">
+          <button onClick={() => setIsCheckoutOpen(true)} style={{ backgroundColor: primaryColor }} className="w-full font-bold py-3 px-4 rounded-xl text-xs flex justify-between items-center text-white shadow-lg">
             <span>🛒 Ver Pedido ({cart.length})</span>
             <span>R$ {subtotal.toFixed(2)} ➔</span>
           </button>
@@ -270,36 +235,26 @@ export default function CardapioTenant() {
 
       {/* MODAL ADICIONAR ITEM */}
       {selectedProduct && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-end justify-center z-50">
+        <div className="fixed inset-0 bg-black/80 flex items-end justify-center z-50">
           <div className="bg-gray-900 w-full max-w-md rounded-t-2xl p-4 border-t border-gray-800 max-h-[85vh] overflow-y-auto space-y-4">
             <div className="flex justify-between items-start border-b border-gray-800 pb-2">
               <div>
                 <h3 className="font-bold text-sm text-white">{selectedProduct.name}</h3>
-                <span className="text-xs font-bold" style={{ color: primaryColor }}>
-                  R$ {Number(selectedProduct.price).toFixed(2)}
-                </span>
+                <span className="text-xs font-bold" style={{ color: primaryColor }}>R$ {Number(selectedProduct.price).toFixed(2)}</span>
               </div>
               <button onClick={() => setSelectedProduct(null)} className="text-gray-400 font-bold text-sm">✕</button>
             </div>
 
             {parsedAddons.length > 0 && (
               <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <label className="text-xs text-gray-400 font-bold block">Adicionais Opcionais:</label>
-                  <span className="text-[10px] text-gray-500">(Aplicado a cada unidade)</span>
-                </div>
+                <label className="text-xs text-gray-400 font-bold block">Adicionais Opcionais:</label>
                 <div className="space-y-1.5">
                   {parsedAddons.map((ad, idx) => {
                     const isChecked = selectedAddons.some(a => a.name === ad.name);
                     return (
                       <label key={idx} className="flex justify-between items-center bg-gray-800 p-2.5 rounded-lg text-xs cursor-pointer">
                         <div className="flex items-center space-x-2">
-                          <input 
-                            type="checkbox" 
-                            checked={isChecked}
-                            onChange={() => handleToggleAddon(ad)}
-                            className="rounded bg-gray-700 border-gray-600"
-                          />
+                          <input type="checkbox" checked={isChecked} onChange={() => handleToggleAddon(ad)} className="rounded bg-gray-700" />
                           <span>{ad.name}</span>
                         </div>
                         <span className="font-bold" style={{ color: primaryColor }}>+ R$ {ad.price.toFixed(2)}</span>
@@ -312,13 +267,7 @@ export default function CardapioTenant() {
 
             <div>
               <label className="text-xs text-gray-400 font-bold block mb-1">Observações:</label>
-              <input 
-                type="text" 
-                placeholder="Ex: Sem cebola, molho à parte..."
-                value={itemObs}
-                onChange={(e) => setItemObs(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
-              />
+              <input type="text" placeholder="Ex: Sem cebola..." value={itemObs} onChange={(e) => setItemObs(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-gray-800">
@@ -328,10 +277,7 @@ export default function CardapioTenant() {
                 <button onClick={() => setQuantity(quantity + 1)} className="w-7 h-7 bg-gray-700 font-bold rounded text-xs">+</button>
               </div>
 
-              <button 
-                onClick={handleAddToCart}
-                style={{ backgroundColor: primaryColor }}
-                className="flex-1 ml-3 font-bold py-2.5 rounded-lg text-xs text-white">
+              <button onClick={handleAddToCart} style={{ backgroundColor: primaryColor }} className="flex-1 ml-3 font-bold py-2.5 rounded-lg text-xs text-white">
                 Adicionar ({quantity}x = R$ {(calculateUnitTotal() * quantity).toFixed(2)})
               </button>
             </div>
@@ -339,9 +285,9 @@ export default function CardapioTenant() {
         </div>
       )}
 
-      {/* MODAL CHECKOUT */}
+      {/* CHECKOUT */}
       {isCheckoutOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-end justify-center z-50">
+        <div className="fixed inset-0 bg-black/80 flex items-end justify-center z-50">
           <div className="bg-gray-900 w-full max-w-md rounded-t-2xl p-5 border-t border-gray-800 max-h-[90vh] overflow-y-auto space-y-4">
             <div className="flex justify-between items-center border-b border-gray-800 pb-2">
               <h3 className="font-bold text-sm" style={{ color: primaryColor }}>🛍️ Finalizar Pedido</h3>
@@ -349,84 +295,29 @@ export default function CardapioTenant() {
             </div>
 
             <form onSubmit={handleSendOrder} className="space-y-3">
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Seu Nome:</label>
-                <input 
-                  type="text" required placeholder="Ex: João Silva" value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Seu WhatsApp:</label>
-                <input 
-                  type="text" required placeholder="Ex: 47999999999" value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
-                />
-              </div>
+              <input type="text" required placeholder="Seu Nome" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+              <input type="text" required placeholder="Seu WhatsApp" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
 
               <div className="flex space-x-2">
-                <button 
-                  type="button" 
-                  onClick={() => setOrderType('delivery')}
-                  style={{ backgroundColor: orderType === 'delivery' ? primaryColor : '', borderColor: orderType === 'delivery' ? primaryColor : '' }}
-                  className={`flex-1 py-2 rounded-lg text-xs font-bold border ${orderType === 'delivery' ? 'text-white' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
-                  🛵 Delivery
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => setOrderType('pickup')}
-                  style={{ backgroundColor: orderType === 'pickup' ? primaryColor : '', borderColor: orderType === 'pickup' ? primaryColor : '' }}
-                  className={`flex-1 py-2 rounded-lg text-xs font-bold border ${orderType === 'pickup' ? 'text-white' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
-                  🛍️ Retirada
-                </button>
+                <button type="button" onClick={() => setOrderType('delivery')} style={{ backgroundColor: orderType === 'delivery' ? primaryColor : '' }} className={`flex-1 py-2 rounded-lg text-xs font-bold border ${orderType === 'delivery' ? 'text-white' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>🛵 Delivery</button>
+                <button type="button" onClick={() => setOrderType('pickup')} style={{ backgroundColor: orderType === 'pickup' ? primaryColor : '' }} className={`flex-1 py-2 rounded-lg text-xs font-bold border ${orderType === 'pickup' ? 'text-white' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>🛍️ Retirada</button>
               </div>
 
               {orderType === 'delivery' && (
                 <>
-                  <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Bairro:</label>
-                    <select 
-                      value={selectedNeigh} 
-                      onChange={(e) => setSelectedNeigh(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none">
-                      {neighborhoods.map(n => <option key={n.id} value={n.name}>{n.name} (+R$ {Number(n.fee).toFixed(2)})</option>)}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Endereço e Número:</label>
-                    <input 
-                      type="text" required placeholder="Ex: Rua das Flores, 123" value={address}
-                      onChange={(e) => setAddress(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Ponto de Referência:</label>
-                    <input 
-                      type="text" placeholder="Ex: Próximo à padaria" value={reference}
-                      onChange={(e) => setReference(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
-                    />
-                  </div>
+                  <select value={selectedNeigh} onChange={(e) => setSelectedNeigh(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none">
+                    {neighborhoods.map(n => <option key={n.id} value={n.name}>{n.name} (+R$ {Number(n.fee).toFixed(2)})</option>)}
+                  </select>
+                  <input type="text" required placeholder="Endereço e Número" value={address} onChange={(e) => setAddress(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+                  <input type="text" placeholder="Ponto de Referência" value={reference} onChange={(e) => setReference(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
                 </>
               )}
 
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Forma de Pagamento:</label>
-                <select 
-                  value={paymentMethod} 
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none">
-                  <option value="PIX">PIX</option>
-                  <option value="Cartão na Entrega">Cartão na Entrega</option>
-                  <option value="Dinheiro">Dinheiro</option>
-                </select>
-              </div>
+              <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none">
+                <option value="PIX">PIX</option>
+                <option value="Cartão na Entrega">Cartão na Entrega</option>
+                <option value="Dinheiro">Dinheiro</option>
+              </select>
 
               <div className="bg-gray-800 p-3 rounded-lg space-y-1 text-xs">
                 <div className="flex justify-between text-gray-400"><span>Subtotal:</span><span>R$ {subtotal.toFixed(2)}</span></div>
@@ -434,9 +325,7 @@ export default function CardapioTenant() {
                 <div className="flex justify-between font-bold text-white text-sm border-t border-gray-700 pt-1"><span>TOTAL:</span><span className="text-green-400">R$ {total.toFixed(2)}</span></div>
               </div>
 
-              <button type="submit" className="w-full bg-green-600 font-bold py-3 rounded-xl text-xs text-white">
-                Enviar Pedido pelo WhatsApp 🚀
-              </button>
+              <button type="submit" className="w-full bg-green-600 font-bold py-3 rounded-xl text-xs text-white">Enviar Pedido pelo WhatsApp 🚀</button>
             </form>
           </div>
         </div>
