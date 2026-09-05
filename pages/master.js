@@ -22,7 +22,7 @@ export default function MasterAdmin() {
     card_bg_color: '#111827',       // Fundo dos Cards
     text_color: '#FFFFFF',          // Texto Geral do Site
     due_date: '',
-    monthly_fee: '99.99',
+    monthly_fee: '99.00',
     admin_password: '',
     business_type: 'delivery'
   });
@@ -74,6 +74,15 @@ export default function MasterAdmin() {
         card_bg_color: '#1E293B',
         text_color: '#F8FAFC'
       }));
+    } else if (type === 'blue_ecommerce') {
+      setNewTenant(prev => ({
+        ...prev,
+        primary_color: '#3B82F6',
+        button_text_color: '#FFFFFF',
+        secondary_color: '#090D16',
+        card_bg_color: '#111827',
+        text_color: '#FFFFFF'
+      }));
     }
   };
 
@@ -107,6 +116,15 @@ export default function MasterAdmin() {
         card_bg_color: '#1E293B',
         text_color: '#F8FAFC'
       }));
+    } else if (type === 'blue_ecommerce') {
+      setEditingTenant(prev => ({
+        ...prev,
+        primary_color: '#3B82F6',
+        button_text_color: '#FFFFFF',
+        secondary_color: '#090D16',
+        card_bg_color: '#111827',
+        text_color: '#FFFFFF'
+      }));
     }
   };
 
@@ -124,6 +142,7 @@ export default function MasterAdmin() {
 
     const isDelivery = newTenant.business_type === 'delivery';
     const isAgendamento = newTenant.business_type === 'agendamento';
+    const isEcommerce = newTenant.business_type === 'ecommerce';
 
     const { data, error } = await supabase.from('tenants').insert([{
       name: newTenant.name.trim(),
@@ -132,7 +151,7 @@ export default function MasterAdmin() {
       logo_url: newTenant.logo_url || fallbackLogo,
       banner_url: newTenant.banner_url || fallbackBanner,
       admin_password: newTenant.admin_password || '123456',
-      primary_color: newTenant.primary_color || '#FF8C00',
+      primary_color: newTenant.primary_color || (isEcommerce ? '#3B82F6' : '#FF8C00'),
       button_text_color: newTenant.button_text_color || '#FFFFFF',
       secondary_color: newTenant.secondary_color || '#090D16',
       card_bg_color: newTenant.card_bg_color || '#111827',
@@ -141,7 +160,9 @@ export default function MasterAdmin() {
       monthly_fee: parseFloat(newTenant.monthly_fee) || 99.00,
       active: true,
       has_delivery: isDelivery,
-      has_agendamento: isAgendamento
+      has_agendamento: isAgendamento,
+      has_ecommerce: isEcommerce,
+      business_type: newTenant.business_type
     }]).select().single();
 
     if (error) {
@@ -151,6 +172,11 @@ export default function MasterAdmin() {
         await supabase.from('categories').insert([
           { tenant_id: data.id, name: 'Lanches' },
           { tenant_id: data.id, name: 'Bebidas' }
+        ]);
+      } else if (isEcommerce) {
+        await supabase.from('categories').insert([
+          { tenant_id: data.id, name: 'Camisas' },
+          { tenant_id: data.id, name: 'Personalizados' }
         ]);
       }
 
@@ -211,17 +237,29 @@ export default function MasterAdmin() {
 
   // COPIAR MENSAGEM DE BOAS-VINDAS PARA WHATSAPP
   const handleCopyOnboardingMsg = (tenant) => {
-    const isAgendamento = tenant.has_agendamento && !tenant.has_delivery;
-    const portalUrl = isAgendamento ? 'https://agendamento.sinergemkt.com' : 'https://delivery.sinergemkt.com';
-    const systemName = isAgendamento ? 'Sinerge Agendamento' : 'Sinerge Delivery';
-    const emoji = isAgendamento ? '✂️' : '🍔';
+    const isEcommerce = tenant.has_ecommerce || tenant.business_type === 'ecommerce';
+    const isAgendamento = tenant.has_agendamento && !tenant.has_delivery && !isEcommerce;
+
+    let portalUrl = 'https://delivery.sinergemkt.com';
+    let systemName = 'Sinerge Delivery';
+    let emoji = '🍔';
+
+    if (isEcommerce) {
+      portalUrl = 'https://loja.sinergemkt.com';
+      systemName = 'Sinerge Catálogo / E-commerce';
+      emoji = '👕';
+    } else if (isAgendamento) {
+      portalUrl = 'https://agendamento.sinergemkt.com';
+      systemName = 'Sinerge Agendamento';
+      emoji = '✂️';
+    }
 
     const text = `${emoji} *Seu Acesso ao ${systemName}!*\n\n` +
       `Olá! Seu sistema está pronto e liberado.\n\n` +
       `🔗 *Acesse o Portal:* ${portalUrl}\n` +
       `🔑 *Seu Identificador (Slug):* \`${tenant.slug}\`\n` +
       `🔐 *Sua Senha Admin:* \`${tenant.admin_password}\`\n\n` +
-      `_Ao entrar, você poderá gerenciar seu painel, configurar seu cardápio/agenda e pegar o link público da sua loja!_`;
+      `_Ao entrar, você poderá gerenciar seu painel, configurar seu catálogo/agenda e pegar o link público da sua loja!_`;
 
     navigator.clipboard.writeText(text);
     setCopiedTenantId(tenant.id);
@@ -231,17 +269,21 @@ export default function MasterAdmin() {
   // CÁLCULOS DE MÉTRICAS (MRR & TOTALIZADORES)
   const activeTenants = tenants.filter(t => t.active);
   const totalMRR = activeTenants.reduce((acc, t) => acc + Number(t.monthly_fee || 0), 0);
-  const deliveryCount = tenants.filter(t => t.has_delivery || !t.has_agendamento).length;
-  const agendamentoCount = tenants.filter(t => t.has_agendamento && !t.has_delivery).length;
+
+  const ecommerceCount = tenants.filter(t => t.has_ecommerce || t.business_type === 'ecommerce').length;
+  const agendamentoCount = tenants.filter(t => (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !t.has_ecommerce && t.business_type !== 'ecommerce').length;
+  const deliveryCount = tenants.filter(t => (t.has_delivery || t.business_type === 'delivery' || (!t.has_agendamento && !t.has_ecommerce && t.business_type !== 'agendamento' && t.business_type !== 'ecommerce'))).length;
 
   // FILTRAGEM DA LISTA
   const filteredTenants = tenants.filter(t => {
     const matchesSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase()) || t.slug.toLowerCase().includes(searchTerm.toLowerCase());
-    const isAgendamento = t.has_agendamento && !t.has_delivery;
+    const isEcommerce = t.has_ecommerce || t.business_type === 'ecommerce';
+    const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce;
 
     if (!matchesSearch) return false;
-    if (filterType === 'DELIVERY') return !isAgendamento;
+    if (filterType === 'DELIVERY') return !isAgendamento && !isEcommerce;
     if (filterType === 'AGENDAMENTO') return isAgendamento;
+    if (filterType === 'ECOMMERCE') return isEcommerce;
     if (filterType === 'PAUSED') return !t.active;
     return true;
   });
@@ -250,14 +292,14 @@ export default function MasterAdmin() {
     return (
       <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4 font-sans">
         <form onSubmit={handleLogin} className="bg-gray-900 p-8 rounded-3xl border border-orange-500/30 w-full max-w-sm space-y-5 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-orange-500 via-purple-500 to-orange-500"></div>
+          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-orange-500 via-purple-500 to-blue-500"></div>
 
           <div className="text-center space-y-1">
             <div className="w-12 h-12 bg-orange-500/10 border border-orange-500/30 text-orange-400 rounded-2xl flex items-center justify-center text-xl mx-auto mb-2">
               ⚡
             </div>
             <h1 className="text-xl font-bold text-white">Sinerge Master</h1>
-            <p className="text-xs text-gray-400">Painel Geral de Gestão SaaS</p>
+            <p className="text-xs text-gray-400">Painel Geral de Gestão SaaS Multi-Nicho</p>
           </div>
 
           <div>
@@ -290,7 +332,7 @@ export default function MasterAdmin() {
           </div>
           <div>
             <h1 className="font-bold text-lg text-white leading-tight">Sinerge Multi-SaaS Master</h1>
-            <p className="text-xs text-gray-400">Gerenciamento Geral de Clientes (Delivery & Agendamento)</p>
+            <p className="text-xs text-gray-400">Gestão Geral (Delivery, Agendamento & E-commerce)</p>
           </div>
         </div>
 
@@ -300,8 +342,8 @@ export default function MasterAdmin() {
       </header>
 
       {/* DASHBOARD DE MÉTRICAS DA SUA EMPRESA */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
-        <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-8">
+        <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl col-span-2 sm:col-span-1">
           <span className="text-[10px] font-bold text-gray-400 uppercase block">Faturamento / Mês (MRR)</span>
           <span className="text-lg font-bold text-green-400">R$ {totalMRR.toFixed(2)}</span>
         </div>
@@ -320,6 +362,11 @@ export default function MasterAdmin() {
           <span className="text-[10px] font-bold text-purple-400 uppercase block">Clientes Agendamento</span>
           <span className="text-lg font-bold text-purple-400">{agendamentoCount}</span>
         </div>
+
+        <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
+          <span className="text-[10px] font-bold text-blue-400 uppercase block">Clientes E-commerce</span>
+          <span className="text-lg font-bold text-blue-400">{ecommerceCount}</span>
+        </div>
       </div>
 
       {/* CADASTRAR NOVO CLIENTE */}
@@ -335,7 +382,7 @@ export default function MasterAdmin() {
           {/* SELEÇÃO DE NICHO */}
           <div className="bg-gray-950 p-3 rounded-2xl border border-gray-800 space-y-2">
             <label className="text-[11px] font-bold text-gray-300 block uppercase tracking-wider">Selecione o Nicho do Cliente:</label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${
                 newTenant.business_type === 'delivery' ? 'bg-orange-500/20 text-orange-400 border-orange-500' : 'bg-gray-900 text-gray-400 border-gray-800'
               }`}>
@@ -362,6 +409,20 @@ export default function MasterAdmin() {
                   className="hidden"
                 />
                 <span>✂️ Agendamento (Barbearia/Salão)</span>
+              </label>
+
+              <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${
+                newTenant.business_type === 'ecommerce' ? 'bg-blue-500/20 text-blue-400 border-blue-500' : 'bg-gray-900 text-gray-400 border-gray-800'
+              }`}>
+                <input 
+                  type="radio" 
+                  name="business_type" 
+                  value="ecommerce" 
+                  checked={newTenant.business_type === 'ecommerce'} 
+                  onChange={() => setNewTenant({ ...newTenant, business_type: 'ecommerce' })}
+                  className="hidden"
+                />
+                <span>👕 E-commerce / Loja (Roupas)</span>
               </label>
             </div>
           </div>
@@ -397,13 +458,14 @@ export default function MasterAdmin() {
 
           {/* PERSONALIZAÇÃO DE CORES DA INTERFACE */}
           <div className="bg-gray-950/80 p-4 rounded-2xl border border-gray-800 space-y-3">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center flex-wrap gap-2">
               <label className="text-[11px] font-bold text-orange-400 uppercase tracking-wider block">🎨 Personalização das Cores do Tema:</label>
               
-              <div className="flex space-x-1.5 text-[10px]">
+              <div className="flex space-x-1.5 text-[10px] flex-wrap">
                 <button type="button" onClick={() => applyPreset('dark_orange')} className="bg-gray-900 border border-orange-500/50 text-orange-400 px-2.5 py-1 rounded-lg font-bold">Dark Laranja</button>
                 <button type="button" onClick={() => applyPreset('light_pink')} className="bg-pink-500/20 border border-pink-500 text-pink-300 px-2.5 py-1 rounded-lg font-bold">Rosa / Claro</button>
                 <button type="button" onClick={() => applyPreset('purple_barber')} className="bg-purple-500/20 border border-purple-500 text-purple-300 px-2.5 py-1 rounded-lg font-bold">Roxo Barber</button>
+                <button type="button" onClick={() => applyPreset('blue_ecommerce')} className="bg-blue-500/20 border border-blue-500 text-blue-300 px-2.5 py-1 rounded-lg font-bold">Azul Loja</button>
               </div>
             </div>
 
@@ -508,6 +570,7 @@ export default function MasterAdmin() {
               <option value="ALL">Todos os Nichos</option>
               <option value="DELIVERY">🍔 Apenas Delivery</option>
               <option value="AGENDAMENTO">✂️ Apenas Agendamento</option>
+              <option value="ECOMMERCE">👕 Apenas E-commerce</option>
               <option value="PAUSED">🔴 Pausados</option>
             </select>
           </div>
@@ -515,20 +578,27 @@ export default function MasterAdmin() {
 
         <div className="grid grid-cols-1 gap-4">
           {filteredTenants.map(t => {
-            const isAgendamento = t.has_agendamento && !t.has_delivery;
+            const isEcommerce = t.has_ecommerce || t.business_type === 'ecommerce';
+            const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce;
             const isCopied = copiedTenantId === t.id;
 
             return (
               <div key={t.id} className={`bg-gray-900 p-5 rounded-3xl border ${t.active ? 'border-gray-800' : 'border-red-500/40 opacity-80'} space-y-4 shadow-lg`}>
                 
-                <div className="flex justify-between items-start">
+                <div className="flex justify-between items-start flex-wrap gap-3">
                   <div>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <span className="w-3.5 h-3.5 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.primary_color || '#FF8C00' }}></span>
                       <span className="w-3.5 h-3.5 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.secondary_color || '#090D16' }}></span>
                       
-                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${isAgendamento ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
-                        {isAgendamento ? '✂️ Agendamento' : '🍔 Delivery'}
+                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${
+                        isEcommerce 
+                          ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' 
+                          : isAgendamento 
+                            ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' 
+                            : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                      }`}>
+                        {isEcommerce ? '👕 E-commerce' : isAgendamento ? '✂️ Agendamento' : '🍔 Delivery'}
                       </span>
                       
                       <h3 className="font-bold text-base text-white">{t.name}</h3>
@@ -551,7 +621,7 @@ export default function MasterAdmin() {
                       {t.active ? '🟢 Ativo' : '🔴 Pausado'}
                     </button>
 
-                    <div className="flex space-x-1.5">
+                    <div className="flex space-x-1.5 flex-wrap gap-y-1">
                       <button 
                         onClick={() => handleCopyOnboardingMsg(t)}
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${
@@ -575,11 +645,20 @@ export default function MasterAdmin() {
                   </div>
                 </div>
 
-                {/* LINKS DE ACESSO DO CLIENTE */}
-                {isAgendamento ? (
+                {/* LINKS DE ACESSO DO CLIENTE POR NICHO */}
+                {isEcommerce ? (
+                  <div className="pt-3 border-t border-gray-800 space-y-1.5">
+                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider block">👕 Links da Loja / Catálogo (loja.sinergemkt.com):</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                      <a href={`https://loja.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-gray-300 hover:bg-gray-800 transition">🛍️ Catálogo Público</a>
+                      <a href={`https://loja.sinergemkt.com/${t.slug}/producao`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-blue-400 hover:bg-gray-800 transition">👕 Fila Produção</a>
+                      <a href={`https://loja.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-orange-400 hover:bg-gray-800 transition">⚙️ Admin Loja</a>
+                    </div>
+                  </div>
+                ) : isAgendamento ? (
                   <div className="pt-3 border-t border-gray-800 space-y-1.5">
                     <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider block">📅 Links do Agendamento (agendamento.sinergemkt.com):</span>
-                    <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                       <a href={`https://agendamento.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-gray-300 hover:bg-gray-800 transition">🛍️ Página do Cliente</a>
                       <a href={`https://agendamento.sinergemkt.com/${t.slug}/agenda`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-purple-400 hover:bg-gray-800 transition">📅 Painel da Agenda</a>
                       <a href={`https://agendamento.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-blue-400 hover:bg-gray-800 transition">⚙️ Admin Agendamento</a>
@@ -588,7 +667,7 @@ export default function MasterAdmin() {
                 ) : (
                   <div className="pt-3 border-t border-gray-800 space-y-1.5">
                     <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wider block">🍔 Links do Delivery (delivery.sinergemkt.com):</span>
-                    <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                       <a href={`https://delivery.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-gray-300 hover:bg-gray-800 transition">🍔 Cardápio Digital</a>
                       <a href={`https://delivery.sinergemkt.com/${t.slug}/cozinha`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-orange-400 hover:bg-gray-800 transition">🍳 Cozinha / Pedidos</a>
                       <a href={`https://delivery.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-blue-400 hover:bg-gray-800 transition">⚙️ Admin Delivery</a>
@@ -683,13 +762,14 @@ export default function MasterAdmin() {
 
             {/* SEÇÃO DE EDITAR TEMA E CORES */}
             <div className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-3">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center flex-wrap gap-2">
                 <label className="text-[11px] font-bold text-blue-400 uppercase tracking-wider block">🎨 Alterar Cores do Tema:</label>
                 
-                <div className="flex space-x-1 text-[10px]">
+                <div className="flex space-x-1 text-[10px] flex-wrap">
                   <button type="button" onClick={() => applyEditPreset('dark_orange')} className="bg-gray-900 border border-orange-500/50 text-orange-400 px-2 py-0.5 rounded font-bold">Dark</button>
                   <button type="button" onClick={() => applyEditPreset('light_pink')} className="bg-pink-500/20 border border-pink-500 text-pink-300 px-2 py-0.5 rounded font-bold">Rosa</button>
                   <button type="button" onClick={() => applyEditPreset('purple_barber')} className="bg-purple-500/20 border border-purple-500 text-purple-300 px-2 py-0.5 rounded font-bold">Roxo</button>
+                  <button type="button" onClick={() => applyEditPreset('blue_ecommerce')} className="bg-blue-500/20 border border-blue-500 text-blue-300 px-2 py-0.5 rounded font-bold">Azul</button>
                 </div>
               </div>
 
