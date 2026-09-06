@@ -5,6 +5,7 @@ export default function MasterAdmin() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [masterPassword, setMasterPassword] = useState('');
   const [tenants, setTenants] = useState([]);
+  const [tenantStats, setTenantStats] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('ALL');
   const [copiedTenantId, setCopiedTenantId] = useState(null);
@@ -41,8 +42,40 @@ export default function MasterAdmin() {
   };
 
   const fetchTenants = async () => {
-    const { data } = await supabase.from('tenants').select('*').order('id', { ascending: false });
-    if (data) setTenants(data);
+    const { data: tData } = await supabase.from('tenants').select('*').order('id', { ascending: false });
+    
+    // BUSCAR ESTATÍSTICAS DE USO DOS CLIENTES (SEM RISCO)
+    let statsMap = {};
+    try {
+      const { data: oData } = await supabase.from('orders').select('id, tenant_id, total, created_at, payment_method, status');
+      if (oData) {
+        oData.forEach(order => {
+          if (!statsMap[order.tenant_id]) {
+            statsMap[order.tenant_id] = { count: 0, revenue: 0, lastOrderAt: null };
+          }
+          statsMap[order.tenant_id].count += 1;
+
+          // Soma faturamento (se pago ou concluído)
+          const isPaid = order.payment_method?.includes('PAGO') || order.status === 'concluido' || order.status === 'entregue';
+          if (isPaid) {
+            statsMap[order.tenant_id].revenue += Number(order.total || 0);
+          }
+
+          // Armazena a data do último pedido
+          if (order.created_at) {
+            const orderDate = new Date(order.created_at);
+            if (!statsMap[order.tenant_id].lastOrderAt || orderDate > new Date(statsMap[order.tenant_id].lastOrderAt)) {
+              statsMap[order.tenant_id].lastOrderAt = order.created_at;
+            }
+          }
+        });
+      }
+    } catch (err) {
+      console.log("Erro ao carregar estatísticas (ignorado de forma segura):", err);
+    }
+
+    if (tData) setTenants(tData);
+    setTenantStats(statsMap);
   };
 
   // PREDEFINIÇÕES RÁPIDAS DE CORES PARA NOVO CLIENTE
@@ -266,13 +299,17 @@ export default function MasterAdmin() {
     setTimeout(() => setCopiedTenantId(null), 2500);
   };
 
-  // CÁLCULOS DE MÉTRICAS (MRR & TOTALIZADORES)
+  // CÁLCULOS DE MÉTRICAS (MRR & TOTALIZADORES GLOBAIS)
   const activeTenants = tenants.filter(t => t.active);
   const totalMRR = activeTenants.reduce((acc, t) => acc + Number(t.monthly_fee || 0), 0);
 
   const ecommerceCount = tenants.filter(t => t.has_ecommerce || t.business_type === 'ecommerce').length;
   const agendamentoCount = tenants.filter(t => (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !t.has_ecommerce && t.business_type !== 'ecommerce').length;
   const deliveryCount = tenants.filter(t => (t.has_delivery || t.business_type === 'delivery' || (!t.has_agendamento && !t.has_ecommerce && t.business_type !== 'agendamento' && t.business_type !== 'ecommerce'))).length;
+
+  // CÁLCULO TOTAL DE VENDAS E PEDIDOS PROCESSADOS NA PLATAFORMA INTEIRA
+  const totalGlobalOrders = Object.values(tenantStats).reduce((acc, s) => acc + (s.count || 0), 0);
+  const totalGlobalVolume = Object.values(tenantStats).reduce((acc, s) => acc + (s.revenue || 0), 0);
 
   // FILTRAGEM DA LISTA
   const filteredTenants = tenants.filter(t => {
@@ -287,6 +324,19 @@ export default function MasterAdmin() {
     if (filterType === 'PAUSED') return !t.active;
     return true;
   });
+
+  // FORMATADOR DE DATA/HORA DE ATIVIDADE
+  const formatLastActivity = (dateStr) => {
+    if (!dateStr) return 'Sem pedidos ainda';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffHours = Math.abs(now - date) / 36e5;
+
+    if (diffHours < 24 && now.getDate() === date.getDate()) {
+      return `Hoje às ${date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' às ' + date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  };
 
   if (!isAuthenticated) {
     return (
@@ -342,30 +392,36 @@ export default function MasterAdmin() {
       </header>
 
       {/* DASHBOARD DE MÉTRICAS DA SUA EMPRESA */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mb-8">
         <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl col-span-2 sm:col-span-1">
-          <span className="text-[10px] font-bold text-gray-400 uppercase block">Faturamento / Mês (MRR)</span>
+          <span className="text-[10px] font-bold text-gray-400 uppercase block">Faturamento (MRR)</span>
           <span className="text-lg font-bold text-green-400">R$ {totalMRR.toFixed(2)}</span>
         </div>
 
         <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
-          <span className="text-[10px] font-bold text-gray-400 uppercase block">Total de Clientes</span>
-          <span className="text-lg font-bold text-white">{tenants.length} <span className="text-xs text-green-400">({activeTenants.length} ativos)</span></span>
+          <span className="text-[10px] font-bold text-gray-400 uppercase block">Total Clientes</span>
+          <span className="text-lg font-bold text-white">{tenants.length} <span className="text-[10px] text-green-400">({activeTenants.length} ativos)</span></span>
         </div>
 
         <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
-          <span className="text-[10px] font-bold text-orange-400 uppercase block">Clientes Delivery</span>
+          <span className="text-[10px] font-bold text-orange-400 uppercase block">Delivery</span>
           <span className="text-lg font-bold text-orange-400">{deliveryCount}</span>
         </div>
 
         <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
-          <span className="text-[10px] font-bold text-purple-400 uppercase block">Clientes Agendamento</span>
+          <span className="text-[10px] font-bold text-purple-400 uppercase block">Agendamento</span>
           <span className="text-lg font-bold text-purple-400">{agendamentoCount}</span>
         </div>
 
         <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
-          <span className="text-[10px] font-bold text-blue-400 uppercase block">Clientes E-commerce</span>
+          <span className="text-[10px] font-bold text-blue-400 uppercase block">E-commerce</span>
           <span className="text-lg font-bold text-blue-400">{ecommerceCount}</span>
+        </div>
+
+        {/* MÉTRICA GLOBAL DE USO DA PLATAFORMA */}
+        <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
+          <span className="text-[10px] font-bold text-yellow-400 uppercase block">Vendas Totais SaaS</span>
+          <span className="text-lg font-bold text-yellow-400">{totalGlobalOrders} <span className="text-[10px] text-gray-400">(R$ {totalGlobalVolume.toFixed(0)})</span></span>
         </div>
       </div>
 
@@ -582,6 +638,10 @@ export default function MasterAdmin() {
             const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce;
             const isCopied = copiedTenantId === t.id;
 
+            // DADOS DE USO DO CLIENTE
+            const stats = tenantStats[t.id] || { count: 0, revenue: 0, lastOrderAt: null };
+            const hasActivity = stats.count > 0;
+
             return (
               <div key={t.id} className={`bg-gray-900 p-5 rounded-3xl border ${t.active ? 'border-gray-800' : 'border-red-500/40 opacity-80'} space-y-4 shadow-lg`}>
                 
@@ -645,9 +705,24 @@ export default function MasterAdmin() {
                   </div>
                 </div>
 
+                {/* PAINEL DE USO / ATIVIDADE DO CLIENTE (NOVO E SEGURO) */}
+                <div className="bg-gray-950 p-3 rounded-2xl border border-gray-800/80 flex justify-between items-center flex-wrap gap-2 text-xs">
+                  <div className="flex items-center space-x-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${hasActivity ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`}></span>
+                    <span className="font-bold text-gray-300">
+                      Atividade da Loja: <span className={hasActivity ? 'text-green-400 font-bold' : 'text-gray-500'}>{hasActivity ? `${stats.count} pedido(s) gerados` : 'Nenhum pedido ainda'}</span>
+                    </span>
+                  </div>
+
+                  <div className="flex space-x-4 text-[11px] text-gray-400">
+                    <span>Faturamento do Lojista: <b className="text-green-400">R$ {stats.revenue.toFixed(2)}</b></span>
+                    <span>Último Pedido: <b className="text-white">{formatLastActivity(stats.lastOrderAt)}</b></span>
+                  </div>
+                </div>
+
                 {/* LINKS DE ACESSO DO CLIENTE POR NICHO */}
                 {isEcommerce ? (
-                  <div className="pt-3 border-t border-gray-800 space-y-1.5">
+                  <div className="pt-2 border-t border-gray-800 space-y-1.5">
                     <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider block">👕 Links da Loja / Catálogo (loja.sinergemkt.com):</span>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                       <a href={`https://loja.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-gray-300 hover:bg-gray-800 transition">🛍️ Catálogo Público</a>
@@ -656,7 +731,7 @@ export default function MasterAdmin() {
                     </div>
                   </div>
                 ) : isAgendamento ? (
-                  <div className="pt-3 border-t border-gray-800 space-y-1.5">
+                  <div className="pt-2 border-t border-gray-800 space-y-1.5">
                     <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider block">📅 Links do Agendamento (agendamento.sinergemkt.com):</span>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                       <a href={`https://agendamento.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-gray-300 hover:bg-gray-800 transition">🛍️ Página do Cliente</a>
@@ -665,7 +740,7 @@ export default function MasterAdmin() {
                     </div>
                   </div>
                 ) : (
-                  <div className="pt-3 border-t border-gray-800 space-y-1.5">
+                  <div className="pt-2 border-t border-gray-800 space-y-1.5">
                     <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wider block">🍔 Links do Delivery (delivery.sinergemkt.com):</span>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                       <a href={`https://delivery.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-gray-300 hover:bg-gray-800 transition">🍔 Cardápio Digital</a>
