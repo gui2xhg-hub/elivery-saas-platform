@@ -19,6 +19,17 @@ export default function AdminTenant() {
   const [allOrders, setAllOrders] = useState([]);
   const [reportFilter, setReportFilter] = useState('all');
 
+  // NORMAS DE DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
+  const ALL_DAYS = [
+    { id: 1, label: 'Seg' },
+    { id: 2, label: 'Ter' },
+    { id: 3, label: 'Qua' },
+    { id: 4, label: 'Qui' },
+    { id: 5, label: 'Sex' },
+    { id: 6, label: 'Sáb' },
+    { id: 0, label: 'Dom' }
+  ];
+
   const [newProd, setNewProd] = useState({ name: '', price: '', category_id: '', description: '', image: '', addons_list: '' });
   const [editingProduct, setEditingProduct] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
@@ -35,7 +46,12 @@ export default function AdminTenant() {
 
   const fetchTenant = async () => {
     const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
-    if (tData) setTenant(tData);
+    if (tData) {
+      setTenant({
+        ...tData,
+        work_days: tData.work_days || [1, 2, 3, 4, 5, 6]
+      });
+    }
     setLoading(false);
   };
 
@@ -58,7 +74,12 @@ export default function AdminTenant() {
     const { data: nData } = await supabase.from('neighborhoods').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
     const { data: oData } = await supabase.from('orders').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
 
-    if (tData) setTenant(tData);
+    if (tData) {
+      setTenant({
+        ...tData,
+        work_days: tData.work_days || [1, 2, 3, 4, 5, 6]
+      });
+    }
     if (cData) {
       setCategories(cData);
       if (cData.length > 0 && !newProd.category_id) setNewProd(prev => ({ ...prev, category_id: cData[0].id }));
@@ -69,9 +90,18 @@ export default function AdminTenant() {
     if (oData) setAllOrders(oData);
   };
 
+  const toggleDaySelection = (currentDays, dayId) => {
+    const arr = [...(currentDays || [])];
+    if (arr.includes(dayId)) {
+      return arr.filter(d => d !== dayId);
+    } else {
+      return [...arr, dayId].sort();
+    }
+  };
+
   const handleSaveTenantSettings = async (e) => {
     e.preventDefault();
-    const cleanWhatsapp = tenant.whatsapp.replace(/\D/g, '');
+    const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
     const { error } = await supabase.from('tenants').update({
       name: tenant.name,
       whatsapp: cleanWhatsapp,
@@ -82,6 +112,7 @@ export default function AdminTenant() {
       secondary_color: tenant.secondary_color || '#111827',
       opening_time: tenant.opening_time || '18:00',
       closing_time: tenant.closing_time || '23:30',
+      work_days: tenant.work_days || [1, 2, 3, 4, 5, 6],
       pixel_id: tenant.pixel_id || '',
       custom_message: tenant.custom_message || '',
       admin_password: tenant.admin_password,
@@ -428,7 +459,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* CONFIGURAÇÕES + NOVOS CAMPOS PIX AUTOMÁTICO */}
+      {/* CONFIGURAÇÕES DE DIAS E HORÁRIOS DO DELIVERY */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -439,14 +470,41 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Horário Abertura:</label>
-                  <input type="time" value={tenant.opening_time || '18:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, opening_time: e.target.value })} />
+              {/* HORÁRIOS E DIAS DE FUNCIONAMENTO DO DELIVERY */}
+              <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-3">
+                <div className="flex justify-between items-center flex-wrap gap-1">
+                  <label className="text-[11px] font-bold text-orange-400 block">🛵 Dias de Funcionamento do Delivery:</label>
+                  <div className="flex space-x-1 text-[10px]">
+                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [1, 2, 3, 4, 5] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-bold">Seg-Sex</button>
+                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [1, 2, 3, 4, 5, 6] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-bold">Seg-Sáb</button>
+                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [0, 1, 2, 3, 4, 5, 6] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-bold">Todos</button>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Horário Fechamento:</label>
-                  <input type="time" value={tenant.closing_time || '23:30'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, closing_time: e.target.value })} />
+
+                <div className="grid grid-cols-7 gap-1">
+                  {ALL_DAYS.map(day => {
+                    const isSelected = (tenant.work_days || []).includes(day.id);
+                    return (
+                      <button
+                        key={day.id}
+                        type="button"
+                        onClick={() => setTenant({ ...tenant, work_days: toggleDaySelection(tenant.work_days, day.id) })}
+                        className={`py-1.5 rounded-lg text-[10px] font-bold border transition ${isSelected ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-900 text-gray-500 border-gray-800'}`}>
+                        {day.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-800/80">
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Horário Abertura:</label>
+                    <input type="time" value={tenant.opening_time || '18:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, opening_time: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Horário Fechamento:</label>
+                    <input type="time" value={tenant.closing_time || '23:30'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, closing_time: e.target.value })} />
+                  </div>
                 </div>
               </div>
 
