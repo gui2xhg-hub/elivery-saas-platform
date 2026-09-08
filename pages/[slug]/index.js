@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase';
 
 export default function DeliveryCliente() {
   const router = useRouter();
-  const { slug } = router.query;
+  const { slug, mesa, m } = router.query;
 
   const [tenant, setTenant] = useState(null);
   const [categories, setCategories] = useState([]);
@@ -12,6 +12,9 @@ export default function DeliveryCliente() {
   const [neighborhoods, setNeighborhoods] = useState([]);
   const [selectedCat, setSelectedCat] = useState('ALL');
   const [loading, setLoading] = useState(true);
+
+  // DETECÇÃO DE MESA VIA URL (?mesa=05 ou ?m=05)
+  const [tableNumber, setTableNumber] = useState('');
 
   // MODAL DE DETALHES DO PRODUTO (ADICIONAIS E OBSERVAÇÃO)
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -22,10 +25,10 @@ export default function DeliveryCliente() {
   // CARRINHO DE COMPRAS E CHECKOUT
   const [cart, setCart] = useState([]);
   const [showCartModal, setShowCartModal] = useState(false);
-  const [deliveryType, setDeliveryType] = useState('ENTREGA'); // 'ENTREGA' ou 'BALCAO'
+  const [deliveryType, setDeliveryType] = useState('ENTREGA'); // 'ENTREGA', 'BALCAO' ou 'MESA'
   const [selectedNeighFee, setSelectedNeighFee] = useState(0);
   const [selectedNeighName, setSelectedNeighName] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('Dinheiro');
+  const [paymentMethod, setPaymentMethod] = useState('Pagar no Balcão');
   const [changeValue, setChangeValue] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -33,10 +36,18 @@ export default function DeliveryCliente() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (router.isReady && slug) {
-      fetchTenantData();
+    if (router.isReady) {
+      const currentMesa = mesa || m || '';
+      if (currentMesa) {
+        setTableNumber(String(currentMesa));
+        setDeliveryType('MESA');
+        setPaymentMethod('Pagar no Balcão');
+      }
+      if (slug) {
+        fetchTenantData();
+      }
     }
-  }, [router.isReady, slug]);
+  }, [router.isReady, slug, mesa, m]);
 
   const fetchTenantData = async () => {
     setLoading(true);
@@ -123,7 +134,7 @@ export default function DeliveryCliente() {
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando cardápio...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Restaurante não encontrado</h1></div>;
 
-  // VARIÁVEIS DE CORES DINÂMICAS DO MASTER
+  // VARIÁVEIS DE CORES DINÂMICAS
   const primaryColor = tenant.primary_color || '#FF8C00';
   const btnTextColor = tenant.button_text_color || '#FFFFFF';
   const bgColor = tenant.background_color || tenant.secondary_color || '#090D16';
@@ -135,25 +146,27 @@ export default function DeliveryCliente() {
   const total = subtotal + currentDeliveryFee;
 
   const filteredProducts = selectedCat === 'ALL' ? products : products.filter(p => String(p.category_id) === String(selectedCat));
-
   const promoBannerList = tenant.promo_banners ? tenant.promo_banners.split(',').map(b => b.trim()).filter(Boolean) : [];
 
   const handleFinishOrder = async (e) => {
     e.preventDefault();
     if (cart.length === 0) return alert("Seu carrinho está vazio!");
-    if (!customerName || !customerPhone) return alert("Preencha seu Nome e WhatsApp!");
+    if (!customerName) return alert("Preencha seu Nome!");
     if (deliveryType === 'ENTREGA' && !customerAddress) return alert("Preencha seu Endereço para entrega!");
 
     setIsSubmitting(true);
 
-    const fullAddress = deliveryType === 'ENTREGA' 
-      ? `${customerAddress} (${selectedNeighName || 'Sem bairro'})`
-      : 'Retirada no Balcão';
+    let fullAddress = 'Retirada no Balcão';
+    if (deliveryType === 'ENTREGA') {
+      fullAddress = `${customerAddress} (${selectedNeighName || 'Sem bairro'})`;
+    } else if (deliveryType === 'MESA' || tableNumber) {
+      fullAddress = `MESA ${tableNumber || 'Consumo Local'}`;
+    }
 
     const orderData = {
       tenant_id: tenant.id,
       customer_name: customerName,
-      customer_phone: customerPhone.replace(/\D/g, ''),
+      customer_phone: customerPhone ? customerPhone.replace(/\D/g, '') : '00000000000',
       customer_address: fullAddress,
       items: cart,
       subtotal: subtotal,
@@ -175,7 +188,7 @@ export default function DeliveryCliente() {
       window.fbq('track', 'Purchase', { value: total, currency: 'BRL' });
     }
 
-    // TEXTO WHATSAPP FORMATADO
+    // FORMATAR TEXTO DO WHATSAPP
     let itemsText = cart.map(i => {
       let txt = `• ${i.quantity}x ${i.name} (R$ ${(i.unitPrice * i.quantity).toFixed(2)})`;
       if (i.selectedAddons && i.selectedAddons.length > 0) {
@@ -188,11 +201,18 @@ export default function DeliveryCliente() {
     }).join('\n\n');
 
     let msg = `*NOVO PEDIDO #${createdOrder.id} - ${tenant.name.toUpperCase()}*\n\n`;
-    msg += `*Cliente:* ${customerName}\n*Telefone:* ${customerPhone}\n`;
-    msg += `*Tipo de Pedido:* ${deliveryType === 'ENTREGA' ? '🛵 Entrega em Casa' : '🏪 Retirar no Balcão'}\n`;
-    if (deliveryType === 'ENTREGA') {
-      msg += `*Endereço:* ${customerAddress}\n*Bairro:* ${selectedNeighName}\n`;
+    msg += `*Cliente:* ${customerName}\n`;
+    if (customerPhone) msg += `*Telefone:* ${customerPhone}\n`;
+
+    if (deliveryType === 'MESA' || tableNumber) {
+      msg += `*Local:* 🪑 MESA ${tableNumber}\n`;
+    } else {
+      msg += `*Tipo:* ${deliveryType === 'ENTREGA' ? '🛵 Entrega em Casa' : '🏪 Retirar no Balcão'}\n`;
+      if (deliveryType === 'ENTREGA') {
+        msg += `*Endereço:* ${customerAddress}\n*Bairro:* ${selectedNeighName}\n`;
+      }
     }
+
     msg += `\n*ITENS DO PEDIDO:*\n${itemsText}\n\n`;
     msg += `*Subtotal:* R$ ${subtotal.toFixed(2)}\n`;
     if (deliveryType === 'ENTREGA') {
@@ -213,7 +233,7 @@ export default function DeliveryCliente() {
     setIsSubmitting(false);
     setCart([]);
     setShowCartModal(false);
-    alert("Pedido enviado com sucesso!");
+    alert(`Pedido #${createdOrder.id} enviado com sucesso para a cozinha!`);
   };
 
   const getProductAddonsArray = (addonsStr) => {
@@ -233,7 +253,6 @@ export default function DeliveryCliente() {
       <div className="relative h-36 bg-gray-900 border-b border-white/10">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop&q=80'} alt="Banner" className="w-full h-full object-cover opacity-50" />
         
-        {/* BOTÃO DO INSTAGRAM (SE HOUVER LINK CADASTRADO) */}
         {tenant.instagram_url && (
           <a
             href={tenant.instagram_url.startsWith('http') ? tenant.instagram_url : `https://${tenant.instagram_url}`}
@@ -248,14 +267,31 @@ export default function DeliveryCliente() {
           <img src={tenant.logo_url || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'} alt="Logo" className="w-16 h-16 rounded-full border-2 border-black/40 object-cover bg-gray-800 shadow-lg" />
           <div className="pt-4">
             <h1 className="font-bold text-lg leading-tight" style={{ color: textColor }}>{tenant.name}</h1>
-            <p className="text-[11px] opacity-70">🛵 Cardápio Digital & Delivery</p>
+            <p className="text-[11px] opacity-70">
+              {tableNumber ? `🪑 Autoatendimento • Mesa ${tableNumber}` : '🛵 Cardápio Digital & Delivery'}
+            </p>
           </div>
         </div>
       </div>
 
+      {/* SELO DE MESA ATIVA SE ACESSADO VIA QR CODE */}
+      {tableNumber && (
+        <div className="mt-7 px-4">
+          <div className="bg-gradient-to-r from-orange-500 to-amber-600 text-white p-3 rounded-2xl shadow-lg flex justify-between items-center text-xs font-bold">
+            <div className="flex items-center space-x-2">
+              <span className="text-base">📍</span>
+              <div>
+                <p className="font-extrabold uppercase text-[11px] leading-tight">Você está na MESA {tableNumber}</p>
+                <p className="text-[10px] opacity-90 font-normal">Seus pedidos serão entregues direto na sua mesa.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* BANNERS PROMOCIONAIS */}
       {promoBannerList.length > 0 && (
-        <div className="mt-8 px-4">
+        <div className={`${tableNumber ? 'mt-4' : 'mt-8'} px-4`}>
           <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none">
             {promoBannerList.map((bannerUrl, idx) => (
               <img key={idx} src={bannerUrl} alt={`Promoção ${idx + 1}`} className="w-72 h-32 rounded-2xl object-cover border border-white/10 shrink-0 shadow-md" />
@@ -265,7 +301,7 @@ export default function DeliveryCliente() {
       )}
 
       {/* CATEGORIAS */}
-      <div className={`${promoBannerList.length > 0 ? 'mt-4' : 'mt-8'} px-4`}>
+      <div className={`${(promoBannerList.length > 0 || tableNumber) ? 'mt-4' : 'mt-8'} px-4`}>
         <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-none">
           <button
             onClick={() => setSelectedCat('ALL')}
@@ -326,7 +362,7 @@ export default function DeliveryCliente() {
             style={{ backgroundColor: primaryColor, color: btnTextColor }}
             className="w-full font-bold p-3.5 rounded-2xl flex justify-between items-center shadow-2xl transition hover:opacity-95">
             <span className="text-xs bg-black/20 px-2.5 py-1 rounded-lg">🛒 {cart.reduce((a, b) => a + b.quantity, 0)} itens</span>
-            <span className="text-xs font-bold uppercase tracking-wider">Ver Carrinho</span>
+            <span className="text-xs font-bold uppercase tracking-wider">{tableNumber ? `Enviar p/ Mesa ${tableNumber}` : 'Ver Carrinho'}</span>
             <span className="text-xs font-bold">R$ {subtotal.toFixed(2)}</span>
           </button>
         </div>
@@ -372,7 +408,7 @@ export default function DeliveryCliente() {
               <label className="text-xs font-bold block opacity-80">📝 Observação do Item:</label>
               <input
                 type="text"
-                placeholder="Ex: Sem salada, ponto da carne..."
+                placeholder="Ex: Sem salada, bem passado..."
                 value={itemObservation}
                 onChange={(e) => setItemObservation(e.target.value)}
                 style={{ backgroundColor: bgColor, color: textColor }}
@@ -403,7 +439,9 @@ export default function DeliveryCliente() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-white/10 pb-2">
-              <h3 className="font-bold text-sm" style={{ color: primaryColor }}>🛒 Seu Carrinho</h3>
+              <h3 className="font-bold text-sm" style={{ color: primaryColor }}>
+                {tableNumber ? `🪑 Pedido - Mesa ${tableNumber}` : '🛒 Seu Carrinho'}
+              </h3>
               <button onClick={() => setShowCartModal(false)} className="opacity-60 font-bold text-xs">✕ Fechar</button>
             </div>
 
@@ -427,45 +465,52 @@ export default function DeliveryCliente() {
             </div>
 
             <form onSubmit={handleFinishOrder} className="space-y-3 pt-2 border-t border-white/10">
-              {/* BOTÕES DE SELEÇÃO: ENTREGA EM CASA vs RETIRADA NO BALCÃO */}
-              <div className="flex space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setDeliveryType('ENTREGA')}
-                  style={{ 
-                    backgroundColor: deliveryType === 'ENTREGA' ? primaryColor : bgColor,
-                    color: deliveryType === 'ENTREGA' ? btnTextColor : textColor
-                  }}
-                  className="w-1/2 py-2 rounded-xl text-xs font-bold border border-white/10 transition">
-                  🛵 Entrega em Casa
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDeliveryType('BALCAO');
-                    setSelectedNeighFee(0);
-                  }}
-                  style={{ 
-                    backgroundColor: deliveryType === 'BALCAO' ? primaryColor : bgColor,
-                    color: deliveryType === 'BALCAO' ? btnTextColor : textColor
-                  }}
-                  className="w-1/2 py-2 rounded-xl text-xs font-bold border border-white/10 transition">
-                  🏪 Retirar no Balcão
-                </button>
-              </div>
+              {/* TIPO DE ATENDIMENTO */}
+              {!tableNumber ? (
+                <div className="flex space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryType('ENTREGA')}
+                    style={{ 
+                      backgroundColor: deliveryType === 'ENTREGA' ? primaryColor : bgColor,
+                      color: deliveryType === 'ENTREGA' ? btnTextColor : textColor
+                    }}
+                    className="w-1/2 py-2 rounded-xl text-xs font-bold border border-white/10 transition">
+                    🛵 Entrega
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeliveryType('BALCAO');
+                      setSelectedNeighFee(0);
+                    }}
+                    style={{ 
+                      backgroundColor: deliveryType === 'BALCAO' ? primaryColor : bgColor,
+                      color: deliveryType === 'BALCAO' ? btnTextColor : textColor
+                    }}
+                    className="w-1/2 py-2 rounded-xl text-xs font-bold border border-white/10 transition">
+                    🏪 Balcão
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-orange-500/10 border border-orange-500/30 p-2.5 rounded-xl text-center">
+                  <span className="text-xs font-bold text-orange-400">📍 Pedido vinculado à MESA {tableNumber}</span>
+                </div>
+              )}
 
               <div>
-                <label className="text-[11px] opacity-70 block mb-1">Seu Nome:</label>
-                <input type="text" required value={customerName} onChange={(e) => setCustomerName(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
+                <label className="text-[11px] opacity-70 block mb-1">Seu Nome / Identificação:</label>
+                <input type="text" required placeholder="Ex: João Silva" value={customerName} onChange={(e) => setCustomerName(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
               </div>
 
-              <div>
-                <label className="text-[11px] opacity-70 block mb-1">Seu WhatsApp:</label>
-                <input type="text" required value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
-              </div>
+              {!tableNumber && (
+                <div>
+                  <label className="text-[11px] opacity-70 block mb-1">Seu WhatsApp:</label>
+                  <input type="text" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
+                </div>
+              )}
 
-              {/* CAMPOS DE ENDEREÇO SÓ APARECEM SE FOR ENTREGA */}
-              {deliveryType === 'ENTREGA' && (
+              {deliveryType === 'ENTREGA' && !tableNumber && (
                 <>
                   <div>
                     <label className="text-[11px] opacity-70 block mb-1">Seu Bairro (Taxa Entrega):</label>
@@ -499,6 +544,7 @@ export default function DeliveryCliente() {
               <div>
                 <label className="text-[11px] opacity-70 block mb-1">Forma de Pagamento:</label>
                 <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none">
+                  {tableNumber && <option value="Pagar no Balcão">Pagar no Balcão ao Sair</option>}
                   <option value="Dinheiro">Dinheiro</option>
                   <option value="Cartão de Crédito/Débito">Cartão de Crédito/Débito</option>
                   <option value="PIX">PIX</option>
@@ -511,7 +557,7 @@ export default function DeliveryCliente() {
 
               <div style={{ backgroundColor: bgColor }} className="p-3 rounded-xl border border-white/10 space-y-1 text-xs">
                 <div className="flex justify-between"><span className="opacity-60">Subtotal:</span><span>R$ {subtotal.toFixed(2)}</span></div>
-                {deliveryType === 'ENTREGA' && (
+                {deliveryType === 'ENTREGA' && !tableNumber && (
                   <div className="flex justify-between"><span className="opacity-60">Taxa de Entrega:</span><span>R$ {currentDeliveryFee.toFixed(2)}</span></div>
                 )}
                 <div className="flex justify-between font-bold text-sm pt-1 border-t border-white/10"><span style={{ color: primaryColor }}>TOTAL:</span><span style={{ color: primaryColor }}>R$ {total.toFixed(2)}</span></div>
@@ -522,7 +568,7 @@ export default function DeliveryCliente() {
                 disabled={isSubmitting}
                 style={{ backgroundColor: primaryColor, color: btnTextColor }}
                 className="w-full font-bold py-3.5 rounded-xl text-xs shadow-lg transition hover:opacity-90">
-                {isSubmitting ? 'Enviando Pedido...' : 'Enviar Pedido no WhatsApp 🚀'}
+                {isSubmitting ? 'Enviando Pedido...' : (tableNumber ? 'Confirmar Pedido na Mesa 🚀' : 'Enviar Pedido no WhatsApp 🚀')}
               </button>
             </form>
           </div>
