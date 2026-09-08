@@ -10,7 +10,7 @@ export default function MasterAdmin() {
   const [filterType, setFilterType] = useState('ALL');
   const [copiedTenantId, setCopiedTenantId] = useState(null);
 
-  // FORMULÁRIO DE NOVO CLIENTE (COM COR DO PREÇO)
+  // FORMULÁRIO DE NOVO CLIENTE (INCLUINDO MÓDULO DE MESAS)
   const [newTenant, setNewTenant] = useState({
     name: '',
     slug: '',
@@ -26,7 +26,8 @@ export default function MasterAdmin() {
     due_date: '',
     monthly_fee: '99.00',
     admin_password: '',
-    business_type: 'delivery'
+    business_type: 'delivery',
+    has_tables: true                // Módulo de Mesas / QR Code
   });
 
   // ESTADO DE EDIÇÃO DE CLIENTE EXISTENTE
@@ -130,7 +131,7 @@ export default function MasterAdmin() {
     alert(`Mensagem de cobrança para ${tenant.name} copiada!`);
   };
 
-  // PREDEFINIÇÕES DE CORES COM COR DO PREÇO INCLUÍDA
+  // PREDEFINIÇÕES DE CORES
   const applyPreset = (type) => {
     if (type === 'dark_orange') {
       setNewTenant(prev => ({ ...prev, primary_color: '#FF8C00', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#FF8C00' }));
@@ -186,6 +187,7 @@ export default function MasterAdmin() {
       has_delivery: isDelivery,
       has_agendamento: isAgendamento,
       has_ecommerce: isEcommerce,
+      has_tables: newTenant.has_tables, // ATIVA/DESATIVA MÓDULO DE MESAS
       business_type: newTenant.business_type
     }]).select().single();
 
@@ -203,7 +205,8 @@ export default function MasterAdmin() {
         name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '',
         primary_color: '#FF8C00', button_text_color: '#FFFFFF',
         secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF',
-        price_color: '#FF8C00', due_date: '', monthly_fee: '99.00', admin_password: '', business_type: 'delivery'
+        price_color: '#FF8C00', due_date: '', monthly_fee: '99.00', admin_password: '', business_type: 'delivery',
+        has_tables: true
       });
       fetchTenants();
     }
@@ -227,7 +230,8 @@ export default function MasterAdmin() {
       secondary_color: editingTenant.secondary_color,
       card_bg_color: editingTenant.card_bg_color,
       text_color: editingTenant.text_color,
-      price_color: editingTenant.price_color
+      price_color: editingTenant.price_color,
+      has_tables: editingTenant.has_tables ?? true // SALVA STATUS DAS MESAS
     }).eq('id', editingTenant.id);
 
     if (error) {
@@ -245,7 +249,7 @@ export default function MasterAdmin() {
   };
 
   const handleDeleteTenant = async (id, name) => {
-    if (confirm(`TEM CERTEZA que deseja apagar o cliente "${name}"?\nIsso apagar todos os dados definitivamente!`)) {
+    if (confirm(`TEM CERTEZA que deseja apagar o cliente "${name}"?\nIsso apaga todos os dados definitivamente!`)) {
       await supabase.from('tenants').delete().eq('id', id);
       fetchTenants();
     }
@@ -360,7 +364,7 @@ export default function MasterAdmin() {
           <div className="w-10 h-10 rounded-2xl bg-orange-500 flex items-center justify-center font-bold text-xl text-white shadow-lg shadow-orange-500/20">⚡</div>
           <div>
             <h1 className="font-bold text-lg text-white leading-tight">Sinerge Multi-SaaS Master</h1>
-            <p className="text-xs text-gray-400">Gestão Geral (Delivery, Agendamento & E-commerce)</p>
+            <p className="text-xs text-gray-400">Gestão Geral (Delivery, Autoatendimento, Agendamento & E-commerce)</p>
           </div>
         </div>
 
@@ -446,6 +450,22 @@ export default function MasterAdmin() {
             </div>
           </div>
 
+          {/* NOVO RECURSO: HABILITAR MÓDULO DE MESAS SE FOR DELIVERY */}
+          {newTenant.business_type === 'delivery' && (
+            <div className="bg-gray-950 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center">
+              <div>
+                <span className="font-bold text-xs text-white block">🪑 Habilitar Módulo de Mesas / Autoatendimento (QR Code)</span>
+                <span className="text-[10px] text-gray-400">Permite ao restaurante gerar QR Codes para os clientes pedirem direto da mesa.</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={newTenant.has_tables}
+                onChange={(e) => setNewTenant({ ...newTenant, has_tables: e.target.checked })}
+                className="w-4 h-4 accent-orange-500 cursor-pointer"
+              />
+            </div>
+          )}
+
           <div>
             <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
             <input type="text" placeholder="Ex: Salão Lanna ou Hamburgueria Silva" value={newTenant.name} onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
@@ -463,7 +483,7 @@ export default function MasterAdmin() {
             </div>
           </div>
 
-          {/* PERSONALIZAÇÃO DE CORES (AGORA COM 6 CAMPOS) */}
+          {/* PERSONALIZAÇÃO DE CORES */}
           <div className="bg-gray-950/80 p-4 rounded-2xl border border-gray-800 space-y-3">
             <div className="flex justify-between items-center flex-wrap gap-2">
               <label className="text-[11px] font-bold text-orange-400 uppercase tracking-wider block">🎨 Personalização das Cores do Tema:</label>
@@ -516,7 +536,6 @@ export default function MasterAdmin() {
                 </div>
               </div>
 
-              {/* NOVO CAMPO: COR DOS PREÇOS / VALORES */}
               <div>
                 <label className="text-[10px] font-bold text-orange-400 block mb-1">Cor do Preço / Valores:</label>
                 <div className="flex space-x-1.5 items-center">
@@ -590,6 +609,13 @@ export default function MasterAdmin() {
                       <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${isEcommerce ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : isAgendamento ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
                         {isEcommerce ? '👕 E-commerce' : isAgendamento ? '✂️ Agendamento' : '🍔 Delivery'}
                       </span>
+
+                      {/* TAG DE RECURSO DE MESAS */}
+                      {(t.has_tables ?? true) && !isAgendamento && !isEcommerce && (
+                        <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                          🪑 Mesas
+                        </span>
+                      )}
                       
                       <h3 className="font-bold text-base text-white">{t.name}</h3>
                     </div>
@@ -706,6 +732,20 @@ export default function MasterAdmin() {
               </div>
             </div>
 
+            {/* CHAVEADOR DE MESAS NA EDIÇÃO */}
+            <div className="bg-gray-950 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center">
+              <div>
+                <span className="font-bold text-xs text-white block">🪑 Módulo de Mesas / Autoatendimento (QR Code)</span>
+                <span className="text-[10px] text-gray-400">Ativa a aba de gerenciamento de QR Codes no Admin do cliente.</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={editingTenant.has_tables ?? true}
+                onChange={(e) => setEditingTenant({ ...editingTenant, has_tables: e.target.checked })}
+                className="w-4 h-4 accent-orange-500 cursor-pointer"
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[11px] text-gray-400 block mb-1">Valor da Mensalidade (R$):</label>
@@ -730,7 +770,7 @@ export default function MasterAdmin() {
               </div>
             </div>
 
-            {/* EDITAR CORES (COM COR DO PREÇO) */}
+            {/* EDITAR CORES */}
             <div className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-3">
               <div className="flex justify-between items-center flex-wrap gap-2">
                 <label className="text-[11px] font-bold text-blue-400 uppercase tracking-wider block">🎨 Alterar Cores do Tema:</label>
@@ -783,7 +823,6 @@ export default function MasterAdmin() {
                   </div>
                 </div>
 
-                {/* EDITAR COR DOS PREÇOS */}
                 <div>
                   <label className="text-[10px] font-bold text-blue-400 block mb-1">Cor do Preço / Valores:</label>
                   <div className="flex space-x-1.5 items-center">
