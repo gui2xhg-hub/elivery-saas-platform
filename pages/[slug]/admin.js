@@ -19,6 +19,10 @@ export default function AdminTenant() {
   const [allOrders, setAllOrders] = useState([]);
   const [reportFilter, setReportFilter] = useState('all');
 
+  // CONFIGURAÇÃO DE MESAS E QR CODES
+  const [tableCount, setTableCount] = useState(10);
+  const [baseUrl, setBaseUrl] = useState('');
+
   // NORMAS DE DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
   const ALL_DAYS = [
     { id: 1, label: 'Seg' },
@@ -42,6 +46,9 @@ export default function AdminTenant() {
 
   useEffect(() => {
     if (slug) fetchTenant();
+    if (typeof window !== 'undefined') {
+      setBaseUrl(`${window.location.protocol}//${window.location.host}`);
+    }
   }, [slug]);
 
   const fetchTenant = async () => {
@@ -287,12 +294,68 @@ export default function AdminTenant() {
       {/* ABAS */}
       <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto">
         <button onClick={() => setActiveTab('products')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🍔 Itens</button>
+        <button onClick={() => setActiveTab('tables')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'tables' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🪑 Mesas QR</button>
         <button onClick={() => setActiveTab('categories')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🏷️ Categorias</button>
         <button onClick={() => setActiveTab('addons')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>➕ Adicionais</button>
         <button onClick={() => setActiveTab('neighborhoods')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'neighborhoods' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🛵 Bairros</button>
         <button onClick={() => setActiveTab('reports')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>📊 Relatórios</button>
         <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
       </div>
+
+      {/* ABA MESAS QR CODE */}
+      {activeTab === 'tables' && (
+        <div className="space-y-6">
+          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+            <h3 className="font-bold text-sm text-orange-400">🪑 Gerador de QR Code por Mesa</h3>
+            <p className="text-xs text-gray-400">Defina a quantidade de mesas para gerar os links e QR Codes prontos para impressão.</p>
+            
+            <div className="flex items-center space-x-2 pt-1">
+              <label className="text-xs font-bold text-gray-300 whitespace-nowrap">Qtd de Mesas:</label>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={tableCount}
+                onChange={(e) => setTableCount(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-24 bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white text-center font-bold"
+              />
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <div className="flex justify-between items-center">
+              <h4 className="font-bold text-xs text-gray-300">Cartões para Impressão ({tableCount} mesas)</h4>
+              <button 
+                onClick={() => window.print()}
+                className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition">
+                🖨️ Imprimir
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {Array.from({ length: tableCount }, (_, i) => {
+                const tableNum = String(i + 1).padStart(2, '0');
+                const tableUrl = `${baseUrl}/${tenant.slug}?mesa=${tableNum}`;
+                const qrCodeApi = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(tableUrl)}`;
+
+                return (
+                  <div key={i} className="bg-gray-900 p-3 rounded-2xl border border-gray-800 flex flex-col items-center space-y-2 text-center">
+                    <span className="font-extrabold text-sm text-orange-400">MESA {tableNum}</span>
+                    <img src={qrCodeApi} alt={`Mesa ${tableNum}`} className="w-28 h-28 rounded-xl bg-white p-1.5 border border-gray-700 shadow" />
+                    <a
+                      href={tableUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-blue-400 hover:underline truncate w-full">
+                      Testar Link Mesa
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* ITENS */}
       {activeTab === 'products' && (
