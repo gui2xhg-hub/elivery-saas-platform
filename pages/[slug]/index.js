@@ -22,6 +22,7 @@ export default function DeliveryCliente() {
   // CARRINHO DE COMPRAS E CHECKOUT
   const [cart, setCart] = useState([]);
   const [showCartModal, setShowCartModal] = useState(false);
+  const [deliveryType, setDeliveryType] = useState('ENTREGA'); // 'ENTREGA' ou 'BALCAO'
   const [selectedNeighFee, setSelectedNeighFee] = useState(0);
   const [selectedNeighName, setSelectedNeighName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Dinheiro');
@@ -69,7 +70,6 @@ export default function DeliveryCliente() {
     setLoading(false);
   };
 
-  // ABRIR MODAL DO PRODUTO PARA SELECIONAR ADICIONAIS
   const handleOpenProductModal = (product) => {
     setSelectedProduct(product);
     setProductQuantity(1);
@@ -86,7 +86,6 @@ export default function DeliveryCliente() {
     }
   };
 
-  // CONFIRMAR ITEM NO CARRINHO
   const handleAddProductToCart = () => {
     if (!selectedProduct) return;
 
@@ -132,7 +131,8 @@ export default function DeliveryCliente() {
   const textColor = tenant.text_color || '#FFFFFF';
 
   const subtotal = cart.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
-  const total = subtotal + Number(selectedNeighFee || 0);
+  const currentDeliveryFee = deliveryType === 'ENTREGA' ? Number(selectedNeighFee || 0) : 0;
+  const total = subtotal + currentDeliveryFee;
 
   const filteredProducts = selectedCat === 'ALL' ? products : products.filter(p => String(p.category_id) === String(selectedCat));
 
@@ -141,18 +141,23 @@ export default function DeliveryCliente() {
   const handleFinishOrder = async (e) => {
     e.preventDefault();
     if (cart.length === 0) return alert("Seu carrinho está vazio!");
-    if (!customerName || !customerPhone || !customerAddress) return alert("Preencha Nome, WhatsApp e Endereço!");
+    if (!customerName || !customerPhone) return alert("Preencha seu Nome e WhatsApp!");
+    if (deliveryType === 'ENTREGA' && !customerAddress) return alert("Preencha seu Endereço para entrega!");
 
     setIsSubmitting(true);
+
+    const fullAddress = deliveryType === 'ENTREGA' 
+      ? `${customerAddress} (${selectedNeighName || 'Sem bairro'})`
+      : 'Retirada no Balcão';
 
     const orderData = {
       tenant_id: tenant.id,
       customer_name: customerName,
       customer_phone: customerPhone.replace(/\D/g, ''),
-      customer_address: `${customerAddress} (${selectedNeighName || 'Sem bairro'})`,
+      customer_address: fullAddress,
       items: cart,
       subtotal: subtotal,
-      delivery_fee: selectedNeighFee,
+      delivery_fee: currentDeliveryFee,
       total: total,
       payment_method: paymentMethod,
       change_for: changeValue,
@@ -170,7 +175,7 @@ export default function DeliveryCliente() {
       window.fbq('track', 'Purchase', { value: total, currency: 'BRL' });
     }
 
-    // MONTAGEM DO TEXTO PARA WHATSAPP
+    // TEXTO WHATSAPP FORMATADO
     let itemsText = cart.map(i => {
       let txt = `• ${i.quantity}x ${i.name} (R$ ${(i.unitPrice * i.quantity).toFixed(2)})`;
       if (i.selectedAddons && i.selectedAddons.length > 0) {
@@ -183,10 +188,16 @@ export default function DeliveryCliente() {
     }).join('\n\n');
 
     let msg = `*NOVO PEDIDO #${createdOrder.id} - ${tenant.name.toUpperCase()}*\n\n`;
-    msg += `*Cliente:* ${customerName}\n*Telefone:* ${customerPhone}\n*Endereço:* ${customerAddress}\n*Bairro:* ${selectedNeighName}\n\n`;
-    msg += `*ITENS DO PEDIDO:*\n${itemsText}\n\n`;
+    msg += `*Cliente:* ${customerName}\n*Telefone:* ${customerPhone}\n`;
+    msg += `*Tipo de Pedido:* ${deliveryType === 'ENTREGA' ? '🛵 Entrega em Casa' : '🏪 Retirar no Balcão'}\n`;
+    if (deliveryType === 'ENTREGA') {
+      msg += `*Endereço:* ${customerAddress}\n*Bairro:* ${selectedNeighName}\n`;
+    }
+    msg += `\n*ITENS DO PEDIDO:*\n${itemsText}\n\n`;
     msg += `*Subtotal:* R$ ${subtotal.toFixed(2)}\n`;
-    msg += `*Taxa Entrega:* R$ ${Number(selectedNeighFee).toFixed(2)}\n`;
+    if (deliveryType === 'ENTREGA') {
+      msg += `*Taxa Entrega:* R$ ${currentDeliveryFee.toFixed(2)}\n`;
+    }
     msg += `*TOTAL:* *R$ ${total.toFixed(2)}*\n`;
     msg += `*Pagamento:* ${paymentMethod} ${changeValue ? `(Troco para R$ ${changeValue})` : ''}`;
 
@@ -205,7 +216,6 @@ export default function DeliveryCliente() {
     alert("Pedido enviado com sucesso!");
   };
 
-  // FAZ PARSER DOS ADICIONAIS DO PRODUTO (addons_list ex: "Bacon:3.50,Queijo:2.00")
   const getProductAddonsArray = (addonsStr) => {
     if (!addonsStr) return [];
     return addonsStr.split(',').filter(Boolean).map(item => {
@@ -231,7 +241,7 @@ export default function DeliveryCliente() {
         </div>
       </div>
 
-      {/* BANNERS DE PROMOÇÃO */}
+      {/* BANNERS PROMOCIONAIS */}
       {promoBannerList.length > 0 && (
         <div className="mt-8 px-4">
           <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none">
@@ -322,7 +332,6 @@ export default function DeliveryCliente() {
             <img src={selectedProduct.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=300&auto=format&fit=crop&q=80'} alt={selectedProduct.name} className="w-full h-36 rounded-xl object-cover border border-white/10" />
             <p className="text-xs opacity-70">{selectedProduct.description}</p>
 
-            {/* LISTA DE ADICIONAIS OPCIONAIS */}
             {getProductAddonsArray(selectedProduct.addons_list).length > 0 && (
               <div className="space-y-2 pt-2 border-t border-white/10">
                 <label className="text-xs font-bold block opacity-80">➕ Adicionais Opcionais:</label>
@@ -347,12 +356,11 @@ export default function DeliveryCliente() {
               </div>
             )}
 
-            {/* OBSERVAÇÃO DO ITEM */}
             <div className="space-y-1 pt-2 border-t border-white/10">
               <label className="text-xs font-bold block opacity-80">📝 Observação do Item:</label>
               <input
                 type="text"
-                placeholder="Ex: Sem salada, molho à parte..."
+                placeholder="Ex: Sem salada, ponto da carne..."
                 value={itemObservation}
                 onChange={(e) => setItemObservation(e.target.value)}
                 style={{ backgroundColor: bgColor, color: textColor }}
@@ -360,7 +368,6 @@ export default function DeliveryCliente() {
               />
             </div>
 
-            {/* CONTADOR DE QUANTIDADE E BOTÃO ADICIONAR */}
             <div className="flex items-center space-x-3 pt-2">
               <div className="flex items-center space-x-2 bg-black/30 p-1 rounded-xl border border-white/10">
                 <button onClick={() => setProductQuantity(Math.max(1, productQuantity - 1))} className="w-8 h-8 rounded-lg bg-gray-800 text-white font-bold text-sm">-</button>
@@ -379,7 +386,7 @@ export default function DeliveryCliente() {
         </div>
       )}
 
-      {/* MODAL DO CARRINHO */}
+      {/* MODAL DO CARRINHO & CHECKOUT */}
       {showCartModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -408,6 +415,33 @@ export default function DeliveryCliente() {
             </div>
 
             <form onSubmit={handleFinishOrder} className="space-y-3 pt-2 border-t border-white/10">
+              {/* BOTÕES DE SELEÇÃO: ENTREGA EM CASA vs RETIRADA NO BALCÃO */}
+              <div className="flex space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setDeliveryType('ENTREGA')}
+                  style={{ 
+                    backgroundColor: deliveryType === 'ENTREGA' ? primaryColor : bgColor,
+                    color: deliveryType === 'ENTREGA' ? btnTextColor : textColor
+                  }}
+                  className="w-1/2 py-2 rounded-xl text-xs font-bold border border-white/10 transition">
+                  🛵 Entrega em Casa
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeliveryType('BALCAO');
+                    setSelectedNeighFee(0);
+                  }}
+                  style={{ 
+                    backgroundColor: deliveryType === 'BALCAO' ? primaryColor : bgColor,
+                    color: deliveryType === 'BALCAO' ? btnTextColor : textColor
+                  }}
+                  className="w-1/2 py-2 rounded-xl text-xs font-bold border border-white/10 transition">
+                  🏪 Retirar no Balcão
+                </button>
+              </div>
+
               <div>
                 <label className="text-[11px] opacity-70 block mb-1">Seu Nome:</label>
                 <input type="text" required value={customerName} onChange={(e) => setCustomerName(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
@@ -418,38 +452,43 @@ export default function DeliveryCliente() {
                 <input type="text" required value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
               </div>
 
-              <div>
-                <label className="text-[11px] opacity-70 block mb-1">Seu Bairro (Taxa Entrega):</label>
-                <select
-                  onChange={(e) => {
-                    const selected = neighborhoods.find(n => String(n.id) === String(e.target.value));
-                    if (selected) {
-                      setSelectedNeighFee(selected.fee);
-                      setSelectedNeighName(selected.name);
-                    } else {
-                      setSelectedNeighFee(0);
-                      setSelectedNeighName('');
-                    }
-                  }}
-                  style={{ backgroundColor: bgColor, color: textColor }}
-                  className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none">
-                  <option value="">Selecione seu bairro...</option>
-                  {neighborhoods.map(n => (
-                    <option key={n.id} value={n.id}>{n.name} (+R$ {Number(n.fee).toFixed(2)})</option>
-                  ))}
-                </select>
-              </div>
+              {/* CAMPOS DE ENDEREÇO SÓ APARECEM SE FOR ENTREGA */}
+              {deliveryType === 'ENTREGA' && (
+                <>
+                  <div>
+                    <label className="text-[11px] opacity-70 block mb-1">Seu Bairro (Taxa Entrega):</label>
+                    <select
+                      onChange={(e) => {
+                        const selected = neighborhoods.find(n => String(n.id) === String(e.target.value));
+                        if (selected) {
+                          setSelectedNeighFee(selected.fee);
+                          setSelectedNeighName(selected.name);
+                        } else {
+                          setSelectedNeighFee(0);
+                          setSelectedNeighName('');
+                        }
+                      }}
+                      style={{ backgroundColor: bgColor, color: textColor }}
+                      className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none">
+                      <option value="">Selecione seu bairro...</option>
+                      {neighborhoods.map(n => (
+                        <option key={n.id} value={n.id}>{n.name} (+R$ {Number(n.fee).toFixed(2)})</option>
+                      ))}
+                    </select>
+                  </div>
 
-              <div>
-                <label className="text-[11px] opacity-70 block mb-1">Endereço Completo e Número:</label>
-                <input type="text" required value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
-              </div>
+                  <div>
+                    <label className="text-[11px] opacity-70 block mb-1">Endereço Completo e Número:</label>
+                    <input type="text" required value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
+                  </div>
+                </>
+              )}
 
               <div>
                 <label className="text-[11px] opacity-70 block mb-1">Forma de Pagamento:</label>
                 <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none">
                   <option value="Dinheiro">Dinheiro</option>
-                  <option value="Cartão de Crédito/Débito">Cartão de Crédito/Débito (na entrega)</option>
+                  <option value="Cartão de Crédito/Débito">Cartão de Crédito/Débito</option>
                   <option value="PIX">PIX</option>
                 </select>
               </div>
@@ -460,7 +499,9 @@ export default function DeliveryCliente() {
 
               <div style={{ backgroundColor: bgColor }} className="p-3 rounded-xl border border-white/10 space-y-1 text-xs">
                 <div className="flex justify-between"><span className="opacity-60">Subtotal:</span><span>R$ {subtotal.toFixed(2)}</span></div>
-                <div className="flex justify-between"><span className="opacity-60">Taxa de Entrega:</span><span>R$ {Number(selectedNeighFee).toFixed(2)}</span></div>
+                {deliveryType === 'ENTREGA' && (
+                  <div className="flex justify-between"><span className="opacity-60">Taxa de Entrega:</span><span>R$ {currentDeliveryFee.toFixed(2)}</span></div>
+                )}
                 <div className="flex justify-between font-bold text-sm pt-1 border-t border-white/10"><span style={{ color: primaryColor }}>TOTAL:</span><span style={{ color: primaryColor }}>R$ {total.toFixed(2)}</span></div>
               </div>
 
