@@ -232,6 +232,18 @@ export default function DeliveryCliente() {
       {/* CAPA & RESTAURANTE */}
       <div className="relative h-36 bg-gray-900 border-b border-white/10">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop&q=80'} alt="Banner" className="w-full h-full object-cover opacity-50" />
+        
+        {/* BOTÃO DO INSTAGRAM (SE HOUVER LINK CADASTRADO) */}
+        {tenant.instagram_url && (
+          <a
+            href={tenant.instagram_url.startsWith('http') ? tenant.instagram_url : `https://${tenant.instagram_url}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="absolute top-3 right-3 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition flex items-center space-x-1 hover:opacity-90 z-10">
+            <span>📸 Instagram</span>
+          </a>
+        )}
+
         <div className="absolute -bottom-5 left-4 flex items-center space-x-3">
           <img src={tenant.logo_url || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'} alt="Logo" className="w-16 h-16 rounded-full border-2 border-black/40 object-cover bg-gray-800 shadow-lg" />
           <div className="pt-4">
