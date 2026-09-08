@@ -13,7 +13,13 @@ export default function DeliveryCliente() {
   const [selectedCat, setSelectedCat] = useState('ALL');
   const [loading, setLoading] = useState(true);
 
-  // CARRINHO DE COMPRAS
+  // MODAL DE DETALHES DO PRODUTO (ADICIONAIS E OBSERVAÇÃO)
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [productQuantity, setProductQuantity] = useState(1);
+  const [selectedAddons, setSelectedAddons] = useState([]);
+  const [itemObservation, setItemObservation] = useState('');
+
+  // CARRINHO DE COMPRAS E CHECKOUT
   const [cart, setCart] = useState([]);
   const [showCartModal, setShowCartModal] = useState(false);
   const [selectedNeighFee, setSelectedNeighFee] = useState(0);
@@ -38,6 +44,20 @@ export default function DeliveryCliente() {
 
     if (tData) {
       setTenant(tData);
+      
+      // CARREGA PIXEL DO META
+      if (tData.pixel_id && typeof window !== 'undefined') {
+        !(function (f, b, e, v, n, t, s) {
+          if (f.fbq) return; n = f.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); };
+          if (!f._fbq) f._fbq = n; n.push = n; n.loaded = !0; n.version = '2.0';
+          n.queue = []; t = b.createElement(e); t.async = !0;
+          t.src = v; s = b.getElementsByTagName(e)[0];
+          s.parentNode.insertBefore(t, s);
+        })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
+        window.fbq('init', tData.pixel_id);
+        window.fbq('track', 'PageView');
+      }
+
       const { data: cData } = await supabase.from('categories').select('*').eq('tenant_id', tData.id).order('id', { ascending: true });
       const { data: pData } = await supabase.from('products').select('*').eq('tenant_id', tData.id).eq('active', true).order('id', { ascending: true });
       const { data: nData } = await supabase.from('neighborhoods').select('*').eq('tenant_id', tData.id).order('name', { ascending: true });
@@ -49,22 +69,56 @@ export default function DeliveryCliente() {
     setLoading(false);
   };
 
-  const addToCart = (product) => {
-    const existing = cart.find(item => item.id === product.id);
-    if (existing) {
-      setCart(cart.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item));
+  // ABRIR MODAL DO PRODUTO PARA SELECIONAR ADICIONAIS
+  const handleOpenProductModal = (product) => {
+    setSelectedProduct(product);
+    setProductQuantity(1);
+    setSelectedAddons([]);
+    setItemObservation('');
+  };
+
+  const toggleAddon = (addon) => {
+    const exists = selectedAddons.some(a => a.name === addon.name);
+    if (exists) {
+      setSelectedAddons(selectedAddons.filter(a => a.name !== addon.name));
     } else {
-      setCart([...cart, { ...product, quantity: 1 }]);
+      setSelectedAddons([...selectedAddons, addon]);
     }
   };
 
-  const removeFromCart = (productId) => {
-    const existing = cart.find(item => item.id === productId);
-    if (existing.quantity === 1) {
-      setCart(cart.filter(item => item.id !== productId));
-    } else {
-      setCart(cart.map(item => item.id === productId ? { ...item, quantity: item.quantity - 1 } : item));
+  // CONFIRMAR ITEM NO CARRINHO
+  const handleAddProductToCart = () => {
+    if (!selectedProduct) return;
+
+    const addonsTotal = selectedAddons.reduce((sum, a) => sum + Number(a.price), 0);
+    const unitPrice = Number(selectedProduct.price) + addonsTotal;
+
+    const cartItem = {
+      cartItemId: `${selectedProduct.id}-${Date.now()}`,
+      id: selectedProduct.id,
+      name: selectedProduct.name,
+      basePrice: Number(selectedProduct.price),
+      unitPrice: unitPrice,
+      quantity: productQuantity,
+      selectedAddons: selectedAddons,
+      observation: itemObservation,
+      image: selectedProduct.image
+    };
+
+    setCart([...cart, cartItem]);
+    setSelectedProduct(null);
+
+    if (window.fbq) {
+      window.fbq('track', 'AddToCart', {
+        content_name: selectedProduct.name,
+        value: unitPrice * productQuantity,
+        currency: 'BRL'
+      });
     }
+  };
+
+  const removeFromCart = (cartItemId) => {
+    setCart(cart.filter(item => item.cartItemId !== cartItemId));
   };
 
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando cardápio...</p></div>;
@@ -77,10 +131,12 @@ export default function DeliveryCliente() {
   const cardColor = tenant.card_color || '#111827';
   const textColor = tenant.text_color || '#FFFFFF';
 
-  const subtotal = cart.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
+  const subtotal = cart.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
   const total = subtotal + Number(selectedNeighFee || 0);
 
   const filteredProducts = selectedCat === 'ALL' ? products : products.filter(p => String(p.category_id) === String(selectedCat));
+
+  const promoBannerList = tenant.promo_banners ? tenant.promo_banners.split(',').map(b => b.trim()).filter(Boolean) : [];
 
   const handleFinishOrder = async (e) => {
     e.preventDefault();
@@ -110,7 +166,22 @@ export default function DeliveryCliente() {
       return alert("Erro ao enviar pedido: " + error.message);
     }
 
-    let itemsText = cart.map(i => `• ${i.quantity}x ${i.name} (R$ ${(Number(i.price) * i.quantity).toFixed(2)})`).join('\n');
+    if (window.fbq) {
+      window.fbq('track', 'Purchase', { value: total, currency: 'BRL' });
+    }
+
+    // MONTAGEM DO TEXTO PARA WHATSAPP
+    let itemsText = cart.map(i => {
+      let txt = `• ${i.quantity}x ${i.name} (R$ ${(i.unitPrice * i.quantity).toFixed(2)})`;
+      if (i.selectedAddons && i.selectedAddons.length > 0) {
+        txt += `\n   + Adicionais: ${i.selectedAddons.map(a => `${a.name} (+R$ ${Number(a.price).toFixed(2)})`).join(', ')}`;
+      }
+      if (i.observation) {
+        txt += `\n   Obs: _"${i.observation}"_`;
+      }
+      return txt;
+    }).join('\n\n');
+
     let msg = `*NOVO PEDIDO #${createdOrder.id} - ${tenant.name.toUpperCase()}*\n\n`;
     msg += `*Cliente:* ${customerName}\n*Telefone:* ${customerPhone}\n*Endereço:* ${customerAddress}\n*Bairro:* ${selectedNeighName}\n\n`;
     msg += `*ITENS DO PEDIDO:*\n${itemsText}\n\n`;
@@ -134,6 +205,18 @@ export default function DeliveryCliente() {
     alert("Pedido enviado com sucesso!");
   };
 
+  // FAZ PARSER DOS ADICIONAIS DO PRODUTO (addons_list ex: "Bacon:3.50,Queijo:2.00")
+  const getProductAddonsArray = (addonsStr) => {
+    if (!addonsStr) return [];
+    return addonsStr.split(',').filter(Boolean).map(item => {
+      const parts = item.split(':');
+      return {
+        name: parts[0] ? parts[0].trim() : item,
+        price: parts[1] ? parseFloat(parts[1]) : 0
+      };
+    });
+  };
+
   return (
     <div className="min-h-screen font-sans pb-24 max-w-md mx-auto transition-colors duration-300" style={{ backgroundColor: bgColor, color: textColor }}>
       {/* CAPA & RESTAURANTE */}
@@ -148,8 +231,19 @@ export default function DeliveryCliente() {
         </div>
       </div>
 
+      {/* BANNERS DE PROMOÇÃO */}
+      {promoBannerList.length > 0 && (
+        <div className="mt-8 px-4">
+          <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none">
+            {promoBannerList.map((bannerUrl, idx) => (
+              <img key={idx} src={bannerUrl} alt={`Promoção ${idx + 1}`} className="w-72 h-32 rounded-2xl object-cover border border-white/10 shrink-0 shadow-md" />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* CATEGORIAS */}
-      <div className="mt-8 px-4">
+      <div className={`${promoBannerList.length > 0 ? 'mt-4' : 'mt-8'} px-4`}>
         <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-none">
           <button
             onClick={() => setSelectedCat('ALL')}
@@ -180,37 +274,26 @@ export default function DeliveryCliente() {
 
       {/* LISTA DE PRODUTOS */}
       <div className="mt-4 px-4 space-y-3">
-        {filteredProducts.map(p => {
-          const cartItem = cart.find(i => i.id === p.id);
-          const qty = cartItem ? cartItem.quantity : 0;
-
-          return (
-            <div key={p.id} style={{ backgroundColor: cardColor }} className="p-3 rounded-2xl border border-white/10 flex justify-between items-center transition">
-              <div className="flex items-center space-x-3">
-                <img src={p.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'} alt={p.name} className="w-16 h-16 rounded-xl object-cover border border-white/10 bg-gray-800 shrink-0" />
-                <div>
-                  <h3 className="font-bold text-xs" style={{ color: textColor }}>{p.name}</h3>
-                  <p className="text-[10px] opacity-60 line-clamp-2">{p.description}</p>
-                  <span className="font-bold text-xs block mt-1" style={{ color: primaryColor }}>R$ {Number(p.price).toFixed(2)}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                {qty > 0 ? (
-                  <div className="flex items-center space-x-1.5 bg-black/30 p-1 rounded-xl border border-white/10">
-                    <button onClick={() => removeFromCart(p.id)} className="w-6 h-6 rounded-lg bg-gray-800 text-white font-bold text-xs flex items-center justify-center">-</button>
-                    <span className="text-xs font-bold px-1">{qty}</span>
-                    <button onClick={() => addToCart(p)} className="w-6 h-6 rounded-lg font-bold text-xs flex items-center justify-center" style={{ backgroundColor: primaryColor, color: btnTextColor }}>+</button>
-                  </div>
-                ) : (
-                  <button onClick={() => addToCart(p)} style={{ backgroundColor: primaryColor, color: btnTextColor }} className="px-3 py-1.5 rounded-xl text-xs font-bold transition">
-                    + Adicionar
-                  </button>
-                )}
+        {filteredProducts.map(p => (
+          <div 
+            key={p.id} 
+            onClick={() => handleOpenProductModal(p)}
+            style={{ backgroundColor: cardColor }} 
+            className="p-3 rounded-2xl border border-white/10 flex justify-between items-center cursor-pointer hover:border-white/20 transition">
+            <div className="flex items-center space-x-3">
+              <img src={p.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'} alt={p.name} className="w-16 h-16 rounded-xl object-cover border border-white/10 bg-gray-800 shrink-0" />
+              <div>
+                <h3 className="font-bold text-xs" style={{ color: textColor }}>{p.name}</h3>
+                <p className="text-[10px] opacity-60 line-clamp-2">{p.description}</p>
+                <span className="font-bold text-xs block mt-1" style={{ color: primaryColor }}>R$ {Number(p.price).toFixed(2)}</span>
               </div>
             </div>
-          );
-        })}
+
+            <button style={{ backgroundColor: primaryColor, color: btnTextColor }} className="px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap ml-2 shadow transition">
+              + Adicionar
+            </button>
+          </div>
+        ))}
       </div>
 
       {/* BARRA DO CARRINHO FLUTUANTE */}
@@ -227,6 +310,75 @@ export default function DeliveryCliente() {
         </div>
       )}
 
+      {/* MODAL DE ADICIONAIS DO PRODUTO */}
+      {selectedProduct && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-white/10 pb-2">
+              <h3 className="font-bold text-sm truncate" style={{ color: primaryColor }}>{selectedProduct.name}</h3>
+              <button onClick={() => setSelectedProduct(null)} className="opacity-60 font-bold text-xs">✕ Fechar</button>
+            </div>
+
+            <img src={selectedProduct.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=300&auto=format&fit=crop&q=80'} alt={selectedProduct.name} className="w-full h-36 rounded-xl object-cover border border-white/10" />
+            <p className="text-xs opacity-70">{selectedProduct.description}</p>
+
+            {/* LISTA DE ADICIONAIS OPCIONAIS */}
+            {getProductAddonsArray(selectedProduct.addons_list).length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-white/10">
+                <label className="text-xs font-bold block opacity-80">➕ Adicionais Opcionais:</label>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                  {getProductAddonsArray(selectedProduct.addons_list).map((addon, idx) => {
+                    const isChecked = selectedAddons.some(a => a.name === addon.name);
+                    return (
+                      <div
+                        key={idx}
+                        onClick={() => toggleAddon(addon)}
+                        style={{ backgroundColor: isChecked ? `${primaryColor}22` : bgColor, borderColor: isChecked ? primaryColor : 'rgba(255,255,255,0.1)' }}
+                        className="p-2.5 rounded-xl border flex justify-between items-center text-xs cursor-pointer transition">
+                        <div className="flex items-center space-x-2">
+                          <input type="checkbox" checked={isChecked} onChange={() => {}} className="accent-orange-500" />
+                          <span>{addon.name}</span>
+                        </div>
+                        <span style={{ color: primaryColor }} className="font-bold">+ R$ {addon.price.toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* OBSERVAÇÃO DO ITEM */}
+            <div className="space-y-1 pt-2 border-t border-white/10">
+              <label className="text-xs font-bold block opacity-80">📝 Observação do Item:</label>
+              <input
+                type="text"
+                placeholder="Ex: Sem salada, molho à parte..."
+                value={itemObservation}
+                onChange={(e) => setItemObservation(e.target.value)}
+                style={{ backgroundColor: bgColor, color: textColor }}
+                className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none"
+              />
+            </div>
+
+            {/* CONTADOR DE QUANTIDADE E BOTÃO ADICIONAR */}
+            <div className="flex items-center space-x-3 pt-2">
+              <div className="flex items-center space-x-2 bg-black/30 p-1 rounded-xl border border-white/10">
+                <button onClick={() => setProductQuantity(Math.max(1, productQuantity - 1))} className="w-8 h-8 rounded-lg bg-gray-800 text-white font-bold text-sm">-</button>
+                <span className="font-bold px-2">{productQuantity}</span>
+                <button onClick={() => setProductQuantity(productQuantity + 1)} style={{ backgroundColor: primaryColor, color: btnTextColor }} className="w-8 h-8 rounded-lg font-bold text-sm">+</button>
+              </div>
+
+              <button
+                onClick={handleAddProductToCart}
+                style={{ backgroundColor: primaryColor, color: btnTextColor }}
+                className="flex-1 font-bold py-3 rounded-xl text-xs shadow-lg transition">
+                Adicionar • R$ {((Number(selectedProduct.price) + selectedAddons.reduce((a, b) => a + b.price, 0)) * productQuantity).toFixed(2)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL DO CARRINHO */}
       {showCartModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
@@ -236,18 +388,21 @@ export default function DeliveryCliente() {
               <button onClick={() => setShowCartModal(false)} className="opacity-60 font-bold text-xs">✕ Fechar</button>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-48 overflow-y-auto">
               {cart.map(item => (
-                <div key={item.id} style={{ backgroundColor: bgColor }} className="p-2.5 rounded-xl border border-white/10 flex justify-between items-center text-xs">
-                  <div>
-                    <span className="font-bold block">{item.name}</span>
-                    <span style={{ color: primaryColor }} className="font-bold">R$ {(Number(item.price) * item.quantity).toFixed(2)}</span>
+                <div key={item.cartItemId} style={{ backgroundColor: bgColor }} className="p-2.5 rounded-xl border border-white/10 flex justify-between items-start text-xs space-x-2">
+                  <div className="flex-1">
+                    <span className="font-bold block">{item.quantity}x {item.name}</span>
+                    {item.selectedAddons && item.selectedAddons.length > 0 && (
+                      <p className="text-[10px] opacity-60">+ {item.selectedAddons.map(a => a.name).join(', ')}</p>
+                    )}
+                    {item.observation && (
+                      <p className="text-[10px] text-orange-400 italic">Obs: "{item.observation}"</p>
+                    )}
+                    <span style={{ color: primaryColor }} className="font-bold block mt-0.5">R$ {(item.unitPrice * item.quantity).toFixed(2)}</span>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <button onClick={() => removeFromCart(item.id)} className="w-5 h-5 bg-gray-800 text-white rounded font-bold">-</button>
-                    <span className="font-bold">{item.quantity}</span>
-                    <button onClick={() => addToCart(item)} style={{ backgroundColor: primaryColor, color: btnTextColor }} className="w-5 h-5 rounded font-bold">+</button>
-                  </div>
+
+                  <button onClick={() => removeFromCart(item.cartItemId)} className="text-red-400 font-bold text-xs p-1">🗑</button>
                 </div>
               ))}
             </div>
