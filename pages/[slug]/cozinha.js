@@ -29,8 +29,29 @@ export default function CozinhaTenant() {
     if (tData) {
       setTenant(tData);
       fetchOrders(tData.id, false);
+      subscribeRealtime(tData.id);
     }
     setLoading(false);
+  };
+
+  const subscribeRealtime = (tenantId) => {
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+          filter: `tenant_id=eq.${tenantId}`
+        },
+        () => {
+          fetchOrders(tenantId, true);
+        }
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
   };
 
   const playBeepSound = () => {
@@ -58,7 +79,7 @@ export default function CozinhaTenant() {
       .order('created_at', { ascending: false });
 
     if (oData) {
-      const activeRecebidos = oData.filter(o => o.status === 'recebido' && !o.archived).length;
+      const activeRecebidos = oData.filter(o => (!o.status || o.status === 'recebido' || o.status === 'pendente' || o.status === 'novo') && !o.archived).length;
       if (isInterval && activeRecebidos > prevOrdersCountRef.current) {
         playBeepSound();
       }
@@ -89,11 +110,19 @@ export default function CozinhaTenant() {
     }
   };
 
-  // MENSAGEM DO WHATSAPP ADAPTADA PARA RETIRADA OU DELIVERY
+  // MENSAGEM DO WHATSAPP ADAPTADA PARA RETIRADA, MESA OU DELIVERY
   const sendWhatsAppStatus = (order, msgType) => {
+    if (!order.customer_phone) {
+      alert("Este pedido não possui número de telefone/WhatsApp cadastrado.");
+      return;
+    }
     const cleanPhone = order.customer_phone.replace(/\D/g, '');
-    let msg = '';
+    if (!cleanPhone || cleanPhone === '00000000000') {
+      alert("Número de WhatsApp indisponível para este pedido.");
+      return;
+    }
 
+    let msg = '';
     const isDelivery = order.order_type === 'delivery';
 
     if (msgType === 'producao') {
@@ -102,7 +131,7 @@ export default function CozinhaTenant() {
       if (isDelivery) {
         msg = `Olá ${order.customer_name}! 🛵 Seu pedido #${order.id} no *${tenant.name}* saiu para entrega!`;
       } else {
-        msg = `Olá ${order.customer_name}! 🛍️ Seu pedido #${order.id} no *${tenant.name}* está PRONTO para retirada no balcão!`;
+        msg = `Olá ${order.customer_name}! 🛍️ Seu pedido #${order.id} no *${tenant.name}* está PRONTO!`;
       }
     }
 
@@ -120,12 +149,12 @@ export default function CozinhaTenant() {
   if (!tenant) return <div className="p-4 text-white text-center font-sans">Restaurante não encontrado.</div>;
 
   // DIVISÃO DOS PEDIDOS EM 3 COLUNAS KANBAN
-  const activeOrders = orders.filter(o => !o.archived);
-  const recebidosOrders = activeOrders.filter(o => !o.status || o.status === 'recebido');
-  const producaoOrders = activeOrders.filter(o => o.status === 'em_producao');
-  const entregaOrders = activeOrders.filter(o => o.status === 'saiu_entrega');
+  const activeOrders = orders.filter(o => !o.archived && o.status !== 'arquivado');
+  const recebidosOrders = activeOrders.filter(o => !o.status || o.status === 'recebido' || o.status === 'pendente' || o.status === 'novo');
+  const producaoOrders = activeOrders.filter(o => o.status === 'em_producao' || o.status === 'em_preparo');
+  const entregaOrders = activeOrders.filter(o => o.status === 'saiu_entrega' || o.status === 'pronto' || o.status === 'entregue' || o.status === 'concluido');
 
-  const archivedOrders = orders.filter(o => o.archived === true);
+  const archivedOrders = orders.filter(o => o.archived === true || o.status === 'arquivado');
 
   // COMPONENTE DO CARD DE PEDIDO
   const renderOrderCard = (order) => {
@@ -133,27 +162,41 @@ export default function CozinhaTenant() {
     const isMoney = (order.payment_method || '').toUpperCase().includes('DINHEIRO');
     const isDelivery = order.order_type === 'delivery';
 
+    // VERIFICAÇÃO SE É PEDIDO NA MESA
+    const fullAddr = order.customer_address || order.address || '';
+    const isTable = fullAddr.toUpperCase().includes('MESA') || order.table_number || order.order_type === 'MESA' || order.order_type === 'mesa';
+
     return (
-      <div key={order.id} className="bg-gray-900 border border-gray-800 p-3.5 rounded-2xl space-y-2.5 shadow-lg">
+      <div key={order.id} className={`bg-gray-900 border ${isTable ? 'border-orange-500/80 bg-orange-500/5' : 'border-gray-800'} p-3.5 rounded-2xl space-y-2.5 shadow-lg`}>
         <div className="flex justify-between items-start border-b border-gray-800 pb-2">
           <div>
             <span className="font-bold text-xs text-orange-400">PEDIDO #{order.id}</span>
-            <h3 className="font-bold text-xs text-white">{order.customer_name}</h3>
-            <p className="text-[11px] text-gray-400">📱 {order.customer_phone}</p>
+            <h3 className="font-bold text-xs text-white">{order.customer_name || 'Cliente'}</h3>
+            {order.customer_phone && <p className="text-[11px] text-gray-400">📱 {order.customer_phone}</p>}
           </div>
+
+          {isTable && (
+            <span className="bg-orange-500 text-white font-extrabold text-[11px] px-2.5 py-1 rounded-lg animate-pulse shadow">
+              🪑 {fullAddr || `MESA ${order.table_number}`}
+            </span>
+          )}
         </div>
 
         <div className="text-[11px] text-gray-300 bg-gray-800/50 p-2 rounded-xl border border-gray-800 space-y-1">
-          <p><b>Tipo:</b> {isDelivery ? '🛵 Entrega' : '🛍️ Retirada No Balcão'}</p>
-          {isDelivery && (
+          {isTable ? (
+            <p className="font-bold text-orange-400">📍 Consumo Local: {fullAddr}</p>
+          ) : isDelivery ? (
             <>
-              <p><b>Bairro:</b> {order.neighborhood}</p>
-              <p><b>End:</b> {order.address}</p>
+              <p><b>Tipo:</b> 🛵 Entrega</p>
+              {order.neighborhood && <p><b>Bairro:</b> {order.neighborhood}</p>}
+              <p><b>End:</b> {fullAddr}</p>
               {order.reference && <p className="text-gray-400"><b>Ref:</b> {order.reference}</p>}
             </>
+          ) : (
+            <p><b>Tipo:</b> 🛍️ Retirada No Balcão</p>
           )}
 
-          {/* CONTROLE DE PAGAMENTO PIX/DINHEIRO/CARTÃO */}
+          {/* CONTROLE DE PAGAMENTO PIX/DINHEIRO/CARTÃO/BALCÃO */}
           <div className="pt-1 flex justify-between items-center border-t border-gray-700/50">
             {isPix ? (
               <div className="flex items-center justify-between w-full">
@@ -170,22 +213,28 @@ export default function CozinhaTenant() {
               </div>
             ) : isMoney ? (
               <span className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
-                💵 Dinheiro (R$ {Number(order.total).toFixed(2)})
+                💵 Dinheiro {order.change_for ? `(Troco p/ R$ ${order.change_for})` : ''}
               </span>
             ) : (
               <span className="bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
-                💳 Cartão na Entrega
+                💳 {order.payment_method || 'Pagar no Balcão'}
               </span>
             )}
           </div>
         </div>
 
         {/* ITENS */}
-        <div className="space-y-1 border-t border-b border-gray-800 py-1.5">
+        <div className="space-y-1.5 border-t border-b border-gray-800 py-1.5">
           {order.items && Array.isArray(order.items) && order.items.map((it, idx) => (
-            <div key={idx} className="text-[11px]">
+            <div key={idx} className="text-[11px] bg-gray-950/40 p-1.5 rounded-lg border border-gray-800/60">
               <span className="font-bold text-white">{it.quantity}x {it.name}</span>
               {it.details && <p className="text-[10px] text-orange-300 italic pl-2">{it.details}</p>}
+              {it.selectedAddons && it.selectedAddons.length > 0 && (
+                <p className="text-[10px] text-gray-400 pl-2">+ {it.selectedAddons.map(a => a.name).join(', ')}</p>
+              )}
+              {it.observation && (
+                <p className="text-[10px] text-orange-400 italic pl-2">Obs: "{it.observation}"</p>
+              )}
             </div>
           ))}
         </div>
@@ -198,21 +247,21 @@ export default function CozinhaTenant() {
         {/* BOTÕES DE AÇÃO DO KANBAN */}
         <div className="space-y-1.5 pt-1">
           <div className="flex space-x-1 text-[10px] font-bold">
-            {(!order.status || order.status === 'recebido') && (
+            {(!order.status || order.status === 'recebido' || order.status === 'pendente' || order.status === 'novo') && (
               <button onClick={() => { updateOrderStatus(order.id, 'em_producao'); sendWhatsAppStatus(order, 'producao'); }} className="flex-1 bg-blue-600 hover:bg-blue-700 py-1.5 rounded-lg text-white">
                 👨‍🍳 Mover p/ Produção ➔
               </button>
             )}
 
-            {order.status === 'em_producao' && (
+            {(order.status === 'em_producao' || order.status === 'em_preparo') && (
               <button 
                 onClick={() => { updateOrderStatus(order.id, 'saiu_entrega'); sendWhatsAppStatus(order, 'entrega'); }} 
-                className={`flex-1 py-1.5 rounded-lg text-white transition ${isDelivery ? 'bg-purple-600 hover:bg-purple-700' : 'bg-orange-600 hover:bg-orange-700'}`}>
-                {isDelivery ? '🛵 Mover p/ Entrega ➔' : '🛍️ Pronto p/ Retirada ➔'}
+                className={`flex-1 py-1.5 rounded-lg text-white transition ${isTable ? 'bg-orange-600 hover:bg-orange-700' : isDelivery ? 'bg-purple-600 hover:bg-purple-700' : 'bg-orange-600 hover:bg-orange-700'}`}>
+                {isTable ? '🪑 Servir na Mesa ➔' : isDelivery ? '🛵 Mover p/ Entrega ➔' : '🛍️ Pronto p/ Retirada ➔'}
               </button>
             )}
 
-            {order.status === 'saiu_entrega' && (
+            {(order.status === 'saiu_entrega' || order.status === 'pronto' || order.status === 'entregue' || order.status === 'concluido') && (
               <button onClick={() => archiveOrder(order.id)} className="flex-1 bg-green-600 hover:bg-green-700 py-1.5 rounded-lg text-white">
                 ✅ Concluir & Arquivar
               </button>
@@ -261,16 +310,11 @@ export default function CozinhaTenant() {
           </div>
 
           <div className="border-b border-black pb-2 mb-2 space-y-0.5">
-            <p><b>CLIENTE:</b> {selectedOrderToPrint.customer_name}</p>
-            <p><b>TEL:</b> {selectedOrderToPrint.customer_phone}</p>
-            <p><b>TIPO:</b> {selectedOrderToPrint.order_type === 'delivery' ? 'ENTREGA' : 'RETIRADA'}</p>
-            {selectedOrderToPrint.order_type === 'delivery' && (
-              <>
-                <p><b>BAIRRO:</b> {selectedOrderToPrint.neighborhood}</p>
-                <p><b>END:</b> {selectedOrderToPrint.address}</p>
-                {selectedOrderToPrint.reference && <p><b>REF:</b> {selectedOrderToPrint.reference}</p>}
-              </>
-            )}
+            <p><b>CLIENTE:</b> {selectedOrderToPrint.customer_name || 'Cliente'}</p>
+            {selectedOrderToPrint.customer_phone && <p><b>TEL:</b> {selectedOrderToPrint.customer_phone}</p>}
+            <p><b>LOCAL/TIPO:</b> {selectedOrderToPrint.customer_address || selectedOrderToPrint.address || (selectedOrderToPrint.order_type === 'delivery' ? 'ENTREGA' : 'RETIRADA')}</p>
+            {selectedOrderToPrint.neighborhood && <p><b>BAIRRO:</b> {selectedOrderToPrint.neighborhood}</p>}
+            {selectedOrderToPrint.reference && <p><b>REF:</b> {selectedOrderToPrint.reference}</p>}
             <p><b>PAGAMENTO:</b> {selectedOrderToPrint.payment_method} ({selectedOrderToPrint.is_paid ? 'PAGO' : 'PENDENTE'})</p>
           </div>
 
@@ -278,14 +322,18 @@ export default function CozinhaTenant() {
             <p className="font-bold border-b border-black pb-1 mb-1">ITENS DO PEDIDO:</p>
             {selectedOrderToPrint.items && Array.isArray(selectedOrderToPrint.items) && selectedOrderToPrint.items.map((it, idx) => (
               <div key={idx} className="mb-1">
-                <p className="font-bold">{it.quantity}x {it.name} - R$ {(it.totalPrice * it.quantity).toFixed(2)}</p>
+                <p className="font-bold">{it.quantity}x {it.name}</p>
                 {it.details && <p className="text-[10px] pl-2">↳ {it.details}</p>}
+                {it.selectedAddons && it.selectedAddons.length > 0 && (
+                  <p className="text-[10px] pl-2">↳ + {it.selectedAddons.map(a => a.name).join(', ')}</p>
+                )}
+                {it.observation && <p className="text-[10px] pl-2">↳ Obs: {it.observation}</p>}
               </div>
             ))}
           </div>
 
           <div className="text-right font-bold text-sm">
-            <p>TAXA: R$ {Number(selectedOrderToPrint.delivery_fee || 0).toFixed(2)}</p>
+            {Number(selectedOrderToPrint.delivery_fee || 0) > 0 && <p>TAXA: R$ {Number(selectedOrderToPrint.delivery_fee).toFixed(2)}</p>}
             <p>TOTAL: R$ {Number(selectedOrderToPrint.total || 0).toFixed(2)}</p>
           </div>
         </div>
