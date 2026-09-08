@@ -10,7 +10,7 @@ export default function MasterAdmin() {
   const [filterType, setFilterType] = useState('ALL');
   const [copiedTenantId, setCopiedTenantId] = useState(null);
 
-  // FORMULÁRIO DE NOVO CLIENTE
+  // FORMULÁRIO DE NOVO CLIENTE (COM COR DO PREÇO)
   const [newTenant, setNewTenant] = useState({
     name: '',
     slug: '',
@@ -22,6 +22,7 @@ export default function MasterAdmin() {
     secondary_color: '#090D16',     // Fundo do Site
     card_bg_color: '#111827',       // Fundo dos Cards
     text_color: '#FFFFFF',          // Texto Geral do Site
+    price_color: '#FF8C00',         // Cor dos Preços / Valores
     due_date: '',
     monthly_fee: '99.00',
     admin_password: '',
@@ -54,7 +55,6 @@ export default function MasterAdmin() {
       if (t.due_date && t.active) {
         const dueDate = new Date(t.due_date);
         if (dueDate < today) {
-          // Desativa no banco de dados automaticamente
           await supabase.from('tenants').update({ active: false }).eq('id', t.id);
           return { ...t, active: false };
         }
@@ -64,7 +64,7 @@ export default function MasterAdmin() {
 
     setTenants(updatedTenants);
 
-    // 2. BUSCAR ESTATÍSTICAS DE USO IGNORANDO PEDIDOS DE LOJAS APAGADAS
+    // 2. BUSCAR ESTATÍSTICAS DE USO
     const validTenantIds = new Set(updatedTenants.map(t => t.id));
     let statsMap = {};
 
@@ -72,7 +72,6 @@ export default function MasterAdmin() {
       const { data: oData } = await supabase.from('orders').select('id, tenant_id, total, created_at, payment_method, status');
       if (oData) {
         oData.forEach(order => {
-          // FILTRO: Ignora pedidos que pertenciam a lojas excluídas
           if (!validTenantIds.has(order.tenant_id)) return;
 
           if (!statsMap[order.tenant_id]) {
@@ -100,7 +99,6 @@ export default function MasterAdmin() {
     setTenantStats(statsMap);
   };
 
-  // HELPER PARA CALCULAR O STATUS DO VENCIMENTO
   const getDueDateInfo = (dueDateStr) => {
     if (!dueDateStr) return { diffDays: 999, isExpiring: false, isExpired: false, label: 'Livre' };
     
@@ -120,7 +118,6 @@ export default function MasterAdmin() {
     }
   };
 
-  // MENSAGEM DE COBRANÇA RÁPIDA VIA WHATSAPP
   const handleCopyRenewalMsg = (tenant, diffDays) => {
     const formattedDate = tenant.due_date ? tenant.due_date.split('-').reverse().join('/') : '';
     const text = `⚠️ *Aviso de Renovação de Mensalidade*\n\n` +
@@ -133,29 +130,29 @@ export default function MasterAdmin() {
     alert(`Mensagem de cobrança para ${tenant.name} copiada!`);
   };
 
-  // PREDEFINIÇÕES DE CORES
+  // PREDEFINIÇÕES DE CORES COM COR DO PREÇO INCLUÍDA
   const applyPreset = (type) => {
     if (type === 'dark_orange') {
-      setNewTenant(prev => ({ ...prev, primary_color: '#FF8C00', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF' }));
+      setNewTenant(prev => ({ ...prev, primary_color: '#FF8C00', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#FF8C00' }));
     } else if (type === 'light_pink') {
-      setNewTenant(prev => ({ ...prev, primary_color: '#EC4899', button_text_color: '#FFFFFF', secondary_color: '#F9FAFB', card_bg_color: '#FFFFFF', text_color: '#111827' }));
+      setNewTenant(prev => ({ ...prev, primary_color: '#EC4899', button_text_color: '#FFFFFF', secondary_color: '#F9FAFB', card_bg_color: '#FFFFFF', text_color: '#111827', price_color: '#EC4899' }));
     } else if (type === 'purple_barber') {
-      setNewTenant(prev => ({ ...prev, primary_color: '#A855F7', button_text_color: '#FFFFFF', secondary_color: '#0F172A', card_bg_color: '#1E293B', text_color: '#F8FAFC' }));
+      setNewTenant(prev => ({ ...prev, primary_color: '#A855F7', button_text_color: '#FFFFFF', secondary_color: '#0F172A', card_bg_color: '#1E293B', text_color: '#F8FAFC', price_color: '#A855F7' }));
     } else if (type === 'blue_ecommerce') {
-      setNewTenant(prev => ({ ...prev, primary_color: '#3B82F6', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF' }));
+      setNewTenant(prev => ({ ...prev, primary_color: '#3B82F6', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#3B82F6' }));
     }
   };
 
   const applyEditPreset = (type) => {
     if (!editingTenant) return;
     if (type === 'dark_orange') {
-      setEditingTenant(prev => ({ ...prev, primary_color: '#FF8C00', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF' }));
+      setEditingTenant(prev => ({ ...prev, primary_color: '#FF8C00', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#FF8C00' }));
     } else if (type === 'light_pink') {
-      setEditingTenant(prev => ({ ...prev, primary_color: '#EC4899', button_text_color: '#FFFFFF', secondary_color: '#F9FAFB', card_bg_color: '#FFFFFF', text_color: '#111827' }));
+      setEditingTenant(prev => ({ ...prev, primary_color: '#EC4899', button_text_color: '#FFFFFF', secondary_color: '#F9FAFB', card_bg_color: '#FFFFFF', text_color: '#111827', price_color: '#EC4899' }));
     } else if (type === 'purple_barber') {
-      setEditingTenant(prev => ({ ...prev, primary_color: '#A855F7', button_text_color: '#FFFFFF', secondary_color: '#0F172A', card_bg_color: '#1E293B', text_color: '#F8FAFC' }));
+      setEditingTenant(prev => ({ ...prev, primary_color: '#A855F7', button_text_color: '#FFFFFF', secondary_color: '#0F172A', card_bg_color: '#1E293B', text_color: '#F8FAFC', price_color: '#A855F7' }));
     } else if (type === 'blue_ecommerce') {
-      setEditingTenant(prev => ({ ...prev, primary_color: '#3B82F6', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF' }));
+      setEditingTenant(prev => ({ ...prev, primary_color: '#3B82F6', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#3B82F6' }));
     }
   };
 
@@ -182,6 +179,7 @@ export default function MasterAdmin() {
       secondary_color: newTenant.secondary_color || '#090D16',
       card_bg_color: newTenant.card_bg_color || '#111827',
       text_color: newTenant.text_color || '#FFFFFF',
+      price_color: newTenant.price_color || '#FF8C00',
       due_date: newTenant.due_date || null,
       monthly_fee: parseFloat(newTenant.monthly_fee) || 99.00,
       active: true,
@@ -205,7 +203,7 @@ export default function MasterAdmin() {
         name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '',
         primary_color: '#FF8C00', button_text_color: '#FFFFFF',
         secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF',
-        due_date: '', monthly_fee: '99.00', admin_password: '', business_type: 'delivery'
+        price_color: '#FF8C00', due_date: '', monthly_fee: '99.00', admin_password: '', business_type: 'delivery'
       });
       fetchTenants();
     }
@@ -228,7 +226,8 @@ export default function MasterAdmin() {
       button_text_color: editingTenant.button_text_color,
       secondary_color: editingTenant.secondary_color,
       card_bg_color: editingTenant.card_bg_color,
-      text_color: editingTenant.text_color
+      text_color: editingTenant.text_color,
+      price_color: editingTenant.price_color
     }).eq('id', editingTenant.id);
 
     if (error) {
@@ -282,7 +281,6 @@ export default function MasterAdmin() {
     setTimeout(() => setCopiedTenantId(null), 2500);
   };
 
-  // CÁLCULO EXATO DAS MÉTRICAS APENAS PARA CLIENTES ATIVOS
   const activeTenants = tenants.filter(t => t.active);
   const totalMRR = activeTenants.reduce((acc, t) => acc + Number(t.monthly_fee || 0), 0);
 
@@ -293,7 +291,6 @@ export default function MasterAdmin() {
   const totalGlobalOrders = Object.values(tenantStats).reduce((acc, s) => acc + (s.count || 0), 0);
   const totalGlobalVolume = Object.values(tenantStats).reduce((acc, s) => acc + (s.revenue || 0), 0);
 
-  // LISTA DE CLIENTES QUE VENCEM EM 3 DIAS OU MENOS (PARA O ALERTA NO TOPO)
   const expiringTenants = tenants.filter(t => {
     const dueInfo = getDueDateInfo(t.due_date);
     return t.active && dueInfo.isExpiring;
@@ -466,7 +463,7 @@ export default function MasterAdmin() {
             </div>
           </div>
 
-          {/* PERSONALIZAÇÃO DE CORES */}
+          {/* PERSONALIZAÇÃO DE CORES (AGORA COM 6 CAMPOS) */}
           <div className="bg-gray-950/80 p-4 rounded-2xl border border-gray-800 space-y-3">
             <div className="flex justify-between items-center flex-wrap gap-2">
               <label className="text-[11px] font-bold text-orange-400 uppercase tracking-wider block">🎨 Personalização das Cores do Tema:</label>
@@ -516,6 +513,15 @@ export default function MasterAdmin() {
                 <div className="flex space-x-1.5 items-center">
                   <input type="color" value={newTenant.text_color} onChange={(e) => setNewTenant({ ...newTenant, text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
                   <input type="text" value={newTenant.text_color} onChange={(e) => setNewTenant({ ...newTenant, text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                </div>
+              </div>
+
+              {/* NOVO CAMPO: COR DOS PREÇOS / VALORES */}
+              <div>
+                <label className="text-[10px] font-bold text-orange-400 block mb-1">Cor do Preço / Valores:</label>
+                <div className="flex space-x-1.5 items-center">
+                  <input type="color" value={newTenant.price_color} onChange={(e) => setNewTenant({ ...newTenant, price_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                  <input type="text" value={newTenant.price_color} onChange={(e) => setNewTenant({ ...newTenant, price_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
                 </div>
               </div>
             </div>
@@ -579,6 +585,7 @@ export default function MasterAdmin() {
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <span className="w-3.5 h-3.5 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.primary_color || '#FF8C00' }}></span>
                       <span className="w-3.5 h-3.5 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.secondary_color || '#090D16' }}></span>
+                      <span className="w-3.5 h-3.5 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.price_color || t.primary_color || '#FF8C00' }}></span>
                       
                       <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${isEcommerce ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : isAgendamento ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
                         {isEcommerce ? '👕 E-commerce' : isAgendamento ? '✂️ Agendamento' : '🍔 Delivery'}
@@ -592,7 +599,6 @@ export default function MasterAdmin() {
                       📱 Zap: <span className="text-white font-bold">{t.whatsapp}</span> • Senha Admin: <span className="font-mono text-white font-bold">{t.admin_password}</span>
                     </p>
                     
-                    {/* EXPIRAÇÃO E MENSALIDADE */}
                     <div className="flex items-center space-x-2 mt-1.5 flex-wrap">
                       <span className="text-xs text-gray-300">💰 R$ <b className="text-green-400">{Number(t.monthly_fee || 99).toFixed(2)}</b></span>
                       <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-lg border ${dueInfo.isExpiring ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40 animate-pulse' : dueInfo.isExpired ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-gray-800 text-gray-300 border-gray-700'}`}>
@@ -601,7 +607,6 @@ export default function MasterAdmin() {
                     </div>
                   </div>
 
-                  {/* AÇÕES E STATUS DO CLIENTE */}
                   <div className="flex flex-col items-end space-y-2">
                     <button 
                       onClick={() => toggleTenantActive(t.id, t.active)}
@@ -626,7 +631,6 @@ export default function MasterAdmin() {
                   </div>
                 </div>
 
-                {/* ATIVIDADE DO CLIENTE */}
                 <div className="bg-gray-950 p-3 rounded-2xl border border-gray-800/80 flex justify-between items-center flex-wrap gap-2 text-xs">
                   <div className="flex items-center space-x-2">
                     <span className={`w-2.5 h-2.5 rounded-full ${hasActivity ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`}></span>
@@ -641,7 +645,6 @@ export default function MasterAdmin() {
                   </div>
                 </div>
 
-                {/* LINKS DE ACESSO */}
                 {isEcommerce ? (
                   <div className="pt-2 border-t border-gray-800 space-y-1.5">
                     <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider block">👕 Links da Loja / Catálogo (loja.sinergemkt.com):</span>
@@ -727,7 +730,7 @@ export default function MasterAdmin() {
               </div>
             </div>
 
-            {/* SEÇÃO DE EDITAR TEMA E CORES */}
+            {/* EDITAR CORES (COM COR DO PREÇO) */}
             <div className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-3">
               <div className="flex justify-between items-center flex-wrap gap-2">
                 <label className="text-[11px] font-bold text-blue-400 uppercase tracking-wider block">🎨 Alterar Cores do Tema:</label>
@@ -777,6 +780,15 @@ export default function MasterAdmin() {
                   <div className="flex space-x-1.5 items-center">
                     <input type="color" value={editingTenant.text_color || '#FFFFFF'} onChange={(e) => setEditingTenant({ ...editingTenant, text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
                     <input type="text" value={editingTenant.text_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+
+                {/* EDITAR COR DOS PREÇOS */}
+                <div>
+                  <label className="text-[10px] font-bold text-blue-400 block mb-1">Cor do Preço / Valores:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={editingTenant.price_color || '#FF8C00'} onChange={(e) => setEditingTenant({ ...editingTenant, price_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={editingTenant.price_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, price_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
                   </div>
                 </div>
               </div>
