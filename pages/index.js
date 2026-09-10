@@ -11,16 +11,17 @@ export default function HomePortalDelivery() {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // NOVOS ESTADOS PARA PIX, ESTATÍSTICAS E MODAL
+  // ESTADOS DO PIX E ESTATÍSTICAS
   const [showPixModal, setShowPixModal] = useState(false);
   const [copiedPix, setCopiedPix] = useState(false);
   const [stats, setStats] = useState({ ordersCount: 0, totalRevenue: 0 });
 
-  // DOMÍNIO OFICIAL DO DELIVERY E CHAVE PIX MANUALLY
+  // CONFIGURAÇÕES DE DOMÍNIO E PIX OFICIAL (ESTÁTICO R$ 99,99)
   const DOMAIN_URL = 'https://delivery.sinergemkt.com';
-  const PIX_KEY = 'financeiro@sinergemkt.com';
+  const PIX_COPIA_COLA = "00020101021126330014br.gov.bcb.pix011107758777945520400005303986540599.995802BR5925HENRIQUE GONCALVES DE OLI6009SAO PAULO622905251M24TWWDEN5A3XEVQZMREE1D56304C896";
+  const SUPPORT_WHATSAPP = "5547996302864";
 
-  // LISTA DE NOVIDADES / ATUALIZAÇÕES DO SAAS
+  // MURAL DE NOVIDADES DO SAAS
   const systemUpdates = [
     { id: 1, tag: 'NOVO', date: '10/09', title: '🤖 Robô de Lembretes no WhatsApp', desc: 'Envio automático de confirmações para evitar desistências de pedidos.' },
     { id: 2, tag: 'MELHORIA', date: '05/09', title: '🪑 Módulo de Mesas & Autoatendimento', desc: 'Seus clientes agora podem pedir direto da mesa escaneando um QR Code.' }
@@ -39,7 +40,6 @@ export default function HomePortalDelivery() {
     }
   }, []);
 
-  // BUSCA ESTATÍSTICAS DO RESTAURANTE
   const fetchTenantStats = async (tenantId) => {
     try {
       const { data: orders } = await supabase
@@ -101,13 +101,12 @@ export default function HomePortalDelivery() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleCopyPixKey = () => {
-    navigator.clipboard.writeText(PIX_KEY);
+  const handleCopyPixCopiaCola = () => {
+    navigator.clipboard.writeText(PIX_COPIA_COLA);
     setCopiedPix(true);
-    setTimeout(() => setCopiedPix(false), 2000);
+    setTimeout(() => setCopiedPix(false), 2500);
   };
 
-  // CÁLCULO DE DIAS PARA VENCIMENTO
   const getDueDateInfo = (dueDateStr) => {
     if (!dueDateStr) return { diffDays: 999, isExpiring: false, isExpired: false, label: 'Mensalidade em dia' };
 
@@ -124,19 +123,18 @@ export default function HomePortalDelivery() {
     }
   };
 
-  // 🎨 CORES E TEMAS DINÂMICOS DO CLIENTE
   const primaryColor = tenant?.primary_color || '#FF8C00';
   const buttonTextColor = tenant?.button_text_color || '#FFFFFF';
   const secondaryColor = tenant?.secondary_color || '#090D16';
   const cardBgColor = tenant?.card_bg_color || '#111827';
   const textColor = tenant?.text_color || '#FFFFFF';
 
-  // TRATAMENTO DA LOGO
   const logoUrl = (tenant?.logo_url && tenant.logo_url.trim() !== '')
     ? tenant.logo_url
     : 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=150&auto=format&fit=crop&q=80';
 
   const dueInfo = tenant ? getDueDateInfo(tenant.due_date) : null;
+  const qrCodeImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(PIX_COPIA_COLA)}`;
 
   return (
     <div 
@@ -275,7 +273,7 @@ export default function HomePortalDelivery() {
               </div>
             </div>
 
-            {/* 💳 NOVO: BARRA DE VENCIMENTO E PAGAMENTO PIX */}
+            {/* 💳 BARRA DE VENCIMENTO E BOTÃO PIX */}
             <div 
               className={`p-5 rounded-3xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition ${
                 dueInfo.isExpired 
@@ -292,7 +290,7 @@ export default function HomePortalDelivery() {
                   <h3 className="font-bold text-sm" style={{ color: textColor }}>Status da Assinatura SaaS</h3>
                 </div>
                 <p className="text-xs opacity-80">
-                  {dueInfo.label} • Valor: <b className="text-green-400">R$ {Number(tenant.monthly_fee || 99).toFixed(2)}/mês</b>
+                  {dueInfo.label} • Valor: <b className="text-green-400">R$ {Number(tenant.monthly_fee || 99.99).toFixed(2)}/mês</b>
                 </p>
               </div>
 
@@ -303,7 +301,7 @@ export default function HomePortalDelivery() {
               </button>
             </div>
 
-            {/* 📢 NOVO: MURAL DE NOVIDADES E ATUALIZAÇÕES */}
+            {/* 📢 MURAL DE NOVIDADES */}
             <div 
               className="p-5 rounded-3xl border space-y-3"
               style={{ backgroundColor: cardBgColor, borderColor: 'rgba(255,255,255,0.1)' }}>
@@ -436,46 +434,58 @@ export default function HomePortalDelivery() {
         )}
       </main>
 
-      {/* MODAL DE PAGAMENTO PIX MANUAL */}
+      {/* MODAL DE PAGAMENTO PIX (COM QR CODE E COPIA E COLA) */}
       {showPixModal && tenant && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 w-full max-w-md rounded-3xl p-6 border border-green-500/40 space-y-5 relative shadow-2xl text-center">
+          <div className="bg-gray-900 w-full max-w-md rounded-3xl p-6 border border-green-500/40 space-y-4 relative shadow-2xl text-center">
             <button 
               onClick={() => setShowPixModal(false)} 
               className="absolute top-4 right-4 text-gray-400 hover:text-white font-bold text-sm">
               ✕
             </button>
 
-            <div className="w-12 h-12 bg-green-500/20 text-green-400 rounded-2xl flex items-center justify-center text-2xl mx-auto">
-              ⚡
-            </div>
-
             <div>
               <h3 className="font-bold text-base text-white">Pagamento de Mensalidade via PIX</h3>
-              <p className="text-xs text-gray-400 mt-1">
-                Estabelecimento: <b className="text-white">{tenant.name}</b><br />
-                Valor: <b className="text-green-400">R$ {Number(tenant.monthly_fee || 99).toFixed(2)}</b>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Favorecido: <b className="text-white">Henrique Gonçalves de Olinda</b><br />
+                Valor: <b className="text-green-400">R$ {Number(tenant.monthly_fee || 99.99).toFixed(2)}</b>
               </p>
             </div>
 
-            <div className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-2">
-              <span className="text-[11px] text-gray-400 block">Chave PIX Oficial (E-mail):</span>
-              <p className="font-mono text-xs text-yellow-400 font-bold select-all break-all">{PIX_KEY}</p>
+            {/* IMAGEM DO QR CODE EXIBIDA NA TELA */}
+            <div className="bg-white p-3 rounded-2xl w-44 h-44 mx-auto flex items-center justify-center shadow-lg border-2 border-green-500">
+              <img 
+                src={qrCodeImageUrl} 
+                alt="QR Code PIX Sinerge" 
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <p className="text-[11px] text-gray-400">Abra o app do seu banco e escaneie o código acima.</p>
+
+            {/* CAMPO PIX COPIA E COLA */}
+            <div className="bg-gray-950 p-3 rounded-2xl border border-gray-800 space-y-2">
+              <span className="text-[10px] text-gray-400 block font-bold uppercase tracking-wider">Ou use o PIX Copia e Cola:</span>
+              <input 
+                type="text" 
+                readOnly 
+                value={PIX_COPIA_COLA} 
+                className="w-full bg-gray-900 border border-gray-800 p-2 rounded-xl text-[10px] text-yellow-400 font-mono focus:outline-none text-center select-all"
+              />
               
               <button 
-                onClick={handleCopyPixKey} 
-                className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-2.5 rounded-xl text-xs transition">
-                {copiedPix ? '✓ Chave Copiada!' : '📋 Copiar Chave PIX'}
+                onClick={handleCopyPixCopiaCola} 
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md shadow-green-600/20">
+                {copiedPix ? '✓ PIX Copia e Cola Copiado!' : '📋 Copiar PIX Copia e Cola'}
               </button>
             </div>
 
             <a 
-              href={`https://wa.me/5547996302864?text=${encodeURIComponent(
-                `Olá! Realizei o pagamento da mensalidade do sistema *${tenant.name}* (R$ ${Number(tenant.monthly_fee || 99).toFixed(2)}). Segue o comprovante em anexo para liberação/renovação!`
+              href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(
+                `Olá! Realizei o pagamento da mensalidade do sistema *${tenant.name}* (R$ ${Number(tenant.monthly_fee || 99.99).toFixed(2)}). Segue o comprovante em anexo!`
               )}`} 
               target="_blank" 
               rel="noopener noreferrer"
-              className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3.5 rounded-xl text-xs transition block shadow-lg shadow-green-600/20">
+              className="w-full bg-gray-800 hover:bg-gray-700 text-green-400 border border-green-500/30 font-bold py-3 rounded-xl text-xs transition block">
               💬 Enviar Comprovante no WhatsApp
             </a>
           </div>
