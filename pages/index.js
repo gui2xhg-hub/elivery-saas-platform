@@ -11,19 +11,54 @@ export default function HomePortalDelivery() {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // DOMÍNIO OFICIAL DO DELIVERY
+  // NOVOS ESTADOS PARA PIX, ESTATÍSTICAS E MODAL
+  const [showPixModal, setShowPixModal] = useState(false);
+  const [copiedPix, setCopiedPix] = useState(false);
+  const [stats, setStats] = useState({ ordersCount: 0, totalRevenue: 0 });
+
+  // DOMÍNIO OFICIAL DO DELIVERY E CHAVE PIX MANUALLY
   const DOMAIN_URL = 'https://delivery.sinergemkt.com';
+  const PIX_KEY = 'financeiro@sinergemkt.com';
+
+  // LISTA DE NOVIDADES / ATUALIZAÇÕES DO SAAS
+  const systemUpdates = [
+    { id: 1, tag: 'NOVO', date: '10/09', title: '🤖 Robô de Lembretes no WhatsApp', desc: 'Envio automático de confirmações para evitar desistências de pedidos.' },
+    { id: 2, tag: 'MELHORIA', date: '05/09', title: '🪑 Módulo de Mesas & Autoatendimento', desc: 'Seus clientes agora podem pedir direto da mesa escaneando um QR Code.' }
+  ];
 
   useEffect(() => {
     const savedTenant = localStorage.getItem('sinerge_authenticated_delivery_tenant');
     if (savedTenant) {
       try {
-        setTenant(JSON.parse(savedTenant));
+        const parsed = JSON.parse(savedTenant);
+        setTenant(parsed);
+        fetchTenantStats(parsed.id);
       } catch (e) {
         localStorage.removeItem('sinerge_authenticated_delivery_tenant');
       }
     }
   }, []);
+
+  // BUSCA ESTATÍSTICAS DO RESTAURANTE
+  const fetchTenantStats = async (tenantId) => {
+    try {
+      const { data: orders } = await supabase
+        .from('orders')
+        .select('total, status, payment_method')
+        .eq('tenant_id', tenantId);
+
+      if (orders) {
+        const count = orders.length;
+        const revenue = orders.reduce((acc, order) => {
+          const isPaid = order.payment_method?.includes('PAGO') || order.status === 'concluido' || order.status === 'entregue';
+          return isPaid ? acc + Number(order.total || 0) : acc;
+        }, 0);
+        setStats({ ordersCount: count, totalRevenue: revenue });
+      }
+    } catch (err) {
+      console.log('Erro ao carregar métricas:', err);
+    }
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -46,6 +81,7 @@ export default function HomePortalDelivery() {
     } else {
       setTenant(data);
       localStorage.setItem('sinerge_authenticated_delivery_tenant', JSON.stringify(data));
+      fetchTenantStats(data.id);
     }
   };
 
@@ -65,6 +101,29 @@ export default function HomePortalDelivery() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyPixKey = () => {
+    navigator.clipboard.writeText(PIX_KEY);
+    setCopiedPix(true);
+    setTimeout(() => setCopiedPix(false), 2000);
+  };
+
+  // CÁLCULO DE DIAS PARA VENCIMENTO
+  const getDueDateInfo = (dueDateStr) => {
+    if (!dueDateStr) return { diffDays: 999, isExpiring: false, isExpired: false, label: 'Mensalidade em dia' };
+
+    const today = new Date(new Date().toISOString().split('T')[0]);
+    const dueDate = new Date(dueDateStr);
+    const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      return { diffDays, isExpiring: false, isExpired: true, label: '🔴 Mensalidade Vencida — Efetue o pagamento para manter o sistema ativo' };
+    } else if (diffDays <= 3) {
+      return { diffDays, isExpiring: true, isExpired: false, label: `⚠️ Sua mensalidade vence ${diffDays === 0 ? 'HOJE' : `em ${diffDays} dia(s)`}` };
+    } else {
+      return { diffDays, isExpiring: false, isExpired: false, label: `🟢 Adimplente (Vence em ${diffDays} dias - ${dueDateStr.split('-').reverse().join('/')})` };
+    }
+  };
+
   // 🎨 CORES E TEMAS DINÂMICOS DO CLIENTE
   const primaryColor = tenant?.primary_color || '#FF8C00';
   const buttonTextColor = tenant?.button_text_color || '#FFFFFF';
@@ -76,6 +135,8 @@ export default function HomePortalDelivery() {
   const logoUrl = (tenant?.logo_url && tenant.logo_url.trim() !== '')
     ? tenant.logo_url
     : 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=150&auto=format&fit=crop&q=80';
+
+  const dueInfo = tenant ? getDueDateInfo(tenant.due_date) : null;
 
   return (
     <div 
@@ -107,7 +168,7 @@ export default function HomePortalDelivery() {
       </header>
 
       {/* CONTEÚDO PRINCIPAL */}
-      <main className="max-w-5xl mx-auto w-full my-auto py-8">
+      <main className="max-w-5xl mx-auto w-full my-auto py-6 space-y-6">
         {!tenant ? (
           /* LOGIN */
           <div className="max-w-md mx-auto bg-gray-900 border border-gray-800 rounded-3xl p-6 md:p-8 space-y-6 shadow-2xl relative overflow-hidden">
@@ -158,36 +219,113 @@ export default function HomePortalDelivery() {
           /* PAINEL AUTENTICADO */
           <div className="space-y-6">
             
-            {/* HERO BANNER */}
+            {/* HERO BANNER & MÉTRICAS */}
             <div 
-              className="border rounded-3xl p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden shadow-xl"
+              className="border rounded-3xl p-6 space-y-4 relative overflow-hidden shadow-xl"
               style={{ backgroundColor: cardBgColor, borderColor: 'rgba(255,255,255,0.1)' }}>
               
-              <div className="flex items-center space-x-4">
-                <img
-                  src={logoUrl}
-                  alt={tenant.name}
-                  className="w-16 h-16 rounded-2xl object-cover border-2 shadow-md"
-                  style={{ borderColor: primaryColor, backgroundColor: secondaryColor }}
-                />
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <h2 className="text-xl font-bold" style={{ color: textColor }}>{tenant.name}</h2>
-                    <span className="bg-green-500/20 text-green-400 border border-green-500/30 text-[10px] font-bold px-2.5 py-0.5 rounded-full">
-                      🟢 Autenticado
-                    </span>
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="flex items-center space-x-4">
+                  <img
+                    src={logoUrl}
+                    alt={tenant.name}
+                    className="w-16 h-16 rounded-2xl object-cover border-2 shadow-md"
+                    style={{ borderColor: primaryColor, backgroundColor: secondaryColor }}
+                  />
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h2 className="text-xl font-bold" style={{ color: textColor }}>{tenant.name}</h2>
+                      <span className="bg-green-500/20 text-green-400 border border-green-500/30 text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                        🟢 Autenticado
+                      </span>
+                    </div>
+                    <p className="text-xs opacity-75 mt-0.5">Painel de controle de pedidos e cardápio digital.</p>
                   </div>
-                  <p className="text-xs opacity-75 mt-0.5">Painel de controle de pedidos e cardápio digital.</p>
+                </div>
+
+                <div className="flex items-center space-x-2 w-full md:w-auto">
+                  <button
+                    onClick={() => router.push(`/${tenant.slug}/admin`)}
+                    style={{ backgroundColor: primaryColor, color: buttonTextColor }}
+                    className="font-bold px-5 py-3 rounded-xl text-xs transition shadow-lg w-full md:w-auto text-center hover:opacity-90">
+                    ⚙️ Gestão de Cardápio
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-2 w-full md:w-auto">
-                <button
-                  onClick={() => router.push(`/${tenant.slug}/admin`)}
-                  style={{ backgroundColor: primaryColor, color: buttonTextColor }}
-                  className="font-bold px-5 py-3 rounded-xl text-xs transition shadow-lg w-full md:w-auto text-center hover:opacity-90">
-                  ⚙️ Gestão de Cardápio
-                </button>
+              {/* MÉTRICAS RÁPIDAS DE VENDAS NO MÊS */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-3 border-t text-xs" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <div className="p-3 rounded-2xl border" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
+                  <span className="opacity-60 block text-[10px]">Vendas Registradas:</span>
+                  <span className="text-base font-bold text-green-400">R$ {stats.totalRevenue.toFixed(2)}</span>
+                </div>
+
+                <div className="p-3 rounded-2xl border" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
+                  <span className="opacity-60 block text-[10px]">Total de Pedidos:</span>
+                  <span className="text-base font-bold" style={{ color: textColor }}>{stats.ordersCount} pedido(s)</span>
+                </div>
+
+                <div className="p-3 rounded-2xl border col-span-2 sm:col-span-1 flex justify-between items-center" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
+                  <div>
+                    <span className="opacity-60 block text-[10px]">Robô de WhatsApp:</span>
+                    <span className="text-xs font-bold text-green-400">🟢 Ativo</span>
+                  </div>
+                  <button onClick={() => router.push(`/${tenant.slug}/admin`)} className="text-[10px] font-bold underline" style={{ color: primaryColor }}>Configurar</button>
+                </div>
+              </div>
+            </div>
+
+            {/* 💳 NOVO: BARRA DE VENCIMENTO E PAGAMENTO PIX */}
+            <div 
+              className={`p-5 rounded-3xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition ${
+                dueInfo.isExpired 
+                  ? 'bg-red-500/10 border-red-500/50' 
+                  : dueInfo.isExpiring 
+                  ? 'bg-yellow-500/10 border-yellow-500/50' 
+                  : 'border'
+              }`}
+              style={!dueInfo.isExpired && !dueInfo.isExpiring ? { backgroundColor: cardBgColor, borderColor: 'rgba(255,255,255,0.1)' } : {}}>
+              
+              <div className="space-y-1">
+                <div className="flex items-center space-x-2">
+                  <span className="text-base">{dueInfo.isExpired ? '🔴' : dueInfo.isExpiring ? '⚠️' : '💳'}</span>
+                  <h3 className="font-bold text-sm" style={{ color: textColor }}>Status da Assinatura SaaS</h3>
+                </div>
+                <p className="text-xs opacity-80">
+                  {dueInfo.label} • Valor: <b className="text-green-400">R$ {Number(tenant.monthly_fee || 99).toFixed(2)}/mês</b>
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowPixModal(true)}
+                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition shadow-lg shadow-green-600/20 flex items-center justify-center space-x-1.5 shrink-0">
+                <span>⚡ Pagar Mensalidade (PIX)</span>
+              </button>
+            </div>
+
+            {/* 📢 NOVO: MURAL DE NOVIDADES E ATUALIZAÇÕES */}
+            <div 
+              className="p-5 rounded-3xl border space-y-3"
+              style={{ backgroundColor: cardBgColor, borderColor: 'rgba(255,255,255,0.1)' }}>
+              
+              <div className="flex justify-between items-center">
+                <h3 className="font-bold text-xs uppercase tracking-wider flex items-center space-x-2" style={{ color: primaryColor }}>
+                  <span>📢 O que há de novo no Sinerge Delivery?</span>
+                </h3>
+                <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-full font-bold">Atualizado</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {systemUpdates.map(up => (
+                  <div key={up.id} className="p-3.5 rounded-2xl border space-y-1" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
+                    <div className="flex items-center space-x-2">
+                      <span className="bg-orange-500/20 text-orange-400 text-[9px] font-bold px-2 py-0.5 rounded">{up.tag}</span>
+                      <span className="text-[10px] opacity-60">{up.date}</span>
+                      <h4 className="font-bold text-xs truncate" style={{ color: textColor }}>{up.title}</h4>
+                    </div>
+                    <p className="text-[11px] opacity-75">{up.desc}</p>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -297,6 +435,52 @@ export default function HomePortalDelivery() {
           </div>
         )}
       </main>
+
+      {/* MODAL DE PAGAMENTO PIX MANUAL */}
+      {showPixModal && tenant && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 w-full max-w-md rounded-3xl p-6 border border-green-500/40 space-y-5 relative shadow-2xl text-center">
+            <button 
+              onClick={() => setShowPixModal(false)} 
+              className="absolute top-4 right-4 text-gray-400 hover:text-white font-bold text-sm">
+              ✕
+            </button>
+
+            <div className="w-12 h-12 bg-green-500/20 text-green-400 rounded-2xl flex items-center justify-center text-2xl mx-auto">
+              ⚡
+            </div>
+
+            <div>
+              <h3 className="font-bold text-base text-white">Pagamento de Mensalidade via PIX</h3>
+              <p className="text-xs text-gray-400 mt-1">
+                Estabelecimento: <b className="text-white">{tenant.name}</b><br />
+                Valor: <b className="text-green-400">R$ {Number(tenant.monthly_fee || 99).toFixed(2)}</b>
+              </p>
+            </div>
+
+            <div className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-2">
+              <span className="text-[11px] text-gray-400 block">Chave PIX Oficial (E-mail):</span>
+              <p className="font-mono text-xs text-yellow-400 font-bold select-all break-all">{PIX_KEY}</p>
+              
+              <button 
+                onClick={handleCopyPixKey} 
+                className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-2.5 rounded-xl text-xs transition">
+                {copiedPix ? '✓ Chave Copiada!' : '📋 Copiar Chave PIX'}
+              </button>
+            </div>
+
+            <a 
+              href={`https://wa.me/5547996302864?text=${encodeURIComponent(
+                `Olá! Realizei o pagamento da mensalidade do sistema *${tenant.name}* (R$ ${Number(tenant.monthly_fee || 99).toFixed(2)}). Segue o comprovante em anexo para liberação/renovação!`
+              )}`} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3.5 rounded-xl text-xs transition block shadow-lg shadow-green-600/20">
+              💬 Enviar Comprovante no WhatsApp
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* RODAPÉ */}
       <footer className="max-w-5xl mx-auto w-full text-center py-4 border-t text-xs opacity-60" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
