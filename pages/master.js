@@ -69,19 +69,24 @@ export default function MasterAdmin() {
 
     setTenants(updatedTenants);
 
-    // 2. BUSCAR ESTATÍSTICAS DE USO
+    // 2. BUSCAR ESTATÍSTICAS DE USO (ORDERS + APPOINTMENTS)
     const validTenantIds = new Set(updatedTenants.map(t => t.id));
     let statsMap = {};
 
+    validTenantIds.forEach(id => {
+      statsMap[id] = { count: 0, revenue: 0, lastOrderAt: null };
+    });
+
     try {
-      const { data: oData } = await supabase.from('orders').select('id, tenant_id, total, created_at, payment_method, status');
+      // BUSCA EM PEDIDOS (DELIVERY E E-COMMERCE)
+      const { data: oData } = await supabase
+        .from('orders')
+        .select('id, tenant_id, total, created_at, payment_method, status');
+
       if (oData) {
         oData.forEach(order => {
           if (!validTenantIds.has(order.tenant_id)) return;
 
-          if (!statsMap[order.tenant_id]) {
-            statsMap[order.tenant_id] = { count: 0, revenue: 0, lastOrderAt: null };
-          }
           statsMap[order.tenant_id].count += 1;
 
           const isPaid = order.payment_method?.includes('PAGO') || order.status === 'concluido' || order.status === 'entregue';
@@ -93,6 +98,33 @@ export default function MasterAdmin() {
             const orderDate = new Date(order.created_at);
             if (!statsMap[order.tenant_id].lastOrderAt || orderDate > new Date(statsMap[order.tenant_id].lastOrderAt)) {
               statsMap[order.tenant_id].lastOrderAt = order.created_at;
+            }
+          }
+        });
+      }
+
+      // BUSCA EM AGENDAMENTOS (AGENDAMENTO / BARBEARIA / SALÃO)
+      const { data: aData } = await supabase
+        .from('appointments')
+        .select('id, tenant_id, total_price, created_at, appointment_date, status');
+
+      if (aData) {
+        aData.forEach(app => {
+          if (!validTenantIds.has(app.tenant_id)) return;
+          if (app.status === 'cancelado') return;
+
+          statsMap[app.tenant_id].count += 1;
+
+          const isPaidOrValid = app.status === 'concluido' || app.status === 'agendado';
+          if (isPaidOrValid) {
+            statsMap[app.tenant_id].revenue += Number(app.total_price || 0);
+          }
+
+          const appDateStr = app.created_at || (app.appointment_date ? `${app.appointment_date}T00:00:00` : null);
+          if (appDateStr) {
+            const appDate = new Date(appDateStr);
+            if (!statsMap[app.tenant_id].lastOrderAt || appDate > new Date(statsMap[app.tenant_id].lastOrderAt)) {
+              statsMap[app.tenant_id].lastOrderAt = appDateStr;
             }
           }
         });
@@ -123,7 +155,6 @@ export default function MasterAdmin() {
     }
   };
 
-  // DISPARO DIRETO NO WHATSAPP COM MENSAGEM PREENCHIDA
   const handleSendWhatsAppBilling = (tenant, diffDays) => {
     const formattedDate = tenant.due_date ? tenant.due_date.split('-').reverse().join('/') : '';
     const phone = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
@@ -149,7 +180,6 @@ export default function MasterAdmin() {
     window.open(`https://wa.me/${formattedPhone}?text=${encodedText}`, '_blank');
   };
 
-  // PREDEFINIÇÕES DE CORES
   const applyPreset = (type) => {
     if (type === 'dark_orange') {
       setNewTenant(prev => ({ ...prev, primary_color: '#FF8C00', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#FF8C00' }));
@@ -626,7 +656,6 @@ export default function MasterAdmin() {
             const isCopied = copiedTenantId === t.id;
 
             const stats = tenantStats[t.id] || { count: 0, revenue: 0, lastOrderAt: null };
-            const hasActivity = stats.count > 0;
             const dueInfo = getDueDateInfo(t.due_date);
             const isExpanded = expandedTenantId === t.id;
 
@@ -655,21 +684,18 @@ export default function MasterAdmin() {
 
                   {/* AÇÕES RÁPIDAS NO TOPO */}
                   <div className="flex items-center space-x-1.5 flex-wrap">
-                    {/* BOTÃO COBRAR NO ZAP DIRETO */}
                     <button 
                       onClick={() => handleSendWhatsAppBilling(t, dueInfo.diffDays)}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${dueInfo.isExpiring || dueInfo.isExpired ? 'bg-yellow-500 text-black hover:bg-yellow-400 shadow-md' : 'bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600/40'}`}>
                       <span>📩 Cobrar Zap</span>
                     </button>
 
-                    {/* AUTORIZADO / PAUSADO TOGGLE */}
                     <button 
                       onClick={() => toggleTenantActive(t.id, t.active)}
                       className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition ${t.active ? 'bg-green-500/10 text-green-400 border-green-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
                       {t.active ? '🟢 Autorizado' : '🔴 Bloqueado'}
                     </button>
 
-                    {/* BOTÃO EXPANDIR / RECOLHER DETALHES */}
                     <button 
                       onClick={() => setExpandedTenantId(isExpanded ? null : t.id)}
                       className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-xl text-xs font-bold transition">
@@ -684,7 +710,7 @@ export default function MasterAdmin() {
                     <div className="flex justify-between items-center text-xs flex-wrap gap-2">
                       <div className="text-gray-400 space-x-3">
                         <span>Senha Admin: <b className="font-mono text-white">{t.admin_password}</b></span>
-                        <span>Uso: <b className="text-green-400">{stats.count} pedidos</b></span>
+                        <span>Uso: <b className="text-green-400">{stats.count} pedidos/agendamentos</b></span>
                         <span>Vendas: <b className="text-green-400">R$ {stats.revenue.toFixed(2)}</b></span>
                         <span>Último: <b className="text-white">{formatLastActivity(stats.lastOrderAt)}</b></span>
                       </div>
