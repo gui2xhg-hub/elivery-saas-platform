@@ -16,7 +16,7 @@ export default function HomePortalDelivery() {
   const [copiedPix, setCopiedPix] = useState(false);
   const [stats, setStats] = useState({ ordersCount: 0, totalRevenue: 0 });
 
-  // CONFIGURAÇÕES DE DOMÍNIO E PIX OFICIAL (ESTÁTICO R$ 99,99)
+  // CONFIGURAÇÕES DE DOMÍNIO E PIX OFICIAL (ESTÁTICO)
   const DOMAIN_URL = 'https://delivery.sinergemkt.com';
   const PIX_COPIA_COLA = "00020101021126330014br.gov.bcb.pix011107758777945520400005303986540599.995802BR5925HENRIQUE GONCALVES DE OLI6009SAO PAULO622905251M24TWWDEN5A3XEVQZMREE1D56304C896";
   const SUPPORT_WHATSAPP = "5547996302864";
@@ -27,13 +27,29 @@ export default function HomePortalDelivery() {
     { id: 2, tag: 'MELHORIA', date: '05/09', title: '🪑 Módulo de Mesas & Autoatendimento', desc: 'Seus clientes agora podem pedir direto da mesa escaneando um QR Code.' }
   ];
 
+  // CARREGA E RE-ATUALIZA OS DADOS DIRETO DO SUPABASE
   useEffect(() => {
     const savedTenant = localStorage.getItem('sinerge_authenticated_delivery_tenant');
     if (savedTenant) {
       try {
         const parsed = JSON.parse(savedTenant);
         setTenant(parsed);
-        fetchTenantStats(parsed.id);
+
+        if (parsed && parsed.id) {
+          // Re-busca a versão mais recente do Master (mensalidade, vencimento, etc.)
+          supabase
+            .from('tenants')
+            .select('*')
+            .eq('id', parsed.id)
+            .single()
+            .then(({ data }) => {
+              if (data) {
+                setTenant(data);
+                localStorage.setItem('sinerge_authenticated_delivery_tenant', JSON.stringify(data));
+                fetchTenantStats(data.id);
+              }
+            });
+        }
       } catch (e) {
         localStorage.removeItem('sinerge_authenticated_delivery_tenant');
       }
@@ -105,6 +121,12 @@ export default function HomePortalDelivery() {
     navigator.clipboard.writeText(PIX_COPIA_COLA);
     setCopiedPix(true);
     setTimeout(() => setCopiedPix(false), 2500);
+  };
+
+  // FORMATADOR DE MOEDA BRASILEIRA (EX: R$ 99,99)
+  const formatCurrency = (amount) => {
+    const val = Number(amount || 99.99);
+    return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
   const getDueDateInfo = (dueDateStr) => {
@@ -255,7 +277,7 @@ export default function HomePortalDelivery() {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-3 border-t text-xs" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
                 <div className="p-3 rounded-2xl border" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
                   <span className="opacity-60 block text-[10px]">Vendas Registradas:</span>
-                  <span className="text-base font-bold text-green-400">R$ {stats.totalRevenue.toFixed(2)}</span>
+                  <span className="text-base font-bold text-green-400">{formatCurrency(stats.totalRevenue)}</span>
                 </div>
 
                 <div className="p-3 rounded-2xl border" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
@@ -290,7 +312,7 @@ export default function HomePortalDelivery() {
                   <h3 className="font-bold text-sm" style={{ color: textColor }}>Status da Assinatura SaaS</h3>
                 </div>
                 <p className="text-xs opacity-80">
-                  {dueInfo.label} • Valor: <b className="text-green-400">R$ {Number(tenant.monthly_fee || 99.99).toFixed(2)}/mês</b>
+                  {dueInfo.label} • Valor: <b className="text-green-400">{formatCurrency(tenant.monthly_fee)}/mês</b>
                 </p>
               </div>
 
@@ -448,7 +470,7 @@ export default function HomePortalDelivery() {
               <h3 className="font-bold text-base text-white">Pagamento de Mensalidade via PIX</h3>
               <p className="text-xs text-gray-400 mt-0.5">
                 Favorecido: <b className="text-white">Henrique Gonçalves de Olinda</b><br />
-                Valor: <b className="text-green-400">R$ {Number(tenant.monthly_fee || 99.99).toFixed(2)}</b>
+                Valor da Mensalidade: <b className="text-green-400">{formatCurrency(tenant.monthly_fee)}</b>
               </p>
             </div>
 
@@ -481,7 +503,7 @@ export default function HomePortalDelivery() {
 
             <a 
               href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(
-                `Olá! Realizei o pagamento da mensalidade do sistema *${tenant.name}* (R$ ${Number(tenant.monthly_fee || 99.99).toFixed(2)}). Segue o comprovante em anexo!`
+                `Olá! Realizei o pagamento da mensalidade do sistema *${tenant.name}* (${formatCurrency(tenant.monthly_fee)}). Segue o comprovante em anexo!`
               )}`} 
               target="_blank" 
               rel="noopener noreferrer"
