@@ -10,24 +10,28 @@ export default function MasterAdmin() {
   const [filterType, setFilterType] = useState('ALL');
   const [copiedTenantId, setCopiedTenantId] = useState(null);
 
-  // FORMULÁRIO DE NOVO CLIENTE (INCLUINDO MÓDULO DE MESAS)
+  // CONTROLE DE INTERFACE (JANELAS E EXPANSÕES)
+  const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
+  const [expandedTenantId, setExpandedTenantId] = useState(null);
+
+  // FORMULÁRIO DE NOVO CLIENTE
   const [newTenant, setNewTenant] = useState({
     name: '',
     slug: '',
     whatsapp: '',
     logo_url: '',
     banner_url: '',
-    primary_color: '#FF8C00',       // Cor do Botão
-    button_text_color: '#FFFFFF',   // Texto do Botão
-    secondary_color: '#090D16',     // Fundo do Site
-    card_bg_color: '#111827',       // Fundo dos Cards
-    text_color: '#FFFFFF',          // Texto Geral do Site
-    price_color: '#FF8C00',         // Cor dos Preços / Valores
+    primary_color: '#FF8C00',
+    button_text_color: '#FFFFFF',
+    secondary_color: '#090D16',
+    card_bg_color: '#111827',
+    text_color: '#FFFFFF',
+    price_color: '#FF8C00',
     due_date: '',
     monthly_fee: '99.00',
     admin_password: '',
     business_type: 'delivery',
-    has_tables: true                // Módulo de Mesas / QR Code
+    has_tables: true
   });
 
   // ESTADO DE EDIÇÃO DE CLIENTE EXISTENTE
@@ -101,7 +105,7 @@ export default function MasterAdmin() {
   };
 
   const getDueDateInfo = (dueDateStr) => {
-    if (!dueDateStr) return { diffDays: 999, isExpiring: false, isExpired: false, label: 'Livre' };
+    if (!dueDateStr) return { diffDays: 999, isExpiring: false, isExpired: false, label: 'Livre / Perpétuo' };
     
     const todayStr = new Date().toISOString().split('T')[0];
     const today = new Date(todayStr);
@@ -119,16 +123,30 @@ export default function MasterAdmin() {
     }
   };
 
-  const handleCopyRenewalMsg = (tenant, diffDays) => {
+  // DISPARO DIRETO NO WHATSAPP COM MENSAGEM PREENCHIDA
+  const handleSendWhatsAppBilling = (tenant, diffDays) => {
     const formattedDate = tenant.due_date ? tenant.due_date.split('-').reverse().join('/') : '';
-    const text = `⚠️ *Aviso de Renovação de Mensalidade*\n\n` +
-      `Olá, *${tenant.name}*!\n\n` +
-      `Sua mensalidade no valor de *R$ ${Number(tenant.monthly_fee || 99).toFixed(2)}* ${diffDays < 0 ? 'venceu' : `vence ${diffDays === 0 ? 'hoje' : 'em breve (' + formattedDate + ')'}`}.\n\n` +
-      `Por favor, confirme a renovação para manter seu sistema ativo e sem interrupções!\n\n` +
-      `*Chave PIX:* financeiro@sinergemkt.com`;
+    const phone = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
+    const formattedPhone = phone.startsWith('55') ? phone : `55${phone}`;
 
-    navigator.clipboard.writeText(text);
-    alert(`Mensagem de cobrança para ${tenant.name} copiada!`);
+    let text = '';
+    if (diffDays < 0) {
+      text = `🔴 *AVISO DE DESATIVAÇÃO DE SISTEMA — SINERGE*\n\n` +
+        `Olá, *${tenant.name}*!\n\n` +
+        `Sua mensalidade no valor de *R$ ${Number(tenant.monthly_fee || 99).toFixed(2)}* venceu em *${formattedDate}*.\n\n` +
+        `⚠️ *Seu acesso ao sistema será desativado em breve.* Para reativar imediatamente e evitar interrupções no seu atendimento, efetue o pagamento via PIX:\n\n` +
+        `🔑 *Chave PIX:* financeiro@sinergemkt.com\n\n` +
+        `Após realizar o pagamento, envie o comprovante por aqui para liberação automática.`;
+    } else {
+      text = `⚠️ *AVISO DE RENOVAÇÃO DE MENSALIDADE — SINERGE*\n\n` +
+        `Olá, *${tenant.name}*!\n\n` +
+        `Passando para lembrar que sua mensalidade no valor de *R$ ${Number(tenant.monthly_fee || 99).toFixed(2)}* vence ${diffDays === 0 ? '*HOJE*' : `em *${diffDays} dia(s)* (${formattedDate})`}.\n\n` +
+        `Por favor, confirme a renovação para manter seu sistema ativo sem interrupções!\n\n` +
+        `🔑 *Chave PIX:* financeiro@sinergemkt.com`;
+    }
+
+    const encodedText = encodeURIComponent(text);
+    window.open(`https://wa.me/${formattedPhone}?text=${encodedText}`, '_blank');
   };
 
   // PREDEFINIÇÕES DE CORES
@@ -187,7 +205,7 @@ export default function MasterAdmin() {
       has_delivery: isDelivery,
       has_agendamento: isAgendamento,
       has_ecommerce: isEcommerce,
-      has_tables: newTenant.has_tables, // ATIVA/DESATIVA MÓDULO DE MESAS
+      has_tables: newTenant.has_tables,
       business_type: newTenant.business_type
     }]).select().single();
 
@@ -201,6 +219,7 @@ export default function MasterAdmin() {
       }
 
       alert(`Cliente "${data.name}" criado com sucesso!`);
+      setIsCreateFormOpen(false);
       setNewTenant({
         name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '',
         primary_color: '#FF8C00', button_text_color: '#FFFFFF',
@@ -231,7 +250,7 @@ export default function MasterAdmin() {
       card_bg_color: editingTenant.card_bg_color,
       text_color: editingTenant.text_color,
       price_color: editingTenant.price_color,
-      has_tables: editingTenant.has_tables ?? true // SALVA STATUS DAS MESAS
+      has_tables: editingTenant.has_tables ?? true
     }).eq('id', editingTenant.id);
 
     if (error) {
@@ -304,17 +323,19 @@ export default function MasterAdmin() {
     const matchesSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase()) || t.slug.toLowerCase().includes(searchTerm.toLowerCase());
     const isEcommerce = t.has_ecommerce || t.business_type === 'ecommerce';
     const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce;
+    const dueInfo = getDueDateInfo(t.due_date);
 
     if (!matchesSearch) return false;
     if (filterType === 'DELIVERY') return !isAgendamento && !isEcommerce;
     if (filterType === 'AGENDAMENTO') return isAgendamento;
     if (filterType === 'ECOMMERCE') return isEcommerce;
-    if (filterType === 'PAUSED') return !t.active;
+    if (filterType === 'EXPIRING') return t.active && dueInfo.isExpiring;
+    if (filterType === 'EXPIRED') return dueInfo.isExpired || !t.active;
     return true;
   });
 
   const formatLastActivity = (dateStr) => {
-    if (!dateStr) return 'Sem pedidos';
+    if (!dateStr) return 'Sem movimentação';
     const date = new Date(dateStr);
     const now = new Date();
     const diffHours = Math.abs(now - date) / 36e5;
@@ -375,9 +396,9 @@ export default function MasterAdmin() {
 
       {/* BANNER DE AVISO DE CLIENTES A VENCER */}
       {expiringTenants.length > 0 && (
-        <div className="bg-yellow-500/10 border border-yellow-500/40 p-4 rounded-2xl mb-6 flex justify-between items-center flex-wrap gap-2">
-          <div className="flex items-center space-x-2">
-            <span className="text-xl">⚠️</span>
+        <div className="bg-yellow-500/10 border border-yellow-500/40 p-4 rounded-2xl mb-6 flex justify-between items-center flex-wrap gap-3">
+          <div className="flex items-center space-x-3">
+            <span className="text-2xl animate-bounce">⚠️</span>
             <div>
               <h3 className="font-bold text-xs text-yellow-400">Atenção! {expiringTenants.length} cliente(s) vencendo nos próximos 3 dias:</h3>
               <p className="text-[11px] text-gray-300">
@@ -385,6 +406,11 @@ export default function MasterAdmin() {
               </p>
             </div>
           </div>
+          <button 
+            onClick={() => setFilterType('EXPIRING')}
+            className="bg-yellow-500 text-black font-bold px-3 py-1.5 rounded-xl text-xs hover:bg-yellow-400 transition">
+            🔍 Ver Apenas Vencendo
+          </button>
         </div>
       )}
 
@@ -421,172 +447,179 @@ export default function MasterAdmin() {
         </div>
       </div>
 
-      {/* CADASTRAR NOVO CLIENTE */}
-      <section className="bg-gray-900 p-6 rounded-3xl border border-gray-800 space-y-5 mb-8 shadow-xl">
-        <div className="flex justify-between items-center border-b border-gray-800 pb-3">
-          <h2 className="font-bold text-sm text-orange-400 flex items-center space-x-2">
-            <span>➕ Cadastrar Novo Cliente / Estabelecimento</span>
-          </h2>
-        </div>
+      {/* BOTÃO MESTRE / SANFONA PARA CADASTRAR NOVO CLIENTE */}
+      <section className="mb-8">
+        <button
+          onClick={() => setIsCreateFormOpen(!isCreateFormOpen)}
+          className="w-full bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-bold p-4 rounded-2xl flex justify-between items-center shadow-lg transition">
+          <span className="flex items-center space-x-2 text-sm">
+            <span>➕</span>
+            <span>Cadastrar Novo Cliente / Estabelecimento</span>
+          </span>
+          <span className="text-xs bg-black/30 px-3 py-1 rounded-lg">
+            {isCreateFormOpen ? '▲ Ocultar Formulário' : '▼ Expandir Formulário'}
+          </span>
+        </button>
 
-        <form onSubmit={handleCreateTenant} className="space-y-4">
-          <div className="bg-gray-950 p-3 rounded-2xl border border-gray-800 space-y-2">
-            <label className="text-[11px] font-bold text-gray-300 block uppercase tracking-wider">Selecione o Nicho do Cliente:</label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'delivery' ? 'bg-orange-500/20 text-orange-400 border-orange-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
-                <input type="radio" name="business_type" value="delivery" checked={newTenant.business_type === 'delivery'} onChange={() => setNewTenant({ ...newTenant, business_type: 'delivery' })} className="hidden" />
-                <span>🍔 Delivery (Alimentação)</span>
-              </label>
+        {isCreateFormOpen && (
+          <form onSubmit={handleCreateTenant} className="bg-gray-900 p-6 rounded-b-3xl border border-orange-500/30 border-t-0 space-y-4 shadow-2xl transition-all">
+            <div className="bg-gray-950 p-3 rounded-2xl border border-gray-800 space-y-2">
+              <label className="text-[11px] font-bold text-gray-300 block uppercase tracking-wider">Selecione o Nicho do Cliente:</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'delivery' ? 'bg-orange-500/20 text-orange-400 border-orange-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
+                  <input type="radio" name="business_type" value="delivery" checked={newTenant.business_type === 'delivery'} onChange={() => setNewTenant({ ...newTenant, business_type: 'delivery' })} className="hidden" />
+                  <span>🍔 Delivery (Alimentação)</span>
+                </label>
 
-              <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'agendamento' ? 'bg-purple-500/20 text-purple-400 border-purple-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
-                <input type="radio" name="business_type" value="agendamento" checked={newTenant.business_type === 'agendamento'} onChange={() => setNewTenant({ ...newTenant, business_type: 'agendamento' })} className="hidden" />
-                <span>✂️ Agendamento (Barbearia/Salão)</span>
-              </label>
+                <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'agendamento' ? 'bg-purple-500/20 text-purple-400 border-purple-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
+                  <input type="radio" name="business_type" value="agendamento" checked={newTenant.business_type === 'agendamento'} onChange={() => setNewTenant({ ...newTenant, business_type: 'agendamento' })} className="hidden" />
+                  <span>✂️ Agendamento (Barbearia/Salão)</span>
+                </label>
 
-              <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'ecommerce' ? 'bg-blue-500/20 text-blue-400 border-blue-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
-                <input type="radio" name="business_type" value="ecommerce" checked={newTenant.business_type === 'ecommerce'} onChange={() => setNewTenant({ ...newTenant, business_type: 'ecommerce' })} className="hidden" />
-                <span>👕 E-commerce / Loja (Roupas)</span>
-              </label>
-            </div>
-          </div>
-
-          {/* NOVO RECURSO: HABILITAR MÓDULO DE MESAS SE FOR DELIVERY */}
-          {newTenant.business_type === 'delivery' && (
-            <div className="bg-gray-950 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center">
-              <div>
-                <span className="font-bold text-xs text-white block">🪑 Habilitar Módulo de Mesas / Autoatendimento (QR Code)</span>
-                <span className="text-[10px] text-gray-400">Permite ao restaurante gerar QR Codes para os clientes pedirem direto da mesa.</span>
+                <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'ecommerce' ? 'bg-blue-500/20 text-blue-400 border-blue-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
+                  <input type="radio" name="business_type" value="ecommerce" checked={newTenant.business_type === 'ecommerce'} onChange={() => setNewTenant({ ...newTenant, business_type: 'ecommerce' })} className="hidden" />
+                  <span>👕 E-commerce / Loja (Roupas)</span>
+                </label>
               </div>
-              <input
-                type="checkbox"
-                checked={newTenant.has_tables}
-                onChange={(e) => setNewTenant({ ...newTenant, has_tables: e.target.checked })}
-                className="w-4 h-4 accent-orange-500 cursor-pointer"
-              />
             </div>
-          )}
 
-          <div>
-            <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
-            <input type="text" placeholder="Ex: Salão Lanna ou Hamburgueria Silva" value={newTenant.name} onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Slug / Identificador (Sem espaços):</label>
-              <input type="text" placeholder="Ex: lannadesigner" value={newTenant.slug} onChange={(e) => setNewTenant({ ...newTenant, slug: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
-            </div>
+            {newTenant.business_type === 'delivery' && (
+              <div className="bg-gray-950 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center">
+                <div>
+                  <span className="font-bold text-xs text-white block">🪑 Habilitar Módulo de Mesas / Autoatendimento (QR Code)</span>
+                  <span className="text-[10px] text-gray-400">Permite ao restaurante gerar QR Codes para os clientes pedirem direto da mesa.</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={newTenant.has_tables}
+                  onChange={(e) => setNewTenant({ ...newTenant, has_tables: e.target.checked })}
+                  className="w-4 h-4 accent-orange-500 cursor-pointer"
+                />
+              </div>
+            )}
 
             <div>
-              <label className="text-[11px] text-gray-400 block mb-1">WhatsApp (DDD + Número):</label>
-              <input type="text" placeholder="Ex: 47996302864" value={newTenant.whatsapp} onChange={(e) => setNewTenant({ ...newTenant, whatsapp: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
-            </div>
-          </div>
-
-          {/* PERSONALIZAÇÃO DE CORES */}
-          <div className="bg-gray-950/80 p-4 rounded-2xl border border-gray-800 space-y-3">
-            <div className="flex justify-between items-center flex-wrap gap-2">
-              <label className="text-[11px] font-bold text-orange-400 uppercase tracking-wider block">🎨 Personalização das Cores do Tema:</label>
-              <div className="flex space-x-1.5 text-[10px] flex-wrap">
-                <button type="button" onClick={() => applyPreset('dark_orange')} className="bg-gray-900 border border-orange-500/50 text-orange-400 px-2.5 py-1 rounded-lg font-bold">Dark Laranja</button>
-                <button type="button" onClick={() => applyPreset('light_pink')} className="bg-pink-500/20 border border-pink-500 text-pink-300 px-2.5 py-1 rounded-lg font-bold">Rosa / Claro</button>
-                <button type="button" onClick={() => applyPreset('purple_barber')} className="bg-purple-500/20 border border-purple-500 text-purple-300 px-2.5 py-1 rounded-lg font-bold">Roxo Barber</button>
-                <button type="button" onClick={() => applyPreset('blue_ecommerce')} className="bg-blue-500/20 border border-blue-500 text-blue-300 px-2.5 py-1 rounded-lg font-bold">Azul Loja</button>
-              </div>
+              <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
+              <input type="text" placeholder="Ex: Salão Lanna ou Hamburgueria Silva" value={newTenant.name} onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-[10px] text-gray-400 block mb-1">Cor do Botão:</label>
-                <div className="flex space-x-1.5 items-center">
-                  <input type="color" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
-                  <input type="text" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
-                </div>
+                <label className="text-[11px] text-gray-400 block mb-1">Slug / Identificador (Sem espaços):</label>
+                <input type="text" placeholder="Ex: lannadesigner" value={newTenant.slug} onChange={(e) => setNewTenant({ ...newTenant, slug: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
               </div>
 
               <div>
-                <label className="text-[10px] text-gray-400 block mb-1">Texto do Botão:</label>
-                <div className="flex space-x-1.5 items-center">
-                  <input type="color" value={newTenant.button_text_color} onChange={(e) => setNewTenant({ ...newTenant, button_text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
-                  <input type="text" value={newTenant.button_text_color} onChange={(e) => setNewTenant({ ...newTenant, button_text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                <label className="text-[11px] text-gray-400 block mb-1">WhatsApp (DDD + Número):</label>
+                <input type="text" placeholder="Ex: 47996302864" value={newTenant.whatsapp} onChange={(e) => setNewTenant({ ...newTenant, whatsapp: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
+              </div>
+            </div>
+
+            <div className="bg-gray-950/80 p-4 rounded-2xl border border-gray-800 space-y-3">
+              <div className="flex justify-between items-center flex-wrap gap-2">
+                <label className="text-[11px] font-bold text-orange-400 uppercase tracking-wider block">🎨 Personalização das Cores do Tema:</label>
+                <div className="flex space-x-1.5 text-[10px] flex-wrap">
+                  <button type="button" onClick={() => applyPreset('dark_orange')} className="bg-gray-900 border border-orange-500/50 text-orange-400 px-2.5 py-1 rounded-lg font-bold">Dark Laranja</button>
+                  <button type="button" onClick={() => applyPreset('light_pink')} className="bg-pink-500/20 border border-pink-500 text-pink-300 px-2.5 py-1 rounded-lg font-bold">Rosa / Claro</button>
+                  <button type="button" onClick={() => applyPreset('purple_barber')} className="bg-purple-500/20 border border-purple-500 text-purple-300 px-2.5 py-1 rounded-lg font-bold">Roxo Barber</button>
+                  <button type="button" onClick={() => applyPreset('blue_ecommerce')} className="bg-blue-500/20 border border-blue-500 text-blue-300 px-2.5 py-1 rounded-lg font-bold">Azul Loja</button>
                 </div>
               </div>
 
-              <div>
-                <label className="text-[10px] text-gray-400 block mb-1">Fundo do Site:</label>
-                <div className="flex space-x-1.5 items-center">
-                  <input type="color" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
-                  <input type="text" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Cor do Botão:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="text-[10px] text-gray-400 block mb-1">Fundo dos Cards:</label>
-                <div className="flex space-x-1.5 items-center">
-                  <input type="color" value={newTenant.card_bg_color} onChange={(e) => setNewTenant({ ...newTenant, card_bg_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
-                  <input type="text" value={newTenant.card_bg_color} onChange={(e) => setNewTenant({ ...newTenant, card_bg_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Texto do Botão:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={newTenant.button_text_color} onChange={(e) => setNewTenant({ ...newTenant, button_text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={newTenant.button_text_color} onChange={(e) => setNewTenant({ ...newTenant, button_text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="text-[10px] text-gray-400 block mb-1">Cor da Fonte/Texto:</label>
-                <div className="flex space-x-1.5 items-center">
-                  <input type="color" value={newTenant.text_color} onChange={(e) => setNewTenant({ ...newTenant, text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
-                  <input type="text" value={newTenant.text_color} onChange={(e) => setNewTenant({ ...newTenant, text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Fundo do Site:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="text-[10px] font-bold text-orange-400 block mb-1">Cor do Preço / Valores:</label>
-                <div className="flex space-x-1.5 items-center">
-                  <input type="color" value={newTenant.price_color} onChange={(e) => setNewTenant({ ...newTenant, price_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
-                  <input type="text" value={newTenant.price_color} onChange={(e) => setNewTenant({ ...newTenant, price_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Fundo dos Cards:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={newTenant.card_bg_color} onChange={(e) => setNewTenant({ ...newTenant, card_bg_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={newTenant.card_bg_color} onChange={(e) => setNewTenant({ ...newTenant, card_bg_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Cor da Fonte/Texto:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={newTenant.text_color} onChange={(e) => setNewTenant({ ...newTenant, text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={newTenant.text_color} onChange={(e) => setNewTenant({ ...newTenant, text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-orange-400 block mb-1">Cor do Preço / Valores:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={newTenant.price_color} onChange={(e) => setNewTenant({ ...newTenant, price_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={newTenant.price_color} onChange={(e) => setNewTenant({ ...newTenant, price_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Data de Vencimento:</label>
-              <input type="date" value={newTenant.due_date} onChange={(e) => setNewTenant({ ...newTenant, due_date: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none cursor-pointer" style={{ colorScheme: 'dark' }} />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Data de Vencimento:</label>
+                <input type="date" value={newTenant.due_date} onChange={(e) => setNewTenant({ ...newTenant, due_date: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none cursor-pointer" style={{ colorScheme: 'dark' }} />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Mensalidade (R$):</label>
+                <input type="text" placeholder="99.00" value={newTenant.monthly_fee} onChange={(e) => setNewTenant({ ...newTenant, monthly_fee: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Senha Admin do Cliente:</label>
+                <input type="text" placeholder="123456" value={newTenant.admin_password} onChange={(e) => setNewTenant({ ...newTenant, admin_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+              </div>
             </div>
 
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Mensalidade (R$):</label>
-              <input type="text" placeholder="99.00" value={newTenant.monthly_fee} onChange={(e) => setNewTenant({ ...newTenant, monthly_fee: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
-            </div>
-
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Senha Admin do Cliente:</label>
-              <input type="text" placeholder="123456" value={newTenant.admin_password} onChange={(e) => setNewTenant({ ...newTenant, admin_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
-            </div>
-          </div>
-
-          <button type="submit" className="w-full bg-green-600 hover:bg-green-700 font-bold py-3.5 rounded-xl text-xs transition text-white shadow-lg shadow-green-600/20">
-            🚀 Cadastrar Cliente Agora
-          </button>
-        </form>
+            <button type="submit" className="w-full bg-green-600 hover:bg-green-700 font-bold py-3.5 rounded-xl text-xs transition text-white shadow-lg shadow-green-600/20">
+              🚀 Cadastrar Cliente Agora
+            </button>
+          </form>
+        )}
       </section>
 
-      {/* LISTA DE CLIENTES E PESQUISA */}
+      {/* LISTA DE CLIENTES E PESQUISA COM RECUO DE DETALHES */}
       <section className="space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-gray-900 p-4 rounded-2xl border border-gray-800">
           <h2 className="font-bold text-sm text-gray-200">🏢 Clientes Cadastrados ({filteredTenants.length})</h2>
 
-          <div className="flex space-x-2 w-full sm:w-auto">
+          <div className="flex space-x-2 w-full sm:w-auto flex-wrap gap-y-2">
             <input type="text" placeholder="🔍 Buscar por nome..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-gray-950 border border-gray-800 px-3 py-1.5 rounded-xl text-xs text-white focus:outline-none w-full sm:w-48" />
             <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="bg-gray-950 border border-gray-800 px-3 py-1.5 rounded-xl text-xs text-white focus:outline-none">
               <option value="ALL">Todos os Nichos</option>
+              <option value="EXPIRING">⚠️ Vencendo em 3 Dias</option>
+              <option value="EXPIRED">🔴 Vencidos / Bloqueados</option>
               <option value="DELIVERY">🍔 Delivery</option>
               <option value="AGENDAMENTO">✂️ Agendamento</option>
               <option value="ECOMMERCE">👕 E-commerce</option>
-              <option value="PAUSED">🔴 Pausados / Vencidos</option>
             </select>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-1 gap-3">
           {filteredTenants.map(t => {
             const isEcommerce = t.has_ecommerce || t.business_type === 'ecommerce';
             const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce;
@@ -595,107 +628,97 @@ export default function MasterAdmin() {
             const stats = tenantStats[t.id] || { count: 0, revenue: 0, lastOrderAt: null };
             const hasActivity = stats.count > 0;
             const dueInfo = getDueDateInfo(t.due_date);
+            const isExpanded = expandedTenantId === t.id;
 
             return (
-              <div key={t.id} className={`bg-gray-900 p-5 rounded-3xl border ${dueInfo.isExpiring ? 'border-yellow-500/60 shadow-yellow-500/10' : t.active ? 'border-gray-800' : 'border-red-500/40 opacity-80'} space-y-4 shadow-lg`}>
+              <div key={t.id} className={`bg-gray-900 p-4 rounded-2xl border transition ${dueInfo.isExpiring ? 'border-yellow-500/80 shadow-lg shadow-yellow-500/10' : dueInfo.isExpired || !t.active ? 'border-red-500/50 bg-red-950/10' : 'border-gray-800'}`}>
                 
-                <div className="flex justify-between items-start flex-wrap gap-3">
-                  <div>
-                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                      <span className="w-3.5 h-3.5 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.primary_color || '#FF8C00' }}></span>
-                      <span className="w-3.5 h-3.5 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.secondary_color || '#090D16' }}></span>
-                      <span className="w-3.5 h-3.5 rounded-full inline-block border border-gray-700" style={{ backgroundColor: t.price_color || t.primary_color || '#FF8C00' }}></span>
-                      
-                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${isEcommerce ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : isAgendamento ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
-                        {isEcommerce ? '👕 E-commerce' : isAgendamento ? '✂️ Agendamento' : '🍔 Delivery'}
-                      </span>
-
-                      {/* TAG DE RECURSO DE MESAS */}
-                      {(t.has_tables ?? true) && !isAgendamento && !isEcommerce && (
-                        <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full text-[10px] font-bold">
-                          🪑 Mesas
+                {/* LINHA PRINCIPAL RESUMIDA DO CLIENTE */}
+                <div className="flex justify-between items-center flex-wrap gap-3">
+                  <div className="flex items-center space-x-3">
+                    <span className={`w-3 h-3 rounded-full shrink-0 ${t.active ? 'bg-green-500 shadow-lg shadow-green-500/50' : 'bg-red-500'}`}></span>
+                    <div>
+                      <div className="flex items-center space-x-2 flex-wrap">
+                        <h3 className="font-bold text-sm text-white">{t.name}</h3>
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${isEcommerce ? 'bg-blue-500/20 text-blue-400' : isAgendamento ? 'bg-purple-500/20 text-purple-400' : 'bg-orange-500/20 text-orange-400'}`}>
+                          {isEcommerce ? '👕 E-commerce' : isAgendamento ? '✂️ Agendamento' : '🍔 Delivery'}
                         </span>
-                      )}
-                      
-                      <h3 className="font-bold text-base text-white">{t.name}</h3>
-                    </div>
-
-                    <p className="text-xs text-gray-400 font-mono mt-1">Slug: <span className="text-orange-400">/{t.slug}</span></p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      📱 Zap: <span className="text-white font-bold">{t.whatsapp}</span> • Senha Admin: <span className="font-mono text-white font-bold">{t.admin_password}</span>
-                    </p>
-                    
-                    <div className="flex items-center space-x-2 mt-1.5 flex-wrap">
-                      <span className="text-xs text-gray-300">💰 R$ <b className="text-green-400">{Number(t.monthly_fee || 99).toFixed(2)}</b></span>
-                      <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-lg border ${dueInfo.isExpiring ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40 animate-pulse' : dueInfo.isExpired ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-gray-800 text-gray-300 border-gray-700'}`}>
-                        {dueInfo.label}
-                      </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${dueInfo.isExpiring ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40 animate-pulse' : dueInfo.isExpired ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
+                          {dueInfo.label}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        Slug: <b className="text-orange-400">/{t.slug}</b> • Zap: <b className="text-gray-300">{t.whatsapp}</b> • R$ <b className="text-green-400">{Number(t.monthly_fee || 99).toFixed(2)}</b>
+                      </p>
                     </div>
                   </div>
 
-                  <div className="flex flex-col items-end space-y-2">
+                  {/* AÇÕES RÁPIDAS NO TOPO */}
+                  <div className="flex items-center space-x-1.5 flex-wrap">
+                    {/* BOTÃO COBRAR NO ZAP DIRETO */}
                     <button 
-                      onClick={() => toggleTenantActive(t.id, t.active)}
-                      className={`px-3 py-1 rounded-xl text-xs font-bold border transition ${t.active ? 'bg-green-500/20 text-green-400 border-green-500/30 hover:bg-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30'}`}>
-                      {t.active ? '🟢 Ativo' : '🔴 Pausado/Vencido'}
+                      onClick={() => handleSendWhatsAppBilling(t, dueInfo.diffDays)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${dueInfo.isExpiring || dueInfo.isExpired ? 'bg-yellow-500 text-black hover:bg-yellow-400 shadow-md' : 'bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600/40'}`}>
+                      <span>📩 Cobrar Zap</span>
                     </button>
 
-                    <div className="flex space-x-1.5 flex-wrap gap-y-1">
-                      {dueInfo.isExpiring || dueInfo.isExpired ? (
-                        <button onClick={() => handleCopyRenewalMsg(t, dueInfo.diffDays)} className="px-3 py-1.5 rounded-xl text-xs font-bold bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 hover:bg-yellow-500/30 transition">
-                          📩 Cobrar no Zap
+                    {/* AUTORIZADO / PAUSADO TOGGLE */}
+                    <button 
+                      onClick={() => toggleTenantActive(t.id, t.active)}
+                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition ${t.active ? 'bg-green-500/10 text-green-400 border-green-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
+                      {t.active ? '🟢 Autorizado' : '🔴 Bloqueado'}
+                    </button>
+
+                    {/* BOTÃO EXPANDIR / RECOLHER DETALHES */}
+                    <button 
+                      onClick={() => setExpandedTenantId(isExpanded ? null : t.id)}
+                      className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-xl text-xs font-bold transition">
+                      {isExpanded ? '▲ Ocultar' : '👁️ Links/Detalhes'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* JANELA RETRÁTIL DE DETALHES / LINKS E AÇÕES AVANÇADAS */}
+                {isExpanded && (
+                  <div className="mt-3 pt-3 border-t border-gray-800/80 space-y-3 bg-gray-950/60 p-3 rounded-xl">
+                    <div className="flex justify-between items-center text-xs flex-wrap gap-2">
+                      <div className="text-gray-400 space-x-3">
+                        <span>Senha Admin: <b className="font-mono text-white">{t.admin_password}</b></span>
+                        <span>Uso: <b className="text-green-400">{stats.count} pedidos</b></span>
+                        <span>Vendas: <b className="text-green-400">R$ {stats.revenue.toFixed(2)}</b></span>
+                        <span>Último: <b className="text-white">{formatLastActivity(stats.lastOrderAt)}</b></span>
+                      </div>
+
+                      <div className="flex space-x-1.5">
+                        <button onClick={() => handleCopyOnboardingMsg(t)} className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${isCopied ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300'}`}>
+                          {isCopied ? '✓ Copiado' : '💬 Msg Acesso'}
                         </button>
-                      ) : null}
-
-                      <button onClick={() => handleCopyOnboardingMsg(t)} className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${isCopied ? 'bg-green-600 text-white' : 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30'}`}>
-                        <span>{isCopied ? '✓ Copiado!' : '💬 Acesso Zap'}</span>
-                      </button>
-
-                      <button onClick={() => setEditingTenant(t)} className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 border border-blue-500/30 px-3 py-1.5 rounded-xl text-xs font-bold transition">✏️ Editar</button>
-                      <button onClick={() => handleDeleteTenant(t.id, t.name)} className="bg-red-500/10 hover:bg-red-500/30 text-red-400 border border-red-500/20 px-2.5 py-1.5 rounded-xl text-xs font-bold transition">🗑</button>
+                        <button onClick={() => setEditingTenant(t)} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2.5 py-1 rounded-lg text-xs font-bold">✏️ Editar</button>
+                        <button onClick={() => handleDeleteTenant(t.id, t.name)} className="bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-1 rounded-lg text-xs font-bold">🗑</button>
+                      </div>
                     </div>
-                  </div>
-                </div>
 
-                <div className="bg-gray-950 p-3 rounded-2xl border border-gray-800/80 flex justify-between items-center flex-wrap gap-2 text-xs">
-                  <div className="flex items-center space-x-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${hasActivity ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`}></span>
-                    <span className="font-bold text-gray-300">
-                      Uso: <span className={hasActivity ? 'text-green-400 font-bold' : 'text-gray-500'}>{hasActivity ? `${stats.count} pedido(s)` : 'Sem movimentação'}</span>
-                    </span>
-                  </div>
-
-                  <div className="flex space-x-4 text-[11px] text-gray-400">
-                    <span>Vendeu: <b className="text-green-400">R$ {stats.revenue.toFixed(2)}</b></span>
-                    <span>Último Pedido: <b className="text-white">{formatLastActivity(stats.lastOrderAt)}</b></span>
-                  </div>
-                </div>
-
-                {isEcommerce ? (
-                  <div className="pt-2 border-t border-gray-800 space-y-1.5">
-                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider block">👕 Links da Loja / Catálogo (loja.sinergemkt.com):</span>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                      <a href={`https://loja.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-gray-300 hover:bg-gray-800 transition">🛍️ Catálogo Público</a>
-                      <a href={`https://loja.sinergemkt.com/${t.slug}/producao`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-blue-400 hover:bg-gray-800 transition">👕 Fila Produção</a>
-                      <a href={`https://loja.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-orange-400 hover:bg-gray-800 transition">⚙️ Admin Loja</a>
-                    </div>
-                  </div>
-                ) : isAgendamento ? (
-                  <div className="pt-2 border-t border-gray-800 space-y-1.5">
-                    <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider block">📅 Links do Agendamento (agendamento.sinergemkt.com):</span>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                      <a href={`https://agendamento.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-gray-300 hover:bg-gray-800 transition">🛍️ Página do Cliente</a>
-                      <a href={`https://agendamento.sinergemkt.com/${t.slug}/agenda`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-purple-400 hover:bg-gray-800 transition">📅 Painel da Agenda</a>
-                      <a href={`https://agendamento.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-blue-400 hover:bg-gray-800 transition">⚙️ Admin Agendamento</a>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="pt-2 border-t border-gray-800 space-y-1.5">
-                    <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wider block">🍔 Links do Delivery (delivery.sinergemkt.com):</span>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                      <a href={`https://delivery.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-gray-300 hover:bg-gray-800 transition">🍔 Cardápio Digital</a>
-                      <a href={`https://delivery.sinergemkt.com/${t.slug}/cozinha`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-orange-400 hover:bg-gray-800 transition">🍳 Cozinha / Pedidos</a>
-                      <a href={`https://delivery.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-950 border border-gray-800 text-center py-2 rounded-xl font-bold text-blue-400 hover:bg-gray-800 transition">⚙️ Admin Delivery</a>
+                    {/* PAINEL DE LINKS RÁPIDOS POR NICHO */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs pt-1">
+                      {isEcommerce ? (
+                        <>
+                          <a href={`https://loja.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-gray-300 font-bold hover:bg-gray-800">🛍️ Catálogo Público</a>
+                          <a href={`https://loja.sinergemkt.com/${t.slug}/producao`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-blue-400 font-bold hover:bg-gray-800">👕 Fila Produção</a>
+                          <a href={`https://loja.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-orange-400 font-bold hover:bg-gray-800">⚙️ Admin Loja</a>
+                        </>
+                      ) : isAgendamento ? (
+                        <>
+                          <a href={`https://agendamento.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-gray-300 font-bold hover:bg-gray-800">🛍️ Página Cliente</a>
+                          <a href={`https://agendamento.sinergemkt.com/${t.slug}/agenda`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-purple-400 font-bold hover:bg-gray-800">📅 Painel Agenda</a>
+                          <a href={`https://agendamento.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-blue-400 font-bold hover:bg-gray-800">⚙️ Admin Agenda</a>
+                        </>
+                      ) : (
+                        <>
+                          <a href={`https://delivery.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-gray-300 font-bold hover:bg-gray-800">🍔 Cardápio Digital</a>
+                          <a href={`https://delivery.sinergemkt.com/${t.slug}/cozinha`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-orange-400 font-bold hover:bg-gray-800">🍳 Cozinha / Pedidos</a>
+                          <a href={`https://delivery.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-blue-400 font-bold hover:bg-gray-800">⚙️ Admin Delivery</a>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -732,7 +755,6 @@ export default function MasterAdmin() {
               </div>
             </div>
 
-            {/* CHAVEADOR DE MESAS NA EDIÇÃO */}
             <div className="bg-gray-950 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center">
               <div>
                 <span className="font-bold text-xs text-white block">🪑 Módulo de Mesas / Autoatendimento (QR Code)</span>
@@ -770,7 +792,6 @@ export default function MasterAdmin() {
               </div>
             </div>
 
-            {/* EDITAR CORES */}
             <div className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-3">
               <div className="flex justify-between items-center flex-wrap gap-2">
                 <label className="text-[11px] font-bold text-blue-400 uppercase tracking-wider block">🎨 Alterar Cores do Tema:</label>
