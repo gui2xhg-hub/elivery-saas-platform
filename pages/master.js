@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
+// FUNÇÃO AUXILIAR PARA PARSE DE VALORES MONETÁRIOS
+const parsePrice = (val, defaultVal = 0) => {
+  if (!val) return defaultVal;
+  const clean = String(val).replace(',', '.');
+  const num = parseFloat(clean);
+  return isNaN(num) ? defaultVal : num;
+};
+
 export default function MasterAdmin() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [masterPassword, setMasterPassword] = useState('');
@@ -53,13 +61,12 @@ export default function MasterAdmin() {
     if (!rawTenants) return;
 
     // 1. VERIFICA E DESATIVA AUTOMATICAMENTE CLIENTES VENCIDOS
-    const todayStr = new Date().toISOString().split('T')[0];
-    const today = new Date(todayStr);
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     const updatedTenants = await Promise.all(rawTenants.map(async (t) => {
       if (t.due_date && t.active) {
-        const dueDate = new Date(t.due_date);
-        if (dueDate < today) {
+        if (t.due_date < todayStr) {
           await supabase.from('tenants').update({ active: false }).eq('id', t.id);
           return { ...t, active: false };
         }
@@ -89,9 +96,9 @@ export default function MasterAdmin() {
 
           statsMap[order.tenant_id].count += 1;
 
-          const isPaid = order.payment_method?.includes('PAGO') || order.status === 'concluido' || order.status === 'entregue';
+          const isPaid = order.payment_method?.toUpperCase().includes('PAGO') || order.status === 'concluido' || order.status === 'entregue';
           if (isPaid) {
-            statsMap[order.tenant_id].revenue += Number(order.total || 0);
+            statsMap[order.tenant_id].revenue += parsePrice(order.total, 0);
           }
 
           if (order.created_at) {
@@ -117,7 +124,7 @@ export default function MasterAdmin() {
 
           const isPaidOrValid = app.status === 'concluido' || app.status === 'agendado';
           if (isPaidOrValid) {
-            statsMap[app.tenant_id].revenue += Number(app.total_price || 0);
+            statsMap[app.tenant_id].revenue += parsePrice(app.total_price, 0);
           }
 
           const appDateStr = app.created_at || (app.appointment_date ? `${app.appointment_date}T00:00:00` : null);
@@ -139,9 +146,11 @@ export default function MasterAdmin() {
   const getDueDateInfo = (dueDateStr) => {
     if (!dueDateStr) return { diffDays: 999, isExpiring: false, isExpired: false, label: 'Livre / Perpétuo' };
     
-    const todayStr = new Date().toISOString().split('T')[0];
-    const today = new Date(todayStr);
-    const dueDate = new Date(dueDateStr);
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    
+    const today = new Date(todayStr + 'T00:00:00');
+    const dueDate = new Date(dueDateStr + 'T00:00:00');
 
     const diffTime = dueDate.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -164,14 +173,14 @@ export default function MasterAdmin() {
     if (diffDays < 0) {
       text = `🔴 *AVISO DE DESATIVAÇÃO DE SISTEMA — SINERGE*\n\n` +
         `Olá, *${tenant.name}*!\n\n` +
-        `Sua mensalidade no valor de *R$ ${Number(tenant.monthly_fee || 99).toFixed(2)}* venceu em *${formattedDate}*.\n\n` +
+        `Sua mensalidade no valor de *R$ ${parsePrice(tenant.monthly_fee, 99).toFixed(2)}* venceu em *${formattedDate}*.\n\n` +
         `⚠️ *Seu acesso ao sistema será desativado em breve.* Para reativar imediatamente e evitar interrupções no seu atendimento, efetue o pagamento via PIX:\n\n` +
         `🔑 *Chave PIX:* financeiro@sinergemkt.com\n\n` +
         `Após realizar o pagamento, envie o comprovante por aqui para liberação automática.`;
     } else {
       text = `⚠️ *AVISO DE RENOVAÇÃO DE MENSALIDADE — SINERGE*\n\n` +
         `Olá, *${tenant.name}*!\n\n` +
-        `Passando para lembrar que sua mensalidade no valor de *R$ ${Number(tenant.monthly_fee || 99).toFixed(2)}* vence ${diffDays === 0 ? '*HOJE*' : `em *${diffDays} dia(s)* (${formattedDate})`}.\n\n` +
+        `Passando para lembrar que sua mensalidade no valor de *R$ ${parsePrice(tenant.monthly_fee, 99).toFixed(2)}* vence ${diffDays === 0 ? '*HOJE*' : `em *${diffDays} dia(s)* (${formattedDate})`}.\n\n` +
         `Por favor, confirme a renovação para manter seu sistema ativo sem interrupções!\n\n` +
         `🔑 *Chave PIX:* financeiro@sinergemkt.com`;
     }
@@ -230,7 +239,7 @@ export default function MasterAdmin() {
       text_color: newTenant.text_color || '#FFFFFF',
       price_color: newTenant.price_color || '#FF8C00',
       due_date: newTenant.due_date || null,
-      monthly_fee: parseFloat(newTenant.monthly_fee) || 99.00,
+      monthly_fee: parsePrice(newTenant.monthly_fee, 99.00),
       active: true,
       has_delivery: isDelivery,
       has_agendamento: isAgendamento,
@@ -270,7 +279,7 @@ export default function MasterAdmin() {
       name: editingTenant.name.trim(),
       whatsapp: cleanPhone,
       admin_password: editingTenant.admin_password,
-      monthly_fee: parseFloat(editingTenant.monthly_fee) || 99.00,
+      monthly_fee: parsePrice(editingTenant.monthly_fee, 99.00),
       due_date: editingTenant.due_date || null,
       logo_url: editingTenant.logo_url,
       banner_url: editingTenant.banner_url,
@@ -335,7 +344,7 @@ export default function MasterAdmin() {
   };
 
   const activeTenants = tenants.filter(t => t.active);
-  const totalMRR = activeTenants.reduce((acc, t) => acc + Number(t.monthly_fee || 0), 0);
+  const totalMRR = activeTenants.reduce((acc, t) => acc + parsePrice(t.monthly_fee, 0), 0);
 
   const deliveryCount = activeTenants.filter(t => (t.has_delivery || t.business_type === 'delivery' || (!t.has_agendamento && !t.has_ecommerce && t.business_type !== 'agendamento' && t.business_type !== 'ecommerce'))).length;
   const agendamentoCount = activeTenants.filter(t => (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !t.has_ecommerce && t.business_type !== 'ecommerce').length;
@@ -677,7 +686,7 @@ export default function MasterAdmin() {
                         </span>
                       </div>
                       <p className="text-[11px] text-gray-400 mt-0.5">
-                        Slug: <b className="text-orange-400">/{t.slug}</b> • Zap: <b className="text-gray-300">{t.whatsapp}</b> • R$ <b className="text-green-400">{Number(t.monthly_fee || 99).toFixed(2)}</b>
+                        Slug: <b className="text-orange-400">/{t.slug}</b> • Zap: <b className="text-gray-300">{t.whatsapp}</b> • R$ <b className="text-green-400">{parsePrice(t.monthly_fee, 99).toFixed(2)}</b>
                       </p>
                     </div>
                   </div>
