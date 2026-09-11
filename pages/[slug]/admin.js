@@ -2,6 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
 
+// FUNÇÃO AUXILIAR PARA PARSE DE PREÇOS (ACEITA VÍRGULA E PONTO)
+const parsePrice = (val) => {
+  if (!val) return 0;
+  const clean = String(val).replace(',', '.');
+  const num = parseFloat(clean);
+  return isNaN(num) ? 0 : num;
+};
+
 export default function AdminTenant() {
   const router = useRouter();
   const { slug } = router.query;
@@ -23,7 +31,7 @@ export default function AdminTenant() {
   const [tableCount, setTableCount] = useState(10);
   const [baseUrl, setBaseUrl] = useState('');
 
-  // NORMAS DE DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
+  // DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
   const ALL_DAYS = [
     { id: 1, label: 'Seg' },
     { id: 2, label: 'Ter' },
@@ -154,39 +162,45 @@ export default function AdminTenant() {
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if (!newProd.name || !newProd.price) return alert("Preencha nome e preço!");
-    const formattedPrice = parseFloat(String(newProd.price).replace(',', '.'));
+    const formattedPrice = parsePrice(newProd.price);
+    
     await supabase.from('products').insert([{
       tenant_id: tenant.id,
       category_id: parseInt(newProd.category_id || categories[0]?.id),
-      name: newProd.name,
+      name: newProd.name.trim(),
       description: newProd.description,
       price: formattedPrice,
       image: newProd.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=300&auto=format&fit=crop&q=80',
       active: true,
       addons_list: newProd.addons_list
     }]);
+
     setNewProd({ name: '', price: '', category_id: categories[0]?.id || '', description: '', image: '', addons_list: '' });
     fetchData();
   };
 
   const handleUpdateProduct = async (e) => {
     e.preventDefault();
-    const formattedPrice = parseFloat(String(editingProduct.price).replace(',', '.'));
+    const formattedPrice = parsePrice(editingProduct.price);
+
     await supabase.from('products').update({
-      name: editingProduct.name,
+      name: editingProduct.name.trim(),
       price: formattedPrice,
       description: editingProduct.description,
       category_id: parseInt(editingProduct.category_id),
       image: editingProduct.image,
       addons_list: editingProduct.addons_list
     }).eq('id', editingProduct.id);
+
     setEditingProduct(null);
     fetchData();
   };
 
   const handleAddGlobalAddon = async (e) => {
     e.preventDefault();
-    const formattedPrice = parseFloat(String(newAddon.price).replace(',', '.'));
+    if (!newAddon.name) return alert("Preencha o nome do adicional!");
+    const formattedPrice = parsePrice(newAddon.price);
+
     await supabase.from('global_addons').insert([{ tenant_id: tenant.id, name: newAddon.name.trim(), price: formattedPrice }]);
     setNewAddon({ name: '', price: '' });
     fetchData();
@@ -194,7 +208,8 @@ export default function AdminTenant() {
 
   const handleUpdateAddon = async (e) => {
     e.preventDefault();
-    const formattedPrice = parseFloat(String(editingAddon.price).replace(',', '.'));
+    const formattedPrice = parsePrice(editingAddon.price);
+
     await supabase.from('global_addons').update({ name: editingAddon.name.trim(), price: formattedPrice }).eq('id', editingAddon.id);
     setEditingAddon(null);
     fetchData();
@@ -202,7 +217,9 @@ export default function AdminTenant() {
 
   const handleAddNeighborhood = async (e) => {
     e.preventDefault();
-    const formattedFee = parseFloat(String(newNeigh.fee).replace(',', '.'));
+    if (!newNeigh.name) return alert("Preencha o nome do bairro!");
+    const formattedFee = parsePrice(newNeigh.fee);
+
     await supabase.from('neighborhoods').insert([{ tenant_id: tenant.id, name: newNeigh.name.trim(), fee: formattedFee }]);
     setNewNeigh({ name: '', fee: '' });
     fetchData();
@@ -210,7 +227,8 @@ export default function AdminTenant() {
 
   const handleUpdateNeigh = async (e) => {
     e.preventDefault();
-    const formattedFee = parseFloat(String(editingNeigh.fee).replace(',', '.'));
+    const formattedFee = parsePrice(editingNeigh.fee);
+
     await supabase.from('neighborhoods').update({ name: editingNeigh.name.trim(), fee: formattedFee }).eq('id', editingNeigh.id);
     setEditingNeigh(null);
     fetchData();
@@ -283,7 +301,23 @@ export default function AdminTenant() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 max-w-md mx-auto font-sans pb-12">
-      <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-4">
+      <style jsx global>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          .print-tables-area, .print-tables-area * { visibility: visible !important; }
+          .print-tables-area {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            color: #000 !important;
+            background: #fff !important;
+          }
+          .no-print { display: none !important; }
+        }
+      `}</style>
+
+      <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-4 no-print">
         <div>
           <h1 className="font-bold text-lg text-orange-500">{tenant.name}</h1>
           <p className="text-xs text-gray-400">Painel de Gestão</p>
@@ -291,8 +325,8 @@ export default function AdminTenant() {
         <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 px-3 py-1.5 rounded-lg text-red-400 font-bold">Sair</button>
       </header>
 
-      {/* ABAS */}
-      <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto">
+      {/* ABAS DE NAVEGAÇÃO */}
+      <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto no-print">
         <button onClick={() => setActiveTab('products')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🍔 Itens</button>
         <button onClick={() => setActiveTab('tables')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'tables' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🪑 Mesas QR</button>
         <button onClick={() => setActiveTab('categories')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🏷️ Categorias</button>
@@ -305,7 +339,7 @@ export default function AdminTenant() {
       {/* ABA MESAS QR CODE */}
       {activeTab === 'tables' && (
         <div className="space-y-6">
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 no-print">
             <h3 className="font-bold text-sm text-orange-400">🪑 Gerador de QR Code por Mesa</h3>
             <p className="text-xs text-gray-400">Defina a quantidade de mesas para gerar os links e QR Codes prontos para impressão.</p>
             
@@ -322,13 +356,13 @@ export default function AdminTenant() {
             </div>
           </section>
 
-          <section className="space-y-3">
-            <div className="flex justify-between items-center">
+          <section className="space-y-3 print-tables-area">
+            <div className="flex justify-between items-center no-print">
               <h4 className="font-bold text-xs text-gray-300">Cartões para Impressão ({tableCount} mesas)</h4>
               <button 
                 onClick={() => window.print()}
                 className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition">
-                🖨️ Imprimir
+                🖨️ Imprimir Cartões
               </button>
             </div>
 
@@ -339,16 +373,11 @@ export default function AdminTenant() {
                 const qrCodeApi = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(tableUrl)}`;
 
                 return (
-                  <div key={i} className="bg-gray-900 p-3 rounded-2xl border border-gray-800 flex flex-col items-center space-y-2 text-center">
-                    <span className="font-extrabold text-sm text-orange-400">MESA {tableNum}</span>
+                  <div key={i} className="bg-gray-900 p-3 rounded-2xl border border-gray-800 flex flex-col items-center space-y-2 text-center print:bg-white print:border-black print:text-black">
+                    <span className="font-extrabold text-sm text-orange-400 print:text-black">{tenant.name}</span>
+                    <span className="font-bold text-xs bg-orange-500 text-white px-2 py-0.5 rounded-md print:bg-black print:text-white">MESA {tableNum}</span>
                     <img src={qrCodeApi} alt={`Mesa ${tableNum}`} className="w-28 h-28 rounded-xl bg-white p-1.5 border border-gray-700 shadow" />
-                    <a
-                      href={tableUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[10px] text-blue-400 hover:underline truncate w-full">
-                      Testar Link Mesa
-                    </a>
+                    <span className="text-[9px] opacity-70">Escaneie para fazer seu pedido</span>
                   </div>
                 );
               })}
@@ -359,7 +388,7 @@ export default function AdminTenant() {
 
       {/* ITENS */}
       {activeTab === 'products' && (
-        <div className="space-y-6">
+        <div className="space-y-6 no-print">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
             <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Lanche / Item</h3>
             <form onSubmit={handleAddProduct} className="space-y-3">
@@ -420,7 +449,7 @@ export default function AdminTenant() {
 
       {/* ADICIONAIS */}
       {activeTab === 'addons' && (
-        <div className="space-y-6">
+        <div className="space-y-6 no-print">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
             <h3 className="font-bold text-sm text-orange-400">➕ Novo Adicional Opcional</h3>
             <form onSubmit={handleAddGlobalAddon} className="space-y-3">
@@ -448,7 +477,7 @@ export default function AdminTenant() {
 
       {/* BAIRROS */}
       {activeTab === 'neighborhoods' && (
-        <div className="space-y-6">
+        <div className="space-y-6 no-print">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
             <h3 className="font-bold text-sm text-orange-400">🛵 Novo Bairro</h3>
             <form onSubmit={handleAddNeighborhood} className="space-y-3">
@@ -476,7 +505,7 @@ export default function AdminTenant() {
 
       {/* CATEGORIAS */}
       {activeTab === 'categories' && (
-        <div className="space-y-6">
+        <div className="space-y-6 no-print">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
             <h3 className="font-bold text-sm text-orange-400">🏷️ Nova Categoria</h3>
             <form onSubmit={handleAddCategory} className="flex space-x-2">
@@ -500,7 +529,7 @@ export default function AdminTenant() {
 
       {/* RELATÓRIOS */}
       {activeTab === 'reports' && (
-        <div className="space-y-4">
+        <div className="space-y-4 no-print">
           <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs">
             <span className="text-gray-400 font-bold">Período de Vendas:</span>
             <div className="flex space-x-1 overflow-x-auto pb-1">
@@ -554,9 +583,9 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* CONFIGURAÇÕES DE DIAS E HORÁRIOS DO DELIVERY */}
+      {/* CONFIGURAÇÕES DA LOJA */}
       {activeTab === 'settings' && (
-        <div className="space-y-6">
+        <div className="space-y-6 no-print">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
             <h3 className="font-bold text-sm text-orange-400">⚙️ Configurações da Loja</h3>
             <form onSubmit={handleSaveTenantSettings} className="space-y-3">
@@ -565,7 +594,6 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
               </div>
 
-              {/* CAMPO DE LINK DO INSTAGRAM */}
               <div>
                 <label className="text-[11px] text-gray-400 block mb-1">Link do Instagram:</label>
                 <input 
@@ -577,7 +605,7 @@ export default function AdminTenant() {
                 />
               </div>
 
-              {/* HORÁRIOS E DIAS DE FUNCIONAMENTO DO DELIVERY */}
+              {/* HORÁRIOS E DIAS DE FUNCIONAMENTO */}
               <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-3">
                 <div className="flex justify-between items-center flex-wrap gap-1">
                   <label className="text-[11px] font-bold text-orange-400 block">🛵 Dias de Funcionamento do Delivery:</label>
@@ -710,7 +738,7 @@ export default function AdminTenant() {
 
       {/* MODAIS EDITAR */}
       {editingAddon && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateAddon} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Adicional</h3>
             <input type="text" value={editingAddon.name} onChange={(e) => setEditingAddon({ ...editingAddon, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
@@ -721,7 +749,7 @@ export default function AdminTenant() {
       )}
 
       {editingNeigh && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateNeigh} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Bairro</h3>
             <input type="text" value={editingNeigh.name} onChange={(e) => setEditingNeigh({ ...editingNeigh, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
@@ -732,7 +760,7 @@ export default function AdminTenant() {
       )}
 
       {editingCategory && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateCategory} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Categoria</h3>
             <input type="text" value={editingCategory.name} onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
@@ -742,7 +770,7 @@ export default function AdminTenant() {
       )}
 
       {editingProduct && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateProduct} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Produto</h3>
             <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
