@@ -12,31 +12,47 @@ export default function CozinhaTenant() {
   const [selectedOrderToPrint, setSelectedOrderToPrint] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
 
+  // ESTADO DE ÁUDIO DE NOTIFICAÇÃO
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const audioCtxRef = useRef(null);
   const prevOrdersCountRef = useRef(0);
 
   useEffect(() => {
+    let unsubscribeRealtime = null;
+
     if (slug) {
-      fetchTenantAndOrders();
+      fetchTenantAndOrders().then((tenantData) => {
+        if (tenantData?.id) {
+          unsubscribeRealtime = subscribeRealtime(tenantData.id);
+        }
+      });
+
+      // Polling de segurança a cada 10s caso a conexão caindo
       const interval = setInterval(() => {
         if (tenant?.id) fetchOrders(tenant.id, true);
       }, 10000);
-      return () => clearInterval(interval);
+
+      return () => {
+        clearInterval(interval);
+        if (unsubscribeRealtime) unsubscribeRealtime();
+      };
     }
-  }, [slug, tenant?.id]);
+  }, [slug]);
 
   const fetchTenantAndOrders = async () => {
     const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
     if (tData) {
       setTenant(tData);
-      fetchOrders(tData.id, false);
-      subscribeRealtime(tData.id);
+      await fetchOrders(tData.id, false);
+      return tData;
     }
     setLoading(false);
+    return null;
   };
 
   const subscribeRealtime = (tenantId) => {
     const channel = supabase
-      .channel('schema-db-changes')
+      .channel(`schema-db-changes-${tenantId}`)
       .on(
         'postgres_changes',
         {
@@ -51,27 +67,53 @@ export default function CozinhaTenant() {
       )
       .subscribe();
 
-    return () => supabase.removeChannel(channel);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  };
+
+  // ATIVAR ÁUDIO PELO CLIQUE DO USUÁRIO (DESBLOQUEIA O NAVEGADOR)
+  const enableAudioAlert = () => {
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume();
+      }
+      setSoundEnabled(true);
+      playBeepSound(); // Toca um teste rápido
+    } catch (e) {
+      console.log("Erro ao ativar áudio: ", e);
+    }
   };
 
   const playBeepSound = () => {
     try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume();
+      }
+
+      const osc = audioCtxRef.current.createOscillator();
+      const gain = audioCtxRef.current.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      osc.frequency.setValueAtTime(880, audioCtxRef.current.currentTime);
+      gain.gain.setValueAtTime(0.3, audioCtxRef.current.currentTime);
       osc.connect(gain);
-      gain.connect(audioCtx.destination);
+      gain.connect(audioCtxRef.current.destination);
       osc.start();
-      osc.stop(audioCtx.currentTime + 0.5);
+      osc.stop(audioCtxRef.current.currentTime + 0.5);
     } catch (e) {
       console.log("Erro ao tocar áudio: ", e);
     }
   };
 
-  const fetchOrders = async (tenantId, isInterval = false) => {
+  const fetchOrders = async (tenantId = tenant?.id, isInterval = false) => {
+    if (!tenantId) return;
+
     const { data: oData } = await supabase
       .from('orders')
       .select('*')
@@ -80,12 +122,15 @@ export default function CozinhaTenant() {
 
     if (oData) {
       const activeRecebidos = oData.filter(o => (!o.status || o.status === 'recebido' || o.status === 'pendente' || o.status === 'novo') && !o.archived).length;
-      if (isInterval && activeRecebidos > prevOrdersCountRef.current) {
+      
+      if (isInterval && activeRecebidos > prevOrdersCountRef.current && soundEnabled) {
         playBeepSound();
       }
+      
       prevOrdersCountRef.current = activeRecebidos;
       setOrders(oData);
     }
+    setLoading(false);
   };
 
   const updateOrderStatus = async (orderId, newStatus) => {
@@ -340,17 +385,29 @@ export default function CozinhaTenant() {
       )}
 
       {/* CABEÇALHO DA COZINHA */}
-      <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6 no-print">
+      <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6 no-print flex-wrap gap-2">
         <div>
           <h1 className="font-bold text-xl text-orange-500">👨‍🍳 Painel Kanban — {tenant.name}</h1>
-          <p className="text-xs text-gray-400">Notificação de novos pedidos ativa 🔔</p>
+          <p className="text-xs text-gray-400">Notificação em tempo real ativa ⚡</p>
         </div>
-        <div className="flex space-x-2">
+        <div className="flex space-x-2 items-center">
+          {/* BOTÃO PARA DESBLOQUEAR ÁUDIO */}
+          <button
+            onClick={enableAudioAlert}
+            className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${
+              soundEnabled
+                ? 'bg-green-500/20 text-green-400 border-green-500/40'
+                : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40 animate-pulse'
+            }`}>
+            {soundEnabled ? '🔊 Som Ativo' : '🔔 Ativar Alerta Sonoro'}
+          </button>
+
           <button 
             onClick={() => setShowArchived(!showArchived)} 
             className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${showArchived ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-800 text-gray-300 border-gray-700'}`}>
             {showArchived ? '📋 Voltar ao Kanban' : `📦 Arquivados (${archivedOrders.length})`}
           </button>
+          
           <button onClick={() => fetchOrders(tenant.id)} className="bg-orange-500 hover:bg-orange-600 px-3 py-2 rounded-xl text-xs font-bold transition">
             🔄
           </button>
