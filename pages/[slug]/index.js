@@ -2,6 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
 
+// MÁSCARA AUXILIAR DE WHATSAPP / TELEFONE
+const maskPhone = (value) => {
+  if (!value) return '';
+  const clean = value.replace(/\D/g, '');
+  if (clean.length <= 10) {
+    return clean.replace(/(\d{2})(\d{4})(\d{0,4})/, '($1) $2-$3').trim();
+  }
+  return clean.replace(/(\d{2})(\d{5})(\d{0,4})/, '($1) $2-$3').slice(0, 15);
+};
+
 export default function DeliveryCliente() {
   const router = useRouter();
   const { slug, mesa, m } = router.query;
@@ -47,6 +57,17 @@ export default function DeliveryCliente() {
         fetchTenantData();
       }
     }
+
+    // CARREGA DADOS SALVOS DO CLIENTE (LOCALSTORAGE)
+    if (typeof window !== 'undefined') {
+      const savedName = localStorage.getItem('delivery_client_name');
+      const savedPhone = localStorage.getItem('delivery_client_phone');
+      const savedAddr = localStorage.getItem('delivery_client_address');
+
+      if (savedName) setCustomerName(savedName);
+      if (savedPhone) setCustomerPhone(maskPhone(savedPhone));
+      if (savedAddr) setCustomerAddress(savedAddr);
+    }
   }, [router.isReady, slug, mesa, m]);
 
   const fetchTenantData = async () => {
@@ -79,6 +100,36 @@ export default function DeliveryCliente() {
       if (nData) setNeighborhoods(nData);
     }
     setLoading(false);
+  };
+
+  // CHECAGEM SE O RESTAURANTE ESTÁ ABERTO
+  const isStoreOpen = () => {
+    if (!tenant) return true;
+    if (!tenant.opening_time || !tenant.closing_time) return true;
+
+    const now = new Date();
+    const currentDay = now.getDay(); // 0 = Dom, 1 = Seg...
+    const workDays = tenant.work_days || [1, 2, 3, 4, 5, 6];
+
+    if (!workDays.includes(currentDay)) return false;
+
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+    const [openH, openM] = tenant.opening_time.split(':').map(Number);
+    const [closeH, closeM] = tenant.closing_time.split(':').map(Number);
+
+    const openMins = openH * 60 + openM;
+    let closeMins = closeH * 60 + closeM;
+
+    // Caso a loja feche após a meia-noite (ex: 18:00 às 02:00)
+    if (closeMins < openMins) {
+      closeMins += 24 * 60;
+      if (currentMins < openMins) {
+        const adjustedCurrent = currentMins + 24 * 60;
+        return adjustedCurrent >= openMins && adjustedCurrent <= closeMins;
+      }
+    }
+
+    return currentMins >= openMins && currentMins <= closeMins;
   };
 
   const handleOpenProductModal = (product) => {
@@ -147,14 +198,24 @@ export default function DeliveryCliente() {
 
   const filteredProducts = selectedCat === 'ALL' ? products : products.filter(p => String(p.category_id) === String(selectedCat));
   const promoBannerList = tenant.promo_banners ? tenant.promo_banners.split(',').map(b => b.trim()).filter(Boolean) : [];
+  const isOpen = isStoreOpen();
 
   const handleFinishOrder = async (e) => {
     e.preventDefault();
+    const cleanPhone = customerPhone.replace(/\D/g, '');
+
     if (cart.length === 0) return alert("Seu carrinho está vazio!");
     if (!customerName) return alert("Preencha seu Nome!");
     if (deliveryType === 'ENTREGA' && !customerAddress) return alert("Preencha seu Endereço para entrega!");
 
     setIsSubmitting(true);
+
+    // SALVA OS DADOS DO CLIENTE PARA O PRÓXIMO PEDIDO
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('delivery_client_name', customerName);
+      localStorage.setItem('delivery_client_phone', cleanPhone);
+      if (customerAddress) localStorage.setItem('delivery_client_address', customerAddress);
+    }
 
     let fullAddress = 'Retirada no Balcão';
     if (deliveryType === 'ENTREGA') {
@@ -166,7 +227,7 @@ export default function DeliveryCliente() {
     const orderData = {
       tenant_id: tenant.id,
       customer_name: customerName,
-      customer_phone: customerPhone ? customerPhone.replace(/\D/g, '') : '00000000000',
+      customer_phone: cleanPhone || '00000000000',
       customer_address: fullAddress,
       items: cart,
       subtotal: subtotal,
@@ -236,19 +297,34 @@ export default function DeliveryCliente() {
     alert(`Pedido #${createdOrder.id} enviado com sucesso para a cozinha!`);
   };
 
+  // PARSER PROTEGIDO PARA ADICIONAIS (SUPORTA JSON E FORMATAÇÃO TEXTO 'NOME:PREÇO')
   const getProductAddonsArray = (addonsStr) => {
     if (!addonsStr) return [];
-    return addonsStr.split(',').filter(Boolean).map(item => {
+
+    // Se já for um objeto/array de objetos em JSON
+    if (typeof addonsStr === 'object') {
+      return Array.isArray(addonsStr) ? addonsStr : [];
+    }
+
+    // Tenta fazer o parse de JSON String
+    try {
+      const parsed = JSON.parse(addonsStr);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) {
+      // Caso seja a string legada 'Nome:Preço, Nome:Preço'
+    }
+
+    return String(addonsStr).split(',').filter(Boolean).map(item => {
       const parts = item.split(':');
-      return {
-        name: parts[0] ? parts[0].trim() : item,
-        price: parts[1] ? parseFloat(parts[1]) : 0
-      };
+      const name = parts[0] ? parts[0].trim() : item;
+      const price = parts[1] ? parseFloat(parts[1].replace(',', '.')) : 0;
+      return { name, price: isNaN(price) ? 0 : price };
     });
   };
 
   return (
     <div className="min-h-screen font-sans pb-24 max-w-md mx-auto transition-colors duration-300" style={{ backgroundColor: bgColor, color: textColor }}>
+      
       {/* CAPA & RESTAURANTE */}
       <div className="relative h-36 bg-gray-900 border-b border-white/10">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop&q=80'} alt="Banner" className="w-full h-full object-cover opacity-50" />
@@ -274,9 +350,18 @@ export default function DeliveryCliente() {
         </div>
       </div>
 
+      {/* AVISO DE FUNCIONAMENTO DA LOJA */}
+      {!isOpen && (
+        <div className="mt-7 px-4">
+          <div className="bg-red-500/20 border border-red-500/40 text-red-400 p-3 rounded-2xl text-xs text-center font-bold">
+            🔴 Loja Fechada no Momento. (Horário: {tenant.opening_time || '18:00'} às {tenant.closing_time || '23:30'})
+          </div>
+        </div>
+      )}
+
       {/* SELO DE MESA ATIVA SE ACESSADO VIA QR CODE */}
       {tableNumber && (
-        <div className="mt-7 px-4">
+        <div className={`${!isOpen ? 'mt-3' : 'mt-7'} px-4`}>
           <div className="bg-gradient-to-r from-orange-500 to-amber-600 text-white p-3 rounded-2xl shadow-lg flex justify-between items-center text-xs font-bold">
             <div className="flex items-center space-x-2">
               <span className="text-base">📍</span>
@@ -291,7 +376,7 @@ export default function DeliveryCliente() {
 
       {/* BANNERS PROMOCIONAIS */}
       {promoBannerList.length > 0 && (
-        <div className={`${tableNumber ? 'mt-4' : 'mt-8'} px-4`}>
+        <div className={`${(tableNumber || !isOpen) ? 'mt-4' : 'mt-8'} px-4`}>
           <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none">
             {promoBannerList.map((bannerUrl, idx) => (
               <img key={idx} src={bannerUrl} alt={`Promoção ${idx + 1}`} className="w-72 h-32 rounded-2xl object-cover border border-white/10 shrink-0 shadow-md" />
@@ -301,7 +386,7 @@ export default function DeliveryCliente() {
       )}
 
       {/* CATEGORIAS */}
-      <div className={`${(promoBannerList.length > 0 || tableNumber) ? 'mt-4' : 'mt-8'} px-4`}>
+      <div className={`${(promoBannerList.length > 0 || tableNumber || !isOpen) ? 'mt-4' : 'mt-8'} px-4`}>
         <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-none">
           <button
             onClick={() => setSelectedCat('ALL')}
@@ -396,7 +481,7 @@ export default function DeliveryCliente() {
                           <input type="checkbox" checked={isChecked} onChange={() => {}} className="accent-orange-500" />
                           <span>{addon.name}</span>
                         </div>
-                        <span style={{ color: primaryColor }} className="font-bold">+ R$ {addon.price.toFixed(2)}</span>
+                        <span style={{ color: primaryColor }} className="font-bold">+ R$ {Number(addon.price).toFixed(2)}</span>
                       </div>
                     );
                   })}
@@ -427,7 +512,7 @@ export default function DeliveryCliente() {
                 onClick={handleAddProductToCart}
                 style={{ backgroundColor: primaryColor, color: btnTextColor }}
                 className="flex-1 font-bold py-3 rounded-xl text-xs shadow-lg transition">
-                Adicionar • R$ {((Number(selectedProduct.price) + selectedAddons.reduce((a, b) => a + b.price, 0)) * productQuantity).toFixed(2)}
+                Adicionar • R$ {((Number(selectedProduct.price) + selectedAddons.reduce((a, b) => a + Number(b.price), 0)) * productQuantity).toFixed(2)}
               </button>
             </div>
           </div>
@@ -506,7 +591,7 @@ export default function DeliveryCliente() {
               {!tableNumber && (
                 <div>
                   <label className="text-[11px] opacity-70 block mb-1">Seu WhatsApp:</label>
-                  <input type="text" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
+                  <input type="text" placeholder="(DDD) 99999-9999" value={customerPhone} onChange={(e) => setCustomerPhone(maskPhone(e.target.value))} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
                 </div>
               )}
 
