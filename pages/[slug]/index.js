@@ -45,6 +45,15 @@ export default function DeliveryCliente() {
   const [customerAddress, setCustomerAddress] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // ESTADOS DO PIX DINÂMICO AUTOMÁTICO
+  const [showPixModal, setShowPixModal] = useState(false);
+  const [pixQrCodeBase64, setPixQrCodeBase64] = useState('');
+  const [pixCopyPaste, setPixCopyPaste] = useState('');
+  const [pixPaymentId, setPixPaymentId] = useState(null);
+  const [pixStatus, setPixStatus] = useState('pending');
+  const [pixCopySuccess, setPixCopySuccess] = useState(false);
+  const [currentOrderId, setCurrentOrderId] = useState(null);
+
   useEffect(() => {
     if (router.isReady) {
       const currentMesa = mesa || m || '';
@@ -70,6 +79,31 @@ export default function DeliveryCliente() {
     }
   }, [router.isReady, slug, mesa, m]);
 
+  // POLLING EM TEMPO REAL DO PIX DINÂMICO
+  useEffect(() => {
+    let interval = null;
+    if (showPixModal && pixPaymentId && tenant?.pix_access_token && pixStatus !== 'approved') {
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch(`https://api.mercadopago.com/v1/payments/${pixPaymentId}`, {
+            headers: { 'Authorization': `Bearer ${tenant.pix_access_token}` }
+          });
+          const data = await res.json();
+          if (data && data.status === 'approved') {
+            setPixStatus('approved');
+            if (currentOrderId) {
+              await supabase.from('orders').update({ is_paid: true, status: 'em_preparo' }).eq('id', currentOrderId);
+            }
+            clearInterval(interval);
+          }
+        } catch (e) {
+          console.error("Erro ao verificar status do PIX:", e);
+        }
+      }, 3500);
+    }
+    return () => { if (interval) clearInterval(interval); };
+  }, [showPixModal, pixPaymentId, pixStatus, tenant, currentOrderId]);
+
   const fetchTenantData = async () => {
     setLoading(true);
     const cleanSlug = String(slug).toLowerCase().trim();
@@ -77,7 +111,7 @@ export default function DeliveryCliente() {
 
     if (tData) {
       setTenant(tData);
-      
+
       // CARREGA PIXEL DO META
       if (tData.pixel_id && typeof window !== 'undefined') {
         !(function (f, b, e, v, n, t, s) {
@@ -109,7 +143,7 @@ export default function DeliveryCliente() {
 
     const now = new Date();
     const currentDay = now.getDay(); // 0 = Dom, 1 = Seg...
-    const workDays = tenant.work_days || [1, 2, 3, 4, 5, 6];
+    const workDays = tenant.work_days || [1, 2, 3, 4, 5, 6, 0];
 
     if (!workDays.includes(currentDay)) return false;
 
@@ -182,23 +216,59 @@ export default function DeliveryCliente() {
     setCart(cart.filter(item => item.cartItemId !== cartItemId));
   };
 
-  if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando cardápio...</p></div>;
-  if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Restaurante não encontrado</h1></div>;
+  const copyPixCode = () => {
+    if (!pixCopyPaste) return;
+    navigator.clipboard.writeText(pixCopyPaste);
+    setPixCopySuccess(true);
+    setTimeout(() => setPixCopySuccess(false), 3000);
+  };
 
-  // VARIÁVEIS DE CORES DINÂMICAS
-  const primaryColor = tenant.primary_color || '#FF8C00';
-  const btnTextColor = tenant.button_text_color || '#FFFFFF';
-  const bgColor = tenant.background_color || tenant.secondary_color || '#090D16';
-  const cardColor = tenant.card_color || '#111827';
-  const textColor = tenant.text_color || '#FFFFFF';
+  const sendWhatsAppNotification = (orderId, isPaid = false) => {
+    let itemsText = cart.map(i => {
+      let txt = `• ${i.quantity}x ${i.name} (R$ ${(i.unitPrice * i.quantity).toFixed(2)})`;
+      if (i.selectedAddons && i.selectedAddons.length > 0) {
+        txt += `\n   + Adicionais: ${i.selectedAddons.map(a => `${a.name} (+R$ ${Number(a.price).toFixed(2)})`).join(', ')}`;
+      }
+      if (i.observation) {
+        txt += `\n   Obs: _"${i.observation}"_`;
+      }
+      return txt;
+    }).join('\n\n');
 
-  const subtotal = cart.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
-  const currentDeliveryFee = deliveryType === 'ENTREGA' ? Number(selectedNeighFee || 0) : 0;
-  const total = subtotal + currentDeliveryFee;
+    let msg = `*NOVO PEDIDO #${orderId} - ${tenant.name.toUpperCase()}*\n\n`;
+    msg += `*Cliente:* ${customerName}\n`;
+    if (customerPhone) msg += `*Telefone:* ${customerPhone}\n`;
 
-  const filteredProducts = selectedCat === 'ALL' ? products : products.filter(p => String(p.category_id) === String(selectedCat));
-  const promoBannerList = tenant.promo_banners ? tenant.promo_banners.split(',').map(b => b.trim()).filter(Boolean) : [];
-  const isOpen = isStoreOpen();
+    if (deliveryType === 'MESA' || tableNumber) {
+      msg += `*Local:* 🪑 MESA ${tableNumber}\n`;
+    } else {
+      msg += `*Tipo:* ${deliveryType === 'ENTREGA' ? '🛵 Entrega em Casa' : '🏪 Retirar no Balcão'}\n`;
+      if (deliveryType === 'ENTREGA') {
+        msg += `*Endereço:* ${customerAddress}\n*Bairro:* ${selectedNeighName}\n`;
+      }
+    }
+
+    msg += `\n*ITENS DO PEDIDO:*\n${itemsText}\n\n`;
+    msg += `*Subtotal:* R$ ${subtotal.toFixed(2)}\n`;
+    if (deliveryType === 'ENTREGA' && !tableNumber) {
+      msg += `*Taxa Entrega:* R$ ${currentDeliveryFee.toFixed(2)}\n`;
+    }
+    msg += `*TOTAL:* *R$ ${total.toFixed(2)}*\n`;
+    if (isPaid) {
+      msg += `*Pagamento:* 🟢 PIX PAGO (Confirmado pelo Sistema Automático)`;
+    } else {
+      msg += `*Pagamento:* ${paymentMethod} ${changeValue ? `(Troco para R$ ${changeValue})` : ''}`;
+    }
+
+    if (tenant.custom_message) {
+      msg += `\n\n📌 _${tenant.custom_message}_`;
+    }
+
+    const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
+    if (cleanWhatsapp) {
+      window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
+    }
+  };
 
   const handleFinishOrder = async (e) => {
     e.preventDefault();
@@ -206,7 +276,7 @@ export default function DeliveryCliente() {
 
     if (cart.length === 0) return alert("Seu carrinho está vazio!");
     if (!customerName) return alert("Preencha seu Nome!");
-    if (deliveryType === 'ENTREGA' && !customerAddress) return alert("Preencha seu Endereço para entrega!");
+    if (deliveryType === 'ENTREGA' && !tableNumber && !customerAddress) return alert("Preencha seu Endereço para entrega!");
 
     setIsSubmitting(true);
 
@@ -235,7 +305,8 @@ export default function DeliveryCliente() {
       total: total,
       payment_method: paymentMethod,
       change_for: changeValue,
-      status: 'pendente'
+      status: 'recebido',
+      is_paid: false
     };
 
     const { data: createdOrder, error } = await supabase.from('orders').insert([orderData]).select().single();
@@ -245,74 +316,62 @@ export default function DeliveryCliente() {
       return alert("Erro ao enviar pedido: " + error.message);
     }
 
+    setCurrentOrderId(createdOrder.id);
+
     if (window.fbq) {
       window.fbq('track', 'Purchase', { value: total, currency: 'BRL' });
     }
 
-    // FORMATAR TEXTO DO WHATSAPP
-    let itemsText = cart.map(i => {
-      let txt = `• ${i.quantity}x ${i.name} (R$ ${(i.unitPrice * i.quantity).toFixed(2)})`;
-      if (i.selectedAddons && i.selectedAddons.length > 0) {
-        txt += `\n   + Adicionais: ${i.selectedAddons.map(a => `${a.name} (+R$ ${Number(a.price).toFixed(2)})`).join(', ')}`;
+    // GERAÇÃO DE PIX AUTOMÁTICO SE ATIVADO
+    if (paymentMethod === 'PIX' && tenant.pix_enabled && tenant.pix_access_token) {
+      try {
+        const mpRes = await fetch('/api/create-pix', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: Number(total.toFixed(2)),
+            description: `Pedido #${createdOrder.id} - ${tenant.name}`,
+            accessToken: tenant.pix_access_token,
+            orderId: createdOrder.id,
+            payer: { email: `${cleanPhone || 'cliente'}@delivery.com`, name: customerName }
+          })
+        });
+
+        const mpData = await mpRes.json();
+        if (mpRes.ok && mpData.qr_code_base64) {
+          setPixQrCodeBase64(mpData.qr_code_base64);
+          setPixCopyPaste(mpData.qr_code);
+          setPixPaymentId(mpData.id);
+          setPixStatus('pending');
+          setShowPixModal(true);
+          setShowCartModal(false);
+          setIsSubmitting(false);
+          return;
+        }
+      } catch (err) {
+        console.error("Erro ao gerar PIX:", err);
       }
-      if (i.observation) {
-        txt += `\n   Obs: _"${i.observation}"_`;
-      }
-      return txt;
-    }).join('\n\n');
-
-    let msg = `*NOVO PEDIDO #${createdOrder.id} - ${tenant.name.toUpperCase()}*\n\n`;
-    msg += `*Cliente:* ${customerName}\n`;
-    if (customerPhone) msg += `*Telefone:* ${customerPhone}\n`;
-
-    if (deliveryType === 'MESA' || tableNumber) {
-      msg += `*Local:* 🪑 MESA ${tableNumber}\n`;
-    } else {
-      msg += `*Tipo:* ${deliveryType === 'ENTREGA' ? '🛵 Entrega em Casa' : '🏪 Retirar no Balcão'}\n`;
-      if (deliveryType === 'ENTREGA') {
-        msg += `*Endereço:* ${customerAddress}\n*Bairro:* ${selectedNeighName}\n`;
-      }
     }
 
-    msg += `\n*ITENS DO PEDIDO:*\n${itemsText}\n\n`;
-    msg += `*Subtotal:* R$ ${subtotal.toFixed(2)}\n`;
-    if (deliveryType === 'ENTREGA') {
-      msg += `*Taxa Entrega:* R$ ${currentDeliveryFee.toFixed(2)}\n`;
-    }
-    msg += `*TOTAL:* *R$ ${total.toFixed(2)}*\n`;
-    msg += `*Pagamento:* ${paymentMethod} ${changeValue ? `(Troco para R$ ${changeValue})` : ''}`;
-
-    if (tenant.custom_message) {
-      msg += `\n\n📌 _${tenant.custom_message}_`;
-    }
-
-    const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
-    if (cleanWhatsapp) {
-      window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
-    }
-
+    sendWhatsAppNotification(createdOrder.id, false);
     setIsSubmitting(false);
     setCart([]);
     setShowCartModal(false);
-    alert(`Pedido #${createdOrder.id} enviado com sucesso para a cozinha!`);
+    alert(`Pedido #${createdOrder.id} enviado com sucesso!`);
   };
 
   // PARSER PROTEGIDO PARA ADICIONAIS (SUPORTA JSON E FORMATAÇÃO TEXTO 'NOME:PREÇO')
   const getProductAddonsArray = (addonsStr) => {
     if (!addonsStr) return [];
 
-    // Se já for um objeto/array de objetos em JSON
     if (typeof addonsStr === 'object') {
       return Array.isArray(addonsStr) ? addonsStr : [];
     }
 
-    // Tenta fazer o parse de JSON String
     try {
       const parsed = JSON.parse(addonsStr);
       if (Array.isArray(parsed)) return parsed;
-    } catch (e) {
-      // Caso seja a string legada 'Nome:Preço, Nome:Preço'
-    }
+    } catch (e) {}
 
     return String(addonsStr).split(',').filter(Boolean).map(item => {
       const parts = item.split(':');
@@ -322,9 +381,34 @@ export default function DeliveryCliente() {
     });
   };
 
+  if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando cardápio...</p></div>;
+  if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Restaurante não encontrado</h1></div>;
+
+  // VARIÁVEIS DE CORES DINÂMICAS
+  const primaryColor = tenant.primary_color || '#FF8C00';
+  const btnTextColor = tenant.button_text_color || '#FFFFFF';
+  const bgColor = tenant.background_color || tenant.secondary_color || '#090D16';
+  const cardColor = tenant.card_color || '#111827';
+  const textColor = tenant.text_color || '#FFFFFF';
+
+  const subtotal = cart.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+  const currentDeliveryFee = deliveryType === 'ENTREGA' ? Number(selectedNeighFee || 0) : 0;
+  const total = subtotal + currentDeliveryFee;
+
+  const filteredProducts = selectedCat === 'ALL' ? products : products.filter(p => String(p.category_id) === String(selectedCat));
+  const promoBannerList = tenant.promo_banners ? tenant.promo_banners.split(',').map(b => b.trim()).filter(Boolean) : [];
+  const isOpen = isStoreOpen();
+
   return (
     <div className="min-h-screen font-sans pb-24 max-w-md mx-auto transition-colors duration-300" style={{ backgroundColor: bgColor, color: textColor }}>
       
+      {/* BARRA DE AVISOS NO TOPO */}
+      {tenant.custom_message && (
+        <div className="bg-orange-600 text-white text-[11px] font-bold py-2.5 px-4 text-center shadow flex items-center justify-center space-x-2">
+          <span>📢 {tenant.custom_message}</span>
+        </div>
+      )}
+
       {/* CAPA & RESTAURANTE */}
       <div className="relative h-36 bg-gray-900 border-b border-white/10">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop&q=80'} alt="Banner" className="w-full h-full object-cover opacity-50" />
@@ -611,7 +695,7 @@ export default function DeliveryCliente() {
                         }
                       }}
                       style={{ backgroundColor: bgColor, color: textColor }}
-                      className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none">
+                      className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none font-bold">
                       <option value="">Selecione seu bairro...</option>
                       {neighborhoods.map(n => (
                         <option key={n.id} value={n.id}>{n.name} (+R$ {Number(n.fee).toFixed(2)})</option>
@@ -653,9 +737,69 @@ export default function DeliveryCliente() {
                 disabled={isSubmitting}
                 style={{ backgroundColor: primaryColor, color: btnTextColor }}
                 className="w-full font-bold py-3.5 rounded-xl text-xs shadow-lg transition hover:opacity-90">
-                {isSubmitting ? 'Enviando Pedido...' : (tableNumber ? 'Confirmar Pedido na Mesa 🚀' : 'Enviar Pedido no WhatsApp 🚀')}
+                {isSubmitting ? 'Enviando Pedido...' : (tableNumber ? 'Confirmar Pedido na Mesa 🚀' : 'Enviar Pedido 🚀')}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PIX DINÂMICO AUTOMÁTICO */}
+      {showPixModal && (
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
+          <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-green-500/40 w-full max-w-sm rounded-3xl p-6 text-center space-y-4 shadow-2xl relative">
+            <div className="space-y-1">
+              <span className="text-2xl block">⚡</span>
+              <h3 className="font-extrabold text-base text-green-400">Pagamento PIX Dinâmico</h3>
+              <p className="text-[11px] opacity-70">Pague no app do seu banco. A baixa é automática!</p>
+            </div>
+
+            {pixStatus === 'approved' ? (
+              <div className="bg-green-500/20 border border-green-500/50 p-3 rounded-2xl space-y-1 animate-bounce">
+                <span className="text-xl">✅</span>
+                <p className="font-extrabold text-xs text-green-400">PAGAMENTO CONFIRMADO!</p>
+                <p className="text-[10px] text-gray-300">Seu pedido já deu entrada na cozinha.</p>
+              </div>
+            ) : (
+              <div className="bg-yellow-500/10 border border-yellow-500/30 p-2 rounded-2xl flex items-center justify-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-ping"></span>
+                <span className="text-xs font-bold text-yellow-400">Aguardando confirmação do banco...</span>
+              </div>
+            )}
+
+            {pixQrCodeBase64 && (
+              <div className="bg-white p-3 rounded-2xl inline-block shadow-lg mx-auto border border-gray-200">
+                <img 
+                  src={`data:image/jpeg;base64,${pixQrCodeBase64}`} 
+                  alt="QR Code PIX" 
+                  className="w-44 h-44 object-contain mx-auto" 
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={copyPixCode}
+                className={`w-full font-bold py-3 rounded-xl text-xs border transition flex items-center justify-center space-x-2 ${
+                  pixCopySuccess ? 'bg-green-600 text-white border-green-500' : 'bg-gray-800 text-white border-gray-700 hover:bg-gray-700'
+                }`}>
+                <span>{pixCopySuccess ? '✓ Chave Copiada!' : '📋 Copiar Chave PIX'}</span>
+              </button>
+            </div>
+
+            <div className="pt-2 border-t border-white/10 space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  sendWhatsAppNotification(currentOrderId, pixStatus === 'approved');
+                  setShowPixModal(false);
+                  setCart([]);
+                }}
+                className="w-full bg-green-500 hover:bg-green-600 text-white font-extrabold py-3.5 rounded-xl text-xs transition shadow-lg flex items-center justify-center space-x-2">
+                <span>💬 Avisar Restaurante no WhatsApp</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
