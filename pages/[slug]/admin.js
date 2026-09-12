@@ -27,6 +27,10 @@ export default function AdminTenant() {
   const [allOrders, setAllOrders] = useState([]);
   const [reportFilter, setReportFilter] = useState('all');
 
+  // MODAL DE PROMOÇÃO DE CLIENTE
+  const [selectedPromoClient, setSelectedPromoClient] = useState(null);
+  const [promoMessageText, setPromoMessageText] = useState('');
+
   // CONFIGURAÇÃO DE MESAS E QR CODES
   const [tableCount, setTableCount] = useState(10);
   const [baseUrl, setBaseUrl] = useState('');
@@ -158,7 +162,7 @@ export default function AdminTenant() {
     }
   };
 
-  // HANDLERS DE CADASTRO E EDIÇÃO
+  // HANDLERS DE CADASTRO E EDIÇÃO DE PRODUTO (COM IMAGEM)
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if (!newProd.name || !newProd.price) return alert("Preencha nome e preço!");
@@ -249,7 +253,7 @@ export default function AdminTenant() {
     fetchData();
   };
 
-  // CÁLCULO SEGURO DO RELATÓRIO
+  // CÁLCULO SEGURO DO RELATÓRIO FINANCEIRO
   const getFilteredOrders = () => {
     const now = new Date();
     return allOrders.filter(o => {
@@ -268,6 +272,20 @@ export default function AdminTenant() {
 
   const filteredOrders = getFilteredOrders();
   const totalRevenue = filteredOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+  const totalSubtotal = filteredOrders.reduce((sum, o) => sum + Number(o.subtotal || o.total || 0), 0);
+  const totalDeliveryFees = filteredOrders.reduce((sum, o) => sum + Number(o.delivery_fee || 0), 0);
+
+  // DETALHAMENTO DE FORMAS DE PAGAMENTO
+  const paymentBreakdown = {
+    pix: filteredOrders.filter(o => (o.payment_method || '').toUpperCase().includes('PIX')).reduce((sum, o) => sum + Number(o.total || 0), 0),
+    dinheiro: filteredOrders.filter(o => (o.payment_method || '').toUpperCase().includes('DINHEIRO')).reduce((sum, o) => sum + Number(o.total || 0), 0),
+    cardOnline: filteredOrders.filter(o => (o.payment_method || '').toUpperCase().includes('ONLINE')).reduce((sum, o) => sum + Number(o.total || 0), 0),
+    cardMachine: filteredOrders.filter(o => (o.payment_method || '').toUpperCase().includes('MAQUININHA')).reduce((sum, o) => sum + Number(o.total || 0), 0),
+    other: filteredOrders.filter(o => {
+      const pm = (o.payment_method || '').toUpperCase();
+      return !pm.includes('PIX') && !pm.includes('DINHEIRO') && !pm.includes('ONLINE') && !pm.includes('MAQUININHA');
+    }).reduce((sum, o) => sum + Number(o.total || 0), 0)
+  };
 
   const productSalesMap = {};
   filteredOrders.forEach(o => {
@@ -283,17 +301,62 @@ export default function AdminTenant() {
     .map(([name, qty]) => ({ name, qty }))
     .sort((a, b) => b.qty - a.qty);
 
+  // CONSOLIDADO E RANKING DOS MELHORES CLIENTES
+  const getCustomerList = () => {
+    const customerMap = {};
+    allOrders.forEach(order => {
+      const rawPhone = order.customer_phone ? order.customer_phone.replace(/\D/g, '') : '';
+      const key = rawPhone || order.customer_name?.toLowerCase().trim() || 'anonimo';
+      
+      if (!customerMap[key]) {
+        customerMap[key] = {
+          name: order.customer_name || 'Cliente Sem Nome',
+          phone: rawPhone,
+          totalOrders: 0,
+          totalSpent: 0,
+          lastOrderDate: order.created_at,
+          address: order.customer_address || ''
+        };
+      }
+
+      customerMap[key].totalOrders += 1;
+      customerMap[key].totalSpent += Number(order.total || 0);
+
+      if (new Date(order.created_at) > new Date(customerMap[key].lastOrderDate)) {
+        customerMap[key].lastOrderDate = order.created_at;
+        if (order.customer_address) customerMap[key].address = order.customer_address;
+      }
+    });
+
+    return Object.values(customerMap).sort((a, b) => b.totalSpent - a.totalSpent);
+  };
+
+  const customerList = getCustomerList();
+
+  const handleOpenPromoModal = (client) => {
+    setSelectedPromoClient(client);
+    setPromoMessageText(`Olá ${client.name}! 👋 Temos um cupom de desconto exclusivo para você no *${tenant.name}*! Venha aproveitar nossas ofertas hoje: ${baseUrl}/${tenant.slug}`);
+  };
+
+  const handleSendPromoWhatsapp = () => {
+    if (!selectedPromoClient?.phone) return alert("Telefone indisponível!");
+    window.open(`https://wa.me/55${selectedPromoClient.phone}?text=${encodeURIComponent(promoMessageText)}`, '_blank');
+    setSelectedPromoClient(null);
+  };
+
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-sm text-gray-400">Carregando admin...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Restaurante não encontrado</h1></div>;
 
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4 font-sans">
-        <form onSubmit={handleLogin} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 w-full max-w-sm">
-          <h2 className="text-xl font-bold text-orange-500 mb-1 text-center">{tenant.name}</h2>
-          <p className="text-xs text-gray-400 text-center mb-6">Painel Administrativo</p>
-          <input type="password" placeholder="Senha de acesso..." className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-sm mb-4 text-white focus:outline-none" onChange={(e) => setPassword(e.target.value)} />
-          <button type="submit" className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl text-sm">Entrar no Painel</button>
+        <form onSubmit={handleLogin} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 w-full max-w-sm space-y-4">
+          <div className="text-center">
+            <h2 className="text-xl font-bold text-orange-500">{tenant.name}</h2>
+            <p className="text-xs text-gray-400">Painel Administrativo</p>
+          </div>
+          <input type="password" placeholder="Senha de acesso..." className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-sm text-white focus:outline-none" onChange={(e) => setPassword(e.target.value)} />
+          <button type="submit" className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl text-sm hover:bg-orange-600 transition">Entrar no Painel</button>
         </form>
       </div>
     );
@@ -304,19 +367,22 @@ export default function AdminTenant() {
       <style jsx global>{`
         @media print {
           body * { visibility: hidden !important; }
-          .print-tables-area, .print-tables-area * { visibility: visible !important; }
-          .print-tables-area {
+          .print-area, .print-area * { visibility: visible !important; }
+          .print-area {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
             width: 100% !important;
             color: #000 !important;
             background: #fff !important;
+            font-family: monospace !important;
+            padding: 10px !important;
           }
           .no-print { display: none !important; }
         }
       `}</style>
 
+      {/* CABEÇALHO ADMIN */}
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-4 no-print">
         <div>
           <h1 className="font-bold text-lg text-orange-500">{tenant.name}</h1>
@@ -327,14 +393,261 @@ export default function AdminTenant() {
 
       {/* ABAS DE NAVEGAÇÃO */}
       <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto no-print">
-        <button onClick={() => setActiveTab('products')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🍔 Itens</button>
-        <button onClick={() => setActiveTab('tables')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'tables' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🪑 Mesas QR</button>
-        <button onClick={() => setActiveTab('categories')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🏷️ Categorias</button>
-        <button onClick={() => setActiveTab('addons')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>➕ Adicionais</button>
-        <button onClick={() => setActiveTab('neighborhoods')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'neighborhoods' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🛵 Bairros</button>
-        <button onClick={() => setActiveTab('reports')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>📊 Relatórios</button>
-        <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
+        <button onClick={() => setActiveTab('products')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🍔 Itens</button>
+        <button onClick={() => setActiveTab('clients')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'clients' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👥 Clientes</button>
+        <button onClick={() => setActiveTab('reports')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>📊 Financeiro</button>
+        <button onClick={() => setActiveTab('tables')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'tables' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🪑 Mesas QR</button>
+        <button onClick={() => setActiveTab('categories')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🏷️ Categorias</button>
+        <button onClick={() => setActiveTab('addons')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>➕ Adicionais</button>
+        <button onClick={() => setActiveTab('neighborhoods')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'neighborhoods' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🛵 Bairros</button>
+        <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
       </div>
+
+      {/* ABA ITENS / PRODUTOS (COM COM MINIATURA DE FOTO) */}
+      {activeTab === 'products' && (
+        <div className="space-y-6 no-print">
+          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Lanche / Item</h3>
+            <form onSubmit={handleAddProduct} className="space-y-3">
+              <input type="text" placeholder="Nome do Produto" value={newProd.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} />
+              <input type="text" placeholder="Descrição curta" value={newProd.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, description: e.target.value })} />
+              
+              <div className="flex space-x-2">
+                <input type="text" placeholder="Preço R$" value={newProd.price} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, price: e.target.value })} />
+                <select value={newProd.category_id} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, category_id: e.target.value })}>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+
+              {/* INPUT DE FOTO COM PRÉVIA EM TEMPO REAL */}
+              <div>
+                <input type="text" placeholder="URL da Foto (https://...)" value={newProd.image} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, image: e.target.value })} />
+                {newProd.image && (
+                  <div className="mt-2 flex items-center space-x-2 bg-gray-950 p-2 rounded-lg border border-gray-800">
+                    <img src={newProd.image} alt="Prévia" className="w-10 h-10 rounded-md object-cover border border-gray-700" onError={(e) => e.target.style.display = 'none'} />
+                    <span className="text-[10px] text-gray-400">Prévia da foto vinculada</span>
+                  </div>
+                )}
+              </div>
+              
+              {globalAddons.length > 0 && (
+                <div className="border-t border-gray-800 pt-2">
+                  <label className="text-[11px] text-gray-400 block mb-1">Adicionais Opcionais Vinculados:</label>
+                  <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+                    {globalAddons.map(a => {
+                      const formattedStr = `${a.name}:${a.price}`;
+                      const isSelected = (newProd.addons_list || '').includes(a.name);
+                      return (
+                        <label key={a.id} className="flex items-center space-x-1.5 bg-gray-800 p-2 rounded text-[11px] cursor-pointer">
+                          <input type="checkbox" checked={isSelected} onChange={(e) => {
+                            let currentArr = newProd.addons_list ? newProd.addons_list.split(',').filter(Boolean) : [];
+                            if (e.target.checked) currentArr.push(formattedStr);
+                            else currentArr = currentArr.filter(item => !item.startsWith(a.name));
+                            setNewProd({ ...newProd, addons_list: currentArr.join(',') });
+                          }} />
+                          <span className="truncate">{a.name} (+R${Number(a.price).toFixed(2)})</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs hover:bg-green-700 transition">Salvar Lanche 🚀</button>
+            </form>
+          </section>
+
+          {/* LISTA DE PRODUTOS COM EXIBIÇÃO DA MINIATURA */}
+          <section className="space-y-2">
+            <h3 className="font-bold text-sm text-gray-300">📋 Produtos ({products.length})</h3>
+            {products.map((item) => (
+              <div key={item.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center space-x-3">
+                <div className="flex items-center space-x-3 flex-1 min-w-0">
+                  <img 
+                    src={item.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'} 
+                    alt={item.name} 
+                    className="w-12 h-12 rounded-lg object-cover border border-gray-800 bg-gray-800 shrink-0" 
+                  />
+                  <div className="truncate">
+                    <span className={`font-bold text-xs block truncate ${!item.active ? 'line-through text-gray-500' : 'text-white'}`}>{item.name}</span>
+                    <span className="text-xs text-orange-400 font-bold">R$ {Number(item.price).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-1.5 shrink-0">
+                  <button onClick={() => setEditingProduct(item)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
+                  <button onClick={async () => { await supabase.from('products').update({ active: !item.active }).eq('id', item.id); fetchData(); }} className={`text-[10px] font-bold px-2 py-1.5 rounded-lg ${item.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{item.active ? 'Ativo' : 'Pausado'}</button>
+                  <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('products').delete().eq('id', item.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-1.5 rounded-lg font-bold">🗑</button>
+                </div>
+              </div>
+            ))}
+          </section>
+        </div>
+      )}
+
+      {/* ABA DE CLIENTES E RANKING DOS MELHORES */}
+      {activeTab === 'clients' && (
+        <div className="space-y-6 no-print">
+          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2">
+            <h3 className="font-bold text-sm text-orange-400">👥 Registro & Ranking de Clientes</h3>
+            <p className="text-xs text-gray-400">Clientes identificados automaticamente pelo histórico de compras.</p>
+          </section>
+
+          <section className="space-y-2">
+            {customerList.length === 0 ? (
+              <p className="text-xs text-gray-500 text-center py-4">Nenhum cliente cadastrado ainda.</p>
+            ) : (
+              customerList.map((client, idx) => (
+                <div key={idx} className="bg-gray-900 p-3 rounded-xl border border-gray-800 space-y-2">
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-extrabold text-xs text-orange-400">
+                        {idx === 0 ? '👑 #1' : idx === 1 ? '🥈 #2' : idx === 3 ? '🥉 #3' : `#${idx + 1}`}
+                      </span>
+                      <div>
+                        <h4 className="font-bold text-xs text-white">{client.name}</h4>
+                        {client.phone && <p className="text-[10px] text-gray-400">📱 {client.phone}</p>}
+                      </div>
+                    </div>
+                    
+                    <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded text-[11px] font-bold">
+                      R$ {client.totalSpent.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-[10px] text-gray-400 bg-gray-950 p-2 rounded-lg border border-gray-800/80">
+                    <span>📦 <b>{client.totalOrders}</b> pedido(s)</span>
+                    <span>🕒 Último: <b>{new Date(client.lastOrderDate).toLocaleDateString('pt-BR')}</b></span>
+                  </div>
+
+                  {client.phone && (
+                    <button
+                      onClick={() => handleOpenPromoModal(client)}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 rounded-lg text-xs flex items-center justify-center space-x-1 transition">
+                      <span>📢 Enviar Promoção WhatsApp</span>
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* ABA RELATÓRIOS E FINANCEIRO DETALHADO + IMPRESSÃO */}
+      {activeTab === 'reports' && (
+        <div className="space-y-4">
+          <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs no-print">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-400 font-bold">Período de Vendas:</span>
+              <button onClick={() => window.print()} className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-2.5 py-1 rounded-lg text-[10px] transition">
+                🖨️ Imprimir Relatório
+              </button>
+            </div>
+
+            <div className="flex space-x-1 overflow-x-auto pb-1">
+              <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Tudo</button>
+              <button onClick={() => setReportFilter('today')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'today' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Hoje</button>
+              <button onClick={() => setReportFilter('7days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '7days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>7 Dias</button>
+              <button onClick={() => setReportFilter('30days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '30days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>30 Dias</button>
+            </div>
+          </div>
+
+          {/* ÁREA IMPRESSA / EXIBIÇÃO FINANCEIRA */}
+          <div className="print-area space-y-4">
+            <div className="hidden print:block text-center border-b border-black pb-2 mb-2">
+              <h2 className="font-bold text-base">{tenant.name}</h2>
+              <p className="text-xs">RELATÓRIO FINANCIAL DE VENDAS</p>
+              <p className="text-[10px]">Data: {new Date().toLocaleDateString('pt-BR')}</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 print:border-black print:bg-white print:text-black">
+                <span className="text-[11px] text-gray-400 block mb-1 print:text-black">Faturamento Total</span>
+                <span className="text-lg font-bold text-green-400 print:text-black">R$ {totalRevenue.toFixed(2)}</span>
+              </div>
+              <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 print:border-black print:bg-white print:text-black">
+                <span className="text-[11px] text-gray-400 block mb-1 print:text-black">Total de Pedidos</span>
+                <span className="text-lg font-bold text-orange-400 print:text-black">{filteredOrders.length}</span>
+              </div>
+            </div>
+
+            {/* DETALHAMENTO DE VALORES */}
+            <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2 text-xs print:border-black print:bg-white print:text-black">
+              <h3 className="font-bold text-xs text-orange-400 uppercase border-b border-gray-800 pb-2 print:text-black print:border-black">💰 Detalhamento de Faturamento</h3>
+              <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
+                <span className="text-gray-400 print:text-black">Produtos (Subtotal):</span>
+                <span className="font-bold">R$ {totalSubtotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
+                <span className="text-gray-400 print:text-black">Taxas de Entrega:</span>
+                <span className="font-bold">R$ {totalDeliveryFees.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between py-1 font-bold text-green-400 print:text-black">
+                <span>TOTAL CONSOLIDADO:</span>
+                <span>R$ {totalRevenue.toFixed(2)}</span>
+              </div>
+            </section>
+
+            {/* DETALHAMENTO POR FORMA DE PAGAMENTO */}
+            <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2 text-xs print:border-black print:bg-white print:text-black">
+              <h3 className="font-bold text-xs text-orange-400 uppercase border-b border-gray-800 pb-2 print:text-black print:border-black">💳 Faturamento por Pagamento</h3>
+              <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
+                <span className="text-gray-400 print:text-black">⚡ PIX Dinâmico / Manual:</span>
+                <span className="font-bold">R$ {paymentBreakdown.pix.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
+                <span className="text-gray-400 print:text-black">🌐 Cartão Pago Online (Site):</span>
+                <span className="font-bold">R$ {paymentBreakdown.cardOnline.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
+                <span className="text-gray-400 print:text-black">🛵 Cartão na Maquininha:</span>
+                <span className="font-bold">R$ {paymentBreakdown.cardMachine.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
+                <span className="text-gray-400 print:text-black">💵 Dinheiro Espécie:</span>
+                <span className="font-bold">R$ {paymentBreakdown.dinheiro.toFixed(2)}</span>
+              </div>
+              {paymentBreakdown.other > 0 && (
+                <div className="flex justify-between py-1">
+                  <span className="text-gray-400 print:text-black">📌 Pagar no Balcão / Outros:</span>
+                  <span className="font-bold">R$ {paymentBreakdown.other.toFixed(2)}</span>
+                </div>
+              )}
+            </section>
+
+            {/* ITENS MAIS VENDIDOS */}
+            <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 print:border-black print:bg-white print:text-black">
+              <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider print:text-black">🏆 ITENS MAIS VENDIDOS</h3>
+              <div className="space-y-2">
+                {topProducts.length === 0 ? (
+                  <p className="text-xs text-gray-400">Nenhum pedido registrado ainda.</p>
+                ) : (
+                  topProducts.map((p, idx) => (
+                    <div key={idx} className="flex justify-between items-center bg-gray-800 p-2.5 rounded-lg text-xs print:bg-white print:border-b print:border-black">
+                      <span className="font-bold text-white print:text-black">{idx + 1}. {p.name}</span>
+                      <span className="bg-orange-500/20 text-orange-400 px-2.5 py-1 rounded-md font-bold print:text-black">{p.qty} un.</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          </div>
+
+          {/* ZERAR DADOS DE TESTE */}
+          <section className="bg-gray-900 p-4 rounded-xl border border-red-500/30 flex justify-between items-center mt-4 no-print">
+            <div>
+              <h4 className="font-bold text-xs text-red-400">🧹 Zerar Dados de Teste</h4>
+              <p className="text-[10px] text-gray-400">Apaga todo o histórico de pedidos para recomeçar do zero.</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleClearFinancialData}
+              className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/40 px-3 py-2 rounded-xl text-xs font-bold transition">
+              🗑️ Limpar
+            </button>
+          </section>
+        </div>
+      )}
 
       {/* ABA MESAS QR CODE */}
       {activeTab === 'tables' && (
@@ -382,67 +695,6 @@ export default function AdminTenant() {
                 );
               })}
             </div>
-          </section>
-        </div>
-      )}
-
-      {/* ITENS */}
-      {activeTab === 'products' && (
-        <div className="space-y-6 no-print">
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Lanche / Item</h3>
-            <form onSubmit={handleAddProduct} className="space-y-3">
-              <input type="text" placeholder="Nome do Produto" value={newProd.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} />
-              <input type="text" placeholder="Descrição curta" value={newProd.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, description: e.target.value })} />
-              <div className="flex space-x-2">
-                <input type="text" placeholder="Preço R$" value={newProd.price} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, price: e.target.value })} />
-                <select value={newProd.category_id} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, category_id: e.target.value })}>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-              <input type="text" placeholder="URL da Foto" value={newProd.image} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, image: e.target.value })} />
-              
-              {globalAddons.length > 0 && (
-                <div className="border-t border-gray-800 pt-2">
-                  <label className="text-[11px] text-gray-400 block mb-1">Adicionais Opcionais Vinculados:</label>
-                  <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
-                    {globalAddons.map(a => {
-                      const formattedStr = `${a.name}:${a.price}`;
-                      const isSelected = (newProd.addons_list || '').includes(a.name);
-                      return (
-                        <label key={a.id} className="flex items-center space-x-1.5 bg-gray-800 p-2 rounded text-[11px] cursor-pointer">
-                          <input type="checkbox" checked={isSelected} onChange={(e) => {
-                            let currentArr = newProd.addons_list ? newProd.addons_list.split(',').filter(Boolean) : [];
-                            if (e.target.checked) currentArr.push(formattedStr);
-                            else currentArr = currentArr.filter(item => !item.startsWith(a.name));
-                            setNewProd({ ...newProd, addons_list: currentArr.join(',') });
-                          }} />
-                          <span className="truncate">{a.name} (+R${Number(a.price).toFixed(2)})</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs">Salvar Lanche 🚀</button>
-            </form>
-          </section>
-
-          <section className="space-y-2">
-            <h3 className="font-bold text-sm text-gray-300">📋 Produtos ({products.length})</h3>
-            {products.map((item) => (
-              <div key={item.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center">
-                <div>
-                  <span className={`font-bold text-xs block ${!item.active ? 'line-through text-gray-500' : 'text-white'}`}>{item.name}</span>
-                  <span className="text-xs text-orange-400 font-bold">R$ {Number(item.price).toFixed(2)}</span>
-                </div>
-                <div className="flex items-center space-x-1.5">
-                  <button onClick={() => setEditingProduct(item)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
-                  <button onClick={async () => { await supabase.from('products').update({ active: !item.active }).eq('id', item.id); fetchData(); }} className={`text-[10px] font-bold px-2 py-1.5 rounded-lg ${item.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{item.active ? 'Ativo' : 'Pausado'}</button>
-                  <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('products').delete().eq('id', item.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-1.5 rounded-lg font-bold">🗑</button>
-                </div>
-              </div>
-            ))}
           </section>
         </div>
       )}
@@ -523,62 +775,6 @@ export default function AdminTenant() {
                 </div>
               </div>
             ))}
-          </section>
-        </div>
-      )}
-
-      {/* RELATÓRIOS */}
-      {activeTab === 'reports' && (
-        <div className="space-y-4 no-print">
-          <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs">
-            <span className="text-gray-400 font-bold">Período de Vendas:</span>
-            <div className="flex space-x-1 overflow-x-auto pb-1">
-              <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Tudo</button>
-              <button onClick={() => setReportFilter('today')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'today' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Hoje</button>
-              <button onClick={() => setReportFilter('7days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '7days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>7 Dias</button>
-              <button onClick={() => setReportFilter('30days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '30days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>30 Dias</button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
-              <span className="text-[11px] text-gray-400 block mb-1">Faturamento</span>
-              <span className="text-lg font-bold text-green-400">R$ {totalRevenue.toFixed(2)}</span>
-            </div>
-            <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
-              <span className="text-[11px] text-gray-400 block mb-1">Total de Pedidos</span>
-              <span className="text-lg font-bold text-orange-400">{filteredOrders.length}</span>
-            </div>
-          </div>
-
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">🏆 ITENS MAIS VENDIDOS</h3>
-            <div className="space-y-2">
-              {topProducts.length === 0 ? (
-                <p className="text-xs text-gray-400">Nenhum pedido registrado ainda.</p>
-              ) : (
-                topProducts.map((p, idx) => (
-                  <div key={idx} className="flex justify-between items-center bg-gray-800 p-2.5 rounded-lg text-xs">
-                    <span className="font-bold text-white">{idx + 1}. {p.name}</span>
-                    <span className="bg-orange-500/20 text-orange-400 px-2.5 py-1 rounded-md font-bold">{p.qty} un.</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          {/* BOTÃO PARA ZERAR DADOS E APAGAR TESTES */}
-          <section className="bg-gray-900 p-4 rounded-xl border border-red-500/30 flex justify-between items-center mt-4">
-            <div>
-              <h4 className="font-bold text-xs text-red-400">🧹 Zerar Dados de Teste</h4>
-              <p className="text-[10px] text-gray-400">Apaga todo o histórico de pedidos para recomeçar do zero.</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleClearFinancialData}
-              className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/40 px-3 py-2 rounded-xl text-xs font-bold transition">
-              🗑️ Limpar
-            </button>
           </section>
         </div>
       )}
@@ -684,7 +880,7 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
               </div>
 
-              {/* BLOCO PREPARADO PARA PIX DINÂMICO AUTOMÁTICO */}
+              {/* PIX DINÂMICO E PAGAMENTOS AUTOMÁTICOS */}
               <div className="pt-3 border-t border-gray-800 space-y-3">
                 <div className="flex justify-between items-center">
                   <div>
@@ -736,7 +932,29 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* MODAIS EDITAR */}
+      {/* MODAL DISPARO DE PROMOÇÃO WHATSAPP */}
+      {selectedPromoClient && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
+          <div className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-green-500/40 space-y-3">
+            <h3 className="font-bold text-sm text-green-400">📢 Disparar Promoção via WhatsApp</h3>
+            <p className="text-xs text-gray-300"><b>Cliente:</b> {selectedPromoClient.name} ({selectedPromoClient.phone})</p>
+            
+            <textarea
+              rows={4}
+              value={promoMessageText}
+              onChange={(e) => setPromoMessageText(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+            />
+
+            <div className="flex space-x-2">
+              <button type="button" onClick={() => setSelectedPromoClient(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button>
+              <button type="button" onClick={handleSendPromoWhatsapp} className="w-1/2 bg-green-600 hover:bg-green-700 py-2 rounded-lg text-xs font-bold text-white">Enviar 🚀</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAIS DE EDIÇÃO */}
       {editingAddon && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateAddon} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
@@ -775,14 +993,28 @@ export default function AdminTenant() {
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Produto</h3>
             <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
             <input type="text" value={editingProduct.description || ''} onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+            
             <div className="flex space-x-2">
               <input type="text" value={editingProduct.price} onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
               <select value={editingProduct.category_id} onChange={(e) => setEditingProduct({ ...editingProduct, category_id: e.target.value })} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none">
                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <input type="text" value={editingProduct.image || ''} onChange={(e) => setEditingProduct({ ...editingProduct, image: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <div className="flex space-x-2 pt-2"><button type="button" onClick={() => setEditingProduct(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-lg text-xs font-bold text-gray-300">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-lg text-xs font-bold text-white">Atualizar</button></div>
+
+            <div>
+              <input type="text" placeholder="URL da Foto" value={editingProduct.image || ''} onChange={(e) => setEditingProduct({ ...editingProduct, image: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+              {editingProduct.image && (
+                <div className="mt-2 flex items-center space-x-2 bg-gray-950 p-2 rounded-lg border border-gray-800">
+                  <img src={editingProduct.image} alt="Prévia" className="w-10 h-10 rounded-md object-cover border border-gray-700" onError={(e) => e.target.style.display = 'none'} />
+                  <span className="text-[10px] text-gray-400">Prévia da imagem</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex space-x-2 pt-2">
+              <button type="button" onClick={() => setEditingProduct(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-lg text-xs font-bold text-gray-300">Cancelar</button>
+              <button type="submit" className="w-1/2 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-lg text-xs font-bold text-white">Atualizar</button>
+            </div>
           </form>
         </div>
       )}
