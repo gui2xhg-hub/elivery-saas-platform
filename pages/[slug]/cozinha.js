@@ -27,7 +27,7 @@ export default function CozinhaTenant() {
         }
       });
 
-      // Polling de segurança a cada 10s caso a conexão caindo
+      // Polling de segurança a cada 10s caso a conexão caia
       const interval = setInterval(() => {
         if (tenant?.id) fetchOrders(tenant.id, true);
       }, 10000);
@@ -168,7 +168,7 @@ export default function CozinhaTenant() {
     }
 
     let msg = '';
-    const isDelivery = order.order_type === 'delivery';
+    const isDelivery = order.order_type === 'delivery' || (!order.customer_address?.includes('MESA') && !order.customer_address?.includes('Balcão'));
 
     if (msgType === 'producao') {
       msg = `Olá ${order.customer_name}! 👨‍🍳 Seu pedido #${order.id} no *${tenant.name}* já está sendo preparado!`;
@@ -203,13 +203,15 @@ export default function CozinhaTenant() {
 
   // COMPONENTE DO CARD DE PEDIDO
   const renderOrderCard = (order) => {
-    const isPix = (order.payment_method || '').toUpperCase().includes('PIX');
-    const isMoney = (order.payment_method || '').toUpperCase().includes('DINHEIRO');
-    const isDelivery = order.order_type === 'delivery';
+    const payMethodUpper = (order.payment_method || '').toUpperCase();
+    const isPix = payMethodUpper.includes('PIX');
+    const isMoney = payMethodUpper.includes('DINHEIRO');
+    const isCardOnline = payMethodUpper.includes('ONLINE') || payMethodUpper.includes('PAGO ONLINE');
+    const isCardMachine = payMethodUpper.includes('MAQUININHA');
 
-    // VERIFICAÇÃO SE É PEDIDO NA MESA
     const fullAddr = order.customer_address || order.address || '';
     const isTable = fullAddr.toUpperCase().includes('MESA') || order.table_number || order.order_type === 'MESA' || order.order_type === 'mesa';
+    const isDelivery = !isTable && !fullAddr.toUpperCase().includes('BALCÃO');
 
     return (
       <div key={order.id} className={`bg-gray-900 border ${isTable ? 'border-orange-500/80 bg-orange-500/5' : 'border-gray-800'} p-3.5 rounded-2xl space-y-2.5 shadow-lg`}>
@@ -241,21 +243,31 @@ export default function CozinhaTenant() {
             <p><b>Tipo:</b> 🛍️ Retirada No Balcão</p>
           )}
 
-          {/* CONTROLE DE PAGAMENTO PIX/DINHEIRO/CARTÃO/BALCÃO */}
+          {/* RECONHECIMENTO DE PAGAMENTOS EM TEMPO REAL */}
           <div className="pt-1 flex justify-between items-center border-t border-gray-700/50">
             {isPix ? (
               <div className="flex items-center justify-between w-full">
                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                   order.is_paid ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
                 }`}>
-                  {order.is_paid ? '🟢 PIX Confirmado' : '🟡 PIX Pendente'}
+                  {order.is_paid ? '🟢 PIX Confirmado (Baixa Aut.)' : '🟡 PIX Pendente'}
                 </span>
                 <button 
                   onClick={() => togglePaymentStatus(order.id, order.is_paid)}
-                  className="text-[10px] bg-gray-700 px-1.5 py-0.5 rounded text-gray-200 font-bold border border-gray-600">
+                  className="text-[10px] bg-gray-700 px-1.5 py-0.5 rounded text-gray-200 font-bold border border-gray-600 hover:bg-gray-600">
                   {order.is_paid ? 'Desmarcar' : '✅ Validar'}
                 </button>
               </div>
+            ) : isCardOnline ? (
+              <div className="flex items-center justify-between w-full">
+                <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
+                  🟢 Cartão Pago Online (Site)
+                </span>
+              </div>
+            ) : isCardMachine ? (
+              <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
+                💳 Cartão (Levar Maquininha)
+              </span>
             ) : isMoney ? (
               <span className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
                 💵 Dinheiro {order.change_for ? `(Troco p/ R$ ${order.change_for})` : ''}
