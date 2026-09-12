@@ -39,6 +39,7 @@ export default function DeliveryCliente() {
   const [selectedNeighFee, setSelectedNeighFee] = useState(0);
   const [selectedNeighName, setSelectedNeighName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Pagar no Balcão');
+  const [cardPaymentType, setCardPaymentType] = useState('maquininha'); // 'maquininha' ou 'online'
   const [changeValue, setChangeValue] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -223,7 +224,7 @@ export default function DeliveryCliente() {
     setTimeout(() => setPixCopySuccess(false), 3000);
   };
 
-  const sendWhatsAppNotification = (orderId, isPaid = false) => {
+  const sendWhatsAppNotification = (orderId, isPaid = false, customPaymentLabel = null) => {
     let itemsText = cart.map(i => {
       let txt = `• ${i.quantity}x ${i.name} (R$ ${(i.unitPrice * i.quantity).toFixed(2)})`;
       if (i.selectedAddons && i.selectedAddons.length > 0) {
@@ -254,10 +255,12 @@ export default function DeliveryCliente() {
       msg += `*Taxa Entrega:* R$ ${currentDeliveryFee.toFixed(2)}\n`;
     }
     msg += `*TOTAL:* *R$ ${total.toFixed(2)}*\n`;
+
+    const activePaymentLabel = customPaymentLabel || paymentMethod;
     if (isPaid) {
       msg += `*Pagamento:* 🟢 PIX PAGO (Confirmado pelo Sistema Automático)`;
     } else {
-      msg += `*Pagamento:* ${paymentMethod} ${changeValue ? `(Troco para R$ ${changeValue})` : ''}`;
+      msg += `*Pagamento:* ${activePaymentLabel} ${changeValue ? `(Troco para R$ ${changeValue})` : ''}`;
     }
 
     if (tenant.custom_message) {
@@ -294,6 +297,14 @@ export default function DeliveryCliente() {
       fullAddress = `MESA ${tableNumber || 'Consumo Local'}`;
     }
 
+    // FORMATAÇÃO DO RÓTULO DE PAGAMENTO DE CARTÃO
+    let finalPaymentLabel = paymentMethod;
+    if (paymentMethod.includes('Cartão')) {
+      finalPaymentLabel = cardPaymentType === 'online' 
+        ? 'Cartão (PAGO ONLINE)' 
+        : 'Cartão (Levar Maquininha)';
+    }
+
     const orderData = {
       tenant_id: tenant.id,
       customer_name: customerName,
@@ -303,7 +314,7 @@ export default function DeliveryCliente() {
       subtotal: subtotal,
       delivery_fee: currentDeliveryFee,
       total: total,
-      payment_method: paymentMethod,
+      payment_method: finalPaymentLabel,
       change_for: changeValue,
       status: 'recebido',
       is_paid: false
@@ -322,7 +333,7 @@ export default function DeliveryCliente() {
       window.fbq('track', 'Purchase', { value: total, currency: 'BRL' });
     }
 
-    // GERAÇÃO DE PIX AUTOMÁTICO SE ATIVADO
+    // 1. GERAÇÃO DE PIX AUTOMÁTICO SE ATIVADO
     if (paymentMethod === 'PIX' && tenant.pix_enabled && tenant.pix_access_token) {
       try {
         const mpRes = await fetch('/api/create-pix', {
@@ -353,7 +364,39 @@ export default function DeliveryCliente() {
       }
     }
 
-    sendWhatsAppNotification(createdOrder.id, false);
+    // 2. PAGAMENTO ONLINE DE CARTÃO VIA CHECKOUT PRO (MERCADO PAGO)
+    if (paymentMethod.includes('Cartão') && cardPaymentType === 'online' && tenant?.pix_access_token) {
+      try {
+        const prefRes = await fetch('/api/create-preference', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: cart,
+            deliveryFee: currentDeliveryFee,
+            accessToken: tenant.pix_access_token,
+            orderId: createdOrder.id,
+            tenantName: tenant.name,
+            customerName: customerName,
+            customerPhone: cleanPhone
+          })
+        });
+
+        const prefData = await prefRes.json();
+        if (prefRes.ok && prefData.init_point) {
+          setIsSubmitting(false);
+          setCart([]);
+          setShowCartModal(false);
+          window.location.href = prefData.init_point;
+          return;
+        }
+      } catch (err) {
+        console.error("Erro ao gerar link de pagamento online:", err);
+        alert("Não foi possível iniciar o pagamento online. O pedido foi registrado para pagamento na entrega.");
+      }
+    }
+
+    // 3. ENVIO VIA WHATSAPP (MAQUININHA / DINHEIRO / BALCÃO)
+    sendWhatsAppNotification(createdOrder.id, false, finalPaymentLabel);
     setIsSubmitting(false);
     setCart([]);
     setShowCartModal(false);
@@ -719,6 +762,36 @@ export default function DeliveryCliente() {
                   <option value="PIX">PIX</option>
                 </select>
               </div>
+
+              {/* OPÇÃO DE CARTÃO: NA MAQUININHA OU PAGAR ONLINE */}
+              {paymentMethod.includes('Cartão') && (
+                <div style={{ backgroundColor: bgColor }} className="p-2.5 rounded-xl border border-white/10 space-y-2">
+                  <label className="text-[11px] font-bold block text-orange-400">💳 Como prefere pagar no Cartão?</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCardPaymentType('maquininha')}
+                      style={{
+                        backgroundColor: cardPaymentType === 'maquininha' ? primaryColor : 'transparent',
+                        color: cardPaymentType === 'maquininha' ? btnTextColor : textColor
+                      }}
+                      className="py-2 px-2 rounded-xl text-[10px] font-bold border border-white/10 transition text-center">
+                      🛵 Na Maquininha
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCardPaymentType('online')}
+                      style={{
+                        backgroundColor: cardPaymentType === 'online' ? primaryColor : 'transparent',
+                        color: cardPaymentType === 'online' ? btnTextColor : textColor
+                      }}
+                      className="py-2 px-2 rounded-xl text-[10px] font-bold border border-white/10 transition text-center">
+                      🌐 Pagar Agora Online
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {paymentMethod === 'Dinheiro' && (
                 <input type="text" placeholder="Troco para quanto? (Opcional)" value={changeValue} onChange={(e) => setChangeValue(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
