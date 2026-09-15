@@ -137,13 +137,12 @@ export default function DeliveryCliente() {
     setLoading(false);
   };
 
-  // CHECAGEM SE O RESTAURANTE ESTÁ ABERTO
   const isStoreOpen = () => {
     if (!tenant) return true;
     if (!tenant.opening_time || !tenant.closing_time) return true;
 
     const now = new Date();
-    const currentDay = now.getDay(); // 0 = Dom, 1 = Seg...
+    const currentDay = now.getDay();
     const workDays = tenant.work_days || [1, 2, 3, 4, 5, 6, 0];
 
     if (!workDays.includes(currentDay)) return false;
@@ -155,7 +154,6 @@ export default function DeliveryCliente() {
     const openMins = openH * 60 + openM;
     let closeMins = closeH * 60 + closeM;
 
-    // Caso a loja feche após a meia-noite (ex: 18:00 às 02:00)
     if (closeMins < openMins) {
       closeMins += 24 * 60;
       if (currentMins < openMins) {
@@ -174,11 +172,17 @@ export default function DeliveryCliente() {
     setItemObservation('');
   };
 
+  // NORMAS DE LIMITAÇÃO DE SABORES / ADICIONAIS
   const toggleAddon = (addon) => {
     const exists = selectedAddons.some(a => a.name === addon.name);
+    const maxAllowed = Number(selectedProduct?.max_addons || 0);
+
     if (exists) {
       setSelectedAddons(selectedAddons.filter(a => a.name !== addon.name));
     } else {
+      if (maxAllowed > 0 && selectedAddons.length >= maxAllowed) {
+        return alert(`Você pode escolher no máximo ${maxAllowed} sabores/opções para este item!`);
+      }
       setSelectedAddons([...selectedAddons, addon]);
     }
   };
@@ -228,7 +232,7 @@ export default function DeliveryCliente() {
     let itemsText = cart.map(i => {
       let txt = `• ${i.quantity}x ${i.name} (R$ ${(i.unitPrice * i.quantity).toFixed(2)})`;
       if (i.selectedAddons && i.selectedAddons.length > 0) {
-        txt += `\n   + Adicionais: ${i.selectedAddons.map(a => `${a.name} (+R$ ${Number(a.price).toFixed(2)})`).join(', ')}`;
+        txt += `\n   + Adicionais/Sabores: ${i.selectedAddons.map(a => `${a.name} (+R$ ${Number(a.price).toFixed(2)})`).join(', ')}`;
       }
       if (i.observation) {
         txt += `\n   Obs: _"${i.observation}"_`;
@@ -283,7 +287,6 @@ export default function DeliveryCliente() {
 
     setIsSubmitting(true);
 
-    // SALVA OS DADOS DO CLIENTE PARA O PRÓXIMO PEDIDO
     if (typeof window !== 'undefined') {
       localStorage.setItem('delivery_client_name', customerName);
       localStorage.setItem('delivery_client_phone', cleanPhone);
@@ -297,7 +300,6 @@ export default function DeliveryCliente() {
       fullAddress = `MESA ${tableNumber || 'Consumo Local'}`;
     }
 
-    // FORMATAÇÃO DO RÓTULO DE PAGAMENTO DE CARTÃO
     let finalPaymentLabel = paymentMethod;
     if (paymentMethod.includes('Cartão')) {
       finalPaymentLabel = cardPaymentType === 'online' 
@@ -333,7 +335,6 @@ export default function DeliveryCliente() {
       window.fbq('track', 'Purchase', { value: total, currency: 'BRL' });
     }
 
-    // 1. GERAÇÃO DE PIX AUTOMÁTICO SE ATIVADO
     if (paymentMethod === 'PIX' && tenant.pix_enabled && tenant.pix_access_token) {
       try {
         const mpRes = await fetch('/api/create-pix', {
@@ -364,7 +365,6 @@ export default function DeliveryCliente() {
       }
     }
 
-    // 2. PAGAMENTO ONLINE DE CARTÃO VIA CHECKOUT PRO (MERCADO PAGO)
     if (paymentMethod.includes('Cartão') && cardPaymentType === 'online' && tenant?.pix_access_token) {
       try {
         const prefRes = await fetch('/api/create-preference', {
@@ -395,7 +395,6 @@ export default function DeliveryCliente() {
       }
     }
 
-    // 3. ENVIO VIA WHATSAPP (MAQUININHA / DINHEIRO / BALCÃO)
     sendWhatsAppNotification(createdOrder.id, false, finalPaymentLabel);
     setIsSubmitting(false);
     setCart([]);
@@ -403,7 +402,6 @@ export default function DeliveryCliente() {
     alert(`Pedido #${createdOrder.id} enviado com sucesso!`);
   };
 
-  // PARSER PROTEGIDO PARA ADICIONAIS (SUPORTA JSON E FORMATAÇÃO TEXTO 'NOME:PREÇO')
   const getProductAddonsArray = (addonsStr) => {
     if (!addonsStr) return [];
 
@@ -427,7 +425,6 @@ export default function DeliveryCliente() {
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando cardápio...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Restaurante não encontrado</h1></div>;
 
-  // VARIÁVEIS DE CORES DINÂMICAS
   const primaryColor = tenant.primary_color || '#FF8C00';
   const btnTextColor = tenant.button_text_color || '#FFFFFF';
   const bgColor = tenant.background_color || tenant.secondary_color || '#090D16';
@@ -445,14 +442,12 @@ export default function DeliveryCliente() {
   return (
     <div className="min-h-screen font-sans pb-28 max-w-md mx-auto transition-colors duration-300 relative" style={{ backgroundColor: bgColor, color: textColor }}>
       
-      {/* BARRA DE AVISOS NO TOPO */}
       {tenant.custom_message && (
         <div className="bg-orange-600 text-white text-[11px] font-bold py-2.5 px-4 text-center shadow flex items-center justify-center space-x-2">
           <span>📢 {tenant.custom_message}</span>
         </div>
       )}
 
-      {/* CAPA & RESTAURANTE */}
       <div className="relative h-36 bg-gray-900 border-b border-white/10">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop&q=80'} alt="Banner" className="w-full h-full object-cover opacity-50" />
         
@@ -477,7 +472,6 @@ export default function DeliveryCliente() {
         </div>
       </div>
 
-      {/* AVISO DE FUNCIONAMENTO DA LOJA */}
       {!isOpen && (
         <div className="mt-7 px-4">
           <div className="bg-red-500/20 border border-red-500/40 text-red-400 p-3 rounded-2xl text-xs text-center font-bold">
@@ -486,7 +480,6 @@ export default function DeliveryCliente() {
         </div>
       )}
 
-      {/* SELO DE MESA ATIVA SE ACESSADO VIA QR CODE */}
       {tableNumber && (
         <div className={`${!isOpen ? 'mt-3' : 'mt-7'} px-4`}>
           <div className="bg-gradient-to-r from-orange-500 to-amber-600 text-white p-3 rounded-2xl shadow-lg flex justify-between items-center text-xs font-bold">
@@ -501,7 +494,6 @@ export default function DeliveryCliente() {
         </div>
       )}
 
-      {/* BANNERS PROMOCIONAIS */}
       {promoBannerList.length > 0 && (
         <div className={`${(tableNumber || !isOpen) ? 'mt-4' : 'mt-8'} px-4`}>
           <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none">
@@ -512,7 +504,6 @@ export default function DeliveryCliente() {
         </div>
       )}
 
-      {/* CATEGORIAS */}
       <div className={`${(promoBannerList.length > 0 || tableNumber || !isOpen) ? 'mt-4' : 'mt-8'} px-4`}>
         <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-none">
           <button
@@ -542,7 +533,6 @@ export default function DeliveryCliente() {
         </div>
       </div>
 
-      {/* LISTA DE PRODUTOS */}
       <div className="mt-4 px-4 space-y-3">
         {filteredProducts.map(p => (
           <div 
@@ -555,7 +545,10 @@ export default function DeliveryCliente() {
               <div>
                 <h3 className="font-bold text-xs" style={{ color: textColor }}>{p.name}</h3>
                 <p className="text-[10px] opacity-60 line-clamp-2">{p.description}</p>
-                <span className="font-bold text-xs block mt-1" style={{ color: primaryColor }}>R$ {Number(p.price).toFixed(2)}</span>
+                <span className="font-bold text-xs block mt-1" style={{ color: primaryColor }}>
+                  R$ {Number(p.price).toFixed(2)}
+                  {p.max_addons > 0 && <span className="text-[10px] opacity-70 font-normal ml-1">(Até {p.max_addons} sabores)</span>}
+                </span>
               </div>
             </div>
 
@@ -566,7 +559,6 @@ export default function DeliveryCliente() {
         ))}
       </div>
 
-      {/* RODAPÉ DO ESTABELECIMENTO */}
       <footer className="mt-12 border-t border-white/10 pt-8 pb-10 px-4 text-center space-y-4">
         <div className="flex flex-col items-center justify-center space-y-2">
           <img
@@ -609,7 +601,6 @@ export default function DeliveryCliente() {
         </div>
       </footer>
 
-      {/* BARRA DO CARRINHO FLUTUANTE */}
       {cart.length > 0 && (
         <div className="fixed bottom-4 left-4 right-4 max-w-md mx-auto z-40">
           <button
@@ -623,7 +614,7 @@ export default function DeliveryCliente() {
         </div>
       )}
 
-      {/* MODAL DE ADICIONAIS DO PRODUTO */}
+      {/* MODAL DE ADICIONAIS / SABORES DO PRODUTO */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -637,7 +628,23 @@ export default function DeliveryCliente() {
 
             {getProductAddonsArray(selectedProduct.addons_list).length > 0 && (
               <div className="space-y-2 pt-2 border-t border-white/10">
-                <label className="text-xs font-bold block opacity-80">➕ Adicionais Opcionais:</label>
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-bold block opacity-80">
+                    {selectedProduct.max_addons > 0 ? '🍕 Escolha os Sabores:' : '➕ Adicionais Opcionais:'}
+                  </label>
+
+                  {/* CONTADOR EM TEMPO REAL PARA O CLIENTE */}
+                  {selectedProduct.max_addons > 0 && (
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      selectedAddons.length === Number(selectedProduct.max_addons)
+                        ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                        : 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                    }`}>
+                      Selecionados: {selectedAddons.length} / {selectedProduct.max_addons}
+                    </span>
+                  )}
+                </div>
+
                 <div className="space-y-1.5 max-h-36 overflow-y-auto">
                   {getProductAddonsArray(selectedProduct.addons_list).map((addon, idx) => {
                     const isChecked = selectedAddons.some(a => a.name === addon.name);
@@ -651,7 +658,9 @@ export default function DeliveryCliente() {
                           <input type="checkbox" checked={isChecked} onChange={() => {}} className="accent-orange-500" />
                           <span>{addon.name}</span>
                         </div>
-                        <span style={{ color: primaryColor }} className="font-bold">+ R$ {Number(addon.price).toFixed(2)}</span>
+                        <span style={{ color: primaryColor }} className="font-bold">
+                          {Number(addon.price) > 0 ? `+ R$ ${Number(addon.price).toFixed(2)}` : 'Grátis'}
+                        </span>
                       </div>
                     );
                   })}
@@ -663,7 +672,7 @@ export default function DeliveryCliente() {
               <label className="text-xs font-bold block opacity-80">📝 Observação do Item:</label>
               <input
                 type="text"
-                placeholder="Ex: Sem salada, bem passado..."
+                placeholder="Ex: Sem cebola, massa fina..."
                 value={itemObservation}
                 onChange={(e) => setItemObservation(e.target.value)}
                 style={{ backgroundColor: bgColor, color: textColor }}
@@ -720,7 +729,6 @@ export default function DeliveryCliente() {
             </div>
 
             <form onSubmit={handleFinishOrder} className="space-y-3 pt-2 border-t border-white/10">
-              {/* TIPO DE ATENDIMENTO */}
               {!tableNumber ? (
                 <div className="flex space-x-2">
                   <button
@@ -806,7 +814,6 @@ export default function DeliveryCliente() {
                 </select>
               </div>
 
-              {/* OPÇÃO DE CARTÃO: NA MAQUININHA OU PAGAR ONLINE */}
               {paymentMethod.includes('Cartão') && (
                 <div style={{ backgroundColor: bgColor }} className="p-2.5 rounded-xl border border-white/10 space-y-2">
                   <label className="text-[11px] font-bold block text-orange-400">💳 Como prefere pagar no Cartão?</label>
