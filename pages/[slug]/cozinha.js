@@ -11,6 +11,7 @@ export default function CozinhaTenant() {
   const [loading, setLoading] = useState(true);
   const [selectedOrderToPrint, setSelectedOrderToPrint] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [filterType, setFilterType] = useState('ALL'); // ALL, DELIVERY, BALCAO, MESA
 
   // ESTADO DE ÁUDIO DE NOTIFICAÇÃO
   const [soundEnabled, setSoundEnabled] = useState(false);
@@ -27,7 +28,7 @@ export default function CozinhaTenant() {
         }
       });
 
-      // Polling de segurança a cada 10s caso a conexão caia
+      // Polling de segurança a cada 10s
       const interval = setInterval(() => {
         if (tenant?.id) fetchOrders(tenant.id, true);
       }, 10000);
@@ -72,7 +73,6 @@ export default function CozinhaTenant() {
     };
   };
 
-  // ATIVAR ÁUDIO PELO CLIQUE DO USUÁRIO (DESBLOQUEIA O NAVEGADOR)
   const enableAudioAlert = () => {
     try {
       if (!audioCtxRef.current) {
@@ -82,7 +82,7 @@ export default function CozinhaTenant() {
         audioCtxRef.current.resume();
       }
       setSoundEnabled(true);
-      playBeepSound(); // Toca um teste rápido
+      playBeepSound();
     } catch (e) {
       console.log("Erro ao ativar áudio: ", e);
     }
@@ -155,29 +155,32 @@ export default function CozinhaTenant() {
     }
   };
 
-  // MENSAGEM DO WHATSAPP ADAPTADA PARA RETIRADA, MESA OU DELIVERY
+  // CÁLCULO DE TEMPO DE ESPERA
+  const getElapsedTime = (createdAt) => {
+    if (!createdAt) return { text: 'Agora', minutes: 0 };
+    const diffMs = Date.now() - new Date(createdAt).getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return { text: 'Agora', minutes: 0 };
+    if (diffMins < 60) return { text: `${diffMins} min`, minutes: diffMins };
+    const hours = Math.floor(diffMins / 60);
+    return { text: `${hours}h ${diffMins % 60}m`, minutes: diffMins };
+  };
+
+  // NOTIFICAÇÃO WHATSAPP
   const sendWhatsAppStatus = (order, msgType) => {
-    if (!order.customer_phone) {
-      alert("Este pedido não possui número de telefone/WhatsApp cadastrado.");
-      return;
-    }
+    if (!order.customer_phone) return alert("Telefone não cadastrado.");
     const cleanPhone = order.customer_phone.replace(/\D/g, '');
-    if (!cleanPhone || cleanPhone === '00000000000') {
-      alert("Número de WhatsApp indisponível para este pedido.");
-      return;
-    }
+    if (!cleanPhone || cleanPhone === '00000000000') return alert("WhatsApp indisponível.");
 
     let msg = '';
     const isDelivery = order.order_type === 'delivery' || (!order.customer_address?.includes('MESA') && !order.customer_address?.includes('Balcão'));
 
     if (msgType === 'producao') {
-      msg = `Olá ${order.customer_name}! 👨‍🍳 Seu pedido #${order.id} no *${tenant.name}* já está sendo preparado!`;
+      msg = `Olá ${order.customer_name}! 👨‍🍳 Seu pedido #${order.id} no *${tenant.name}* já está em preparo!`;
     } else if (msgType === 'entrega') {
-      if (isDelivery) {
-        msg = `Olá ${order.customer_name}! 🛵 Seu pedido #${order.id} no *${tenant.name}* saiu para entrega!`;
-      } else {
-        msg = `Olá ${order.customer_name}! 🛍️ Seu pedido #${order.id} no *${tenant.name}* está PRONTO!`;
-      }
+      msg = isDelivery
+        ? `Olá ${order.customer_name}! 🛵 Seu pedido #${order.id} no *${tenant.name}* saiu para entrega!`
+        : `Olá ${order.customer_name}! 🛍️ Seu pedido #${order.id} no *${tenant.name}* está PRONTO para retirada!`;
     }
 
     window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -185,23 +188,33 @@ export default function CozinhaTenant() {
 
   const handlePrintSingleOrder = (order) => {
     setSelectedOrderToPrint(order);
-    setTimeout(() => {
-      window.print();
-    }, 150);
+    setTimeout(() => { window.print(); }, 150);
   };
 
   if (loading) return <div className="p-4 text-white text-center font-sans">Carregando Cozinha...</div>;
   if (!tenant) return <div className="p-4 text-white text-center font-sans">Restaurante não encontrado.</div>;
 
-  // DIVISÃO DOS PEDIDOS EM 3 COLUNAS KANBAN
-  const activeOrders = orders.filter(o => !o.archived && o.status !== 'arquivado');
+  // FILTRAGEM POR TIPO DE PEDIDO
+  const filterFn = (o) => {
+    const fullAddr = (o.customer_address || o.address || '').toUpperCase();
+    const isTable = fullAddr.includes('MESA') || o.table_number || o.order_type === 'MESA' || o.order_type === 'mesa';
+    const isBalcao = fullAddr.includes('BALCÃO') || fullAddr.includes('RETIRADA') || o.order_type === 'retirada';
+    const isDelivery = !isTable && !isBalcao;
+
+    if (filterType === 'DELIVERY') return isDelivery;
+    if (filterType === 'BALCAO') return isBalcao;
+    if (filterType === 'MESA') return isTable;
+    return true;
+  };
+
+  const activeOrders = orders.filter(o => !o.archived && o.status !== 'arquivado').filter(filterFn);
   const recebidosOrders = activeOrders.filter(o => !o.status || o.status === 'recebido' || o.status === 'pendente' || o.status === 'novo');
   const producaoOrders = activeOrders.filter(o => o.status === 'em_producao' || o.status === 'em_preparo');
   const entregaOrders = activeOrders.filter(o => o.status === 'saiu_entrega' || o.status === 'pronto' || o.status === 'entregue' || o.status === 'concluido');
 
   const archivedOrders = orders.filter(o => o.archived === true || o.status === 'arquivado');
 
-  // COMPONENTE DO CARD DE PEDIDO
+  // COMPONENTE DO CARD DO PEDIDO (ALTO CONTRASTE KDS + MOTOBOY)
   const renderOrderCard = (order) => {
     const payMethodUpper = (order.payment_method || '').toUpperCase();
     const isPix = payMethodUpper.includes('PIX');
@@ -211,101 +224,161 @@ export default function CozinhaTenant() {
 
     const fullAddr = order.customer_address || order.address || '';
     const isTable = fullAddr.toUpperCase().includes('MESA') || order.table_number || order.order_type === 'MESA' || order.order_type === 'mesa';
-    const isDelivery = !isTable && !fullAddr.toUpperCase().includes('BALCÃO');
+    const isBalcao = fullAddr.toUpperCase().includes('BALCÃO') || fullAddr.toUpperCase().includes('RETIRADA') || order.order_type === 'retirada';
+    const isDelivery = !isTable && !isBalcao;
+
+    const elapsed = getElapsedTime(order.created_at);
+    const isDelayed = elapsed.minutes >= 20;
+
+    const mapsQuery = encodeURIComponent(`${fullAddr}, ${order.neighborhood || ''}`);
+    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
 
     return (
-      <div key={order.id} className={`bg-gray-900 border ${isTable ? 'border-orange-500/80 bg-orange-500/5' : 'border-gray-800'} p-3.5 rounded-2xl space-y-2.5 shadow-lg`}>
-        <div className="flex justify-between items-start border-b border-gray-800 pb-2">
+      <div key={order.id} className={`bg-gray-900 border-2 ${
+        isTable ? 'border-orange-500 bg-orange-950/20' : 
+        isDelayed ? 'border-red-500 animate-pulse' : 'border-gray-800'
+      } p-4 rounded-2xl space-y-3 shadow-2xl relative`}>
+
+        {/* CABEÇALHO DO CARD */}
+        <div className="flex justify-between items-start border-b border-gray-800 pb-2.5">
           <div>
-            <span className="font-bold text-xs text-orange-400">PEDIDO #{order.id}</span>
-            <h3 className="font-bold text-xs text-white">{order.customer_name || 'Cliente'}</h3>
-            {order.customer_phone && <p className="text-[11px] text-gray-400">📱 {order.customer_phone}</p>}
+            <div className="flex items-center space-x-2">
+              <span className="font-black text-sm text-orange-400">#PEDIDO {order.id}</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                isDelayed ? 'bg-red-600 text-white' : 'bg-gray-800 text-gray-300'
+              }`}>
+                ⏱️ {elapsed.text}
+              </span>
+            </div>
+            <h3 className="font-bold text-base text-white mt-0.5">{order.customer_name || 'Cliente'}</h3>
+            {order.customer_phone && (
+              <a href={`tel:${order.customer_phone}`} className="text-xs text-blue-400 font-bold hover:underline block mt-0.5">
+                📱 {order.customer_phone}
+              </a>
+            )}
           </div>
 
-          {isTable && (
-            <span className="bg-orange-500 text-white font-extrabold text-[11px] px-2.5 py-1 rounded-lg animate-pulse shadow">
-              🪑 {fullAddr || `MESA ${order.table_number}`}
-            </span>
-          )}
-        </div>
-
-        <div className="text-[11px] text-gray-300 bg-gray-800/50 p-2 rounded-xl border border-gray-800 space-y-1">
-          {isTable ? (
-            <p className="font-bold text-orange-400">📍 Consumo Local: {fullAddr}</p>
-          ) : isDelivery ? (
-            <>
-              <p><b>Tipo:</b> 🛵 Entrega</p>
-              {order.neighborhood && <p><b>Bairro:</b> {order.neighborhood}</p>}
-              <p><b>End:</b> {fullAddr}</p>
-              {order.reference && <p className="text-gray-400"><b>Ref:</b> {order.reference}</p>}
-            </>
-          ) : (
-            <p><b>Tipo:</b> 🛍️ Retirada No Balcão</p>
-          )}
-
-          {/* RECONHECIMENTO DE PAGAMENTOS EM TEMPO REAL */}
-          <div className="pt-1 flex justify-between items-center border-t border-gray-700/50">
-            {isPix ? (
-              <div className="flex items-center justify-between w-full">
-                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                  order.is_paid ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                }`}>
-                  {order.is_paid ? '🟢 PIX Confirmado (Baixa Aut.)' : '🟡 PIX Pendente'}
-                </span>
-                <button 
-                  onClick={() => togglePaymentStatus(order.id, order.is_paid)}
-                  className="text-[10px] bg-gray-700 px-1.5 py-0.5 rounded text-gray-200 font-bold border border-gray-600 hover:bg-gray-600">
-                  {order.is_paid ? 'Desmarcar' : '✅ Validar'}
-                </button>
-              </div>
-            ) : isCardOnline ? (
-              <div className="flex items-center justify-between w-full">
-                <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
-                  🟢 Cartão Pago Online (Site)
-                </span>
-              </div>
-            ) : isCardMachine ? (
-              <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
-                💳 Cartão (Levar Maquininha)
+          {/* BADGE DE LOCAL / TIPO */}
+          <div className="text-right">
+            {isTable ? (
+              <span className="bg-orange-500 text-white font-black text-xs px-3 py-1 rounded-xl shadow block">
+                🪑 {fullAddr || `MESA ${order.table_number}`}
               </span>
-            ) : isMoney ? (
-              <span className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
-                💵 Dinheiro {order.change_for ? `(Troco p/ R$ ${order.change_for})` : ''}
+            ) : isDelivery ? (
+              <span className="bg-purple-600 text-white font-black text-xs px-3 py-1 rounded-xl shadow block">
+                🛵 DELIVERY
               </span>
             ) : (
-              <span className="bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
-                💳 {order.payment_method || 'Pagar no Balcão'}
+              <span className="bg-blue-600 text-white font-black text-xs px-3 py-1 rounded-xl shadow block">
+                🛍️ BALCÃO
               </span>
             )}
           </div>
         </div>
 
-        {/* ITENS */}
-        <div className="space-y-1.5 border-t border-b border-gray-800 py-1.5">
+        {/* BLOCO DE ENDEREÇO & NAVEGAÇÃO PARA MOTOBOY */}
+        {isDelivery && (
+          <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 text-xs space-y-1">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-gray-200 font-bold">📍 {fullAddr}</p>
+                {order.neighborhood && <p className="text-gray-400"><b>Bairro:</b> {order.neighborhood}</p>}
+                {order.reference && <p className="text-orange-300 italic"><b>Ref:</b> {order.reference}</p>}
+              </div>
+
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-green-600/20 hover:bg-green-600/40 text-green-400 font-bold border border-green-500/30 px-2.5 py-1.5 rounded-lg text-[10px] flex items-center space-x-1 shrink-0 ml-2">
+                <span>🗺️ Maps</span>
+              </a>
+            </div>
+          </div>
+        )}
+
+        {/* BLOCO DE COBRANÇA E PAGAMENTO (MOTOBOY / CAIXA) */}
+        <div className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs">
+          <div className="flex justify-between items-center">
+            <span className="text-gray-400 font-bold text-[11px]">Pagamento:</span>
+            
+            {order.is_paid || isCardOnline ? (
+              <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2.5 py-1 rounded-lg font-extrabold text-[11px]">
+                🟢 PAGO ({order.payment_method || 'Online'})
+              </span>
+            ) : (
+              <span className="bg-red-500/20 text-red-400 border border-red-500/30 px-2.5 py-1 rounded-lg font-extrabold text-[11px] animate-pulse">
+                🔴 COBRAR NA ENTREGA
+              </span>
+            )}
+          </div>
+
+          {!order.is_paid && !isCardOnline && (
+            <div className="mt-2 pt-2 border-t border-gray-800/80 flex justify-between items-center text-[11px]">
+              <span className="text-gray-300 font-bold">
+                {isMoney ? `💵 Dinheiro ${order.change_for ? `(Troco p/ R$ ${order.change_for})` : ''}` : `💳 ${order.payment_method}`}
+              </span>
+
+              <button
+                onClick={() => togglePaymentStatus(order.id, order.is_paid)}
+                className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-200 px-2 py-1 rounded-lg font-bold border border-gray-700">
+                ✅ Marcar Pago
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* LISTA DE ITENS DA COZINHA (ALTO CONTRASTE) */}
+        <div className="space-y-2 border-t border-b border-gray-800 py-2.5">
+          <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider block">Itens para Preparo:</span>
+
           {order.items && Array.isArray(order.items) && order.items.map((it, idx) => (
-            <div key={idx} className="text-[11px] bg-gray-950/40 p-1.5 rounded-lg border border-gray-800/60">
-              <span className="font-bold text-white">{it.quantity}x {it.name}</span>
-              {it.details && <p className="text-[10px] text-orange-300 italic pl-2">{it.details}</p>}
-              {it.selectedAddons && it.selectedAddons.length > 0 && (
-                <p className="text-[10px] text-gray-400 pl-2">+ {it.selectedAddons.map(a => a.name).join(', ')}</p>
+            <div key={idx} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 space-y-1">
+              <div className="flex items-start justify-between">
+                <span className="font-black text-sm text-white">
+                  <span className="text-orange-400 bg-orange-500/20 border border-orange-500/40 px-1.5 py-0.5 rounded-md mr-1.5">{it.quantity}x</span> 
+                  {it.name}
+                </span>
+              </div>
+
+              {/* SABORES OU DETALHES DE PIZZA */}
+              {it.details && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 font-bold text-xs p-1.5 rounded-lg mt-1">
+                  🍕 {it.details}
+                </div>
               )}
+
+              {/* ADICIONAIS / EXTRAS */}
+              {it.selectedAddons && it.selectedAddons.length > 0 && (
+                <p className="text-xs text-purple-300 font-bold pl-1 mt-0.5">
+                  ➕ {it.selectedAddons.map(a => a.name).join(', ')}
+                </p>
+              )}
+
+              {/* OBSERVAÇÃO DESTACADA */}
               {it.observation && (
-                <p className="text-[10px] text-orange-400 italic pl-2">Obs: "{it.observation}"</p>
+                <div className="bg-red-500/20 border border-red-500/40 text-red-300 font-extrabold text-xs p-1.5 rounded-lg mt-1 flex items-center space-x-1">
+                  <span>⚠️ OBS:</span>
+                  <span>"{it.observation}"</span>
+                </div>
               )}
             </div>
           ))}
         </div>
 
-        <div className="flex justify-between items-center text-xs font-bold">
-          <span>TOTAL:</span>
-          <span className="text-green-400">R$ {Number(order.total || 0).toFixed(2)}</span>
+        {/* VALOR TOTAL E AÇÕES */}
+        <div className="flex justify-between items-center font-black text-sm pt-1">
+          <span className="text-gray-400">TOTAL DO PEDIDO:</span>
+          <span className="text-green-400 text-base">R$ {Number(order.total || 0).toFixed(2)}</span>
         </div>
 
-        {/* BOTÕES DE AÇÃO DO KANBAN */}
-        <div className="space-y-1.5 pt-1">
-          <div className="flex space-x-1 text-[10px] font-bold">
+        {/* BOTÕES DE NAVEGAÇÃO DO KANBAN */}
+        <div className="space-y-2 pt-1">
+          <div className="flex space-x-1.5 text-xs font-bold">
             {(!order.status || order.status === 'recebido' || order.status === 'pendente' || order.status === 'novo') && (
-              <button onClick={() => { updateOrderStatus(order.id, 'em_producao'); sendWhatsAppStatus(order, 'producao'); }} className="flex-1 bg-blue-600 hover:bg-blue-700 py-1.5 rounded-lg text-white">
+              <button 
+                onClick={() => { updateOrderStatus(order.id, 'em_producao'); sendWhatsAppStatus(order, 'producao'); }} 
+                className="flex-1 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-xl text-white shadow font-extrabold text-xs">
                 👨‍🍳 Mover p/ Produção ➔
               </button>
             )}
@@ -313,24 +386,28 @@ export default function CozinhaTenant() {
             {(order.status === 'em_producao' || order.status === 'em_preparo') && (
               <button 
                 onClick={() => { updateOrderStatus(order.id, 'saiu_entrega'); sendWhatsAppStatus(order, 'entrega'); }} 
-                className={`flex-1 py-1.5 rounded-lg text-white transition ${isTable ? 'bg-orange-600 hover:bg-orange-700' : isDelivery ? 'bg-purple-600 hover:bg-purple-700' : 'bg-orange-600 hover:bg-orange-700'}`}>
-                {isTable ? '🪑 Servir na Mesa ➔' : isDelivery ? '🛵 Mover p/ Entrega ➔' : '🛍️ Pronto p/ Retirada ➔'}
+                className={`flex-1 py-2.5 rounded-xl text-white shadow font-extrabold text-xs transition ${
+                  isTable ? 'bg-orange-600 hover:bg-orange-700' : isDelivery ? 'bg-purple-600 hover:bg-purple-700' : 'bg-blue-600 hover:bg-blue-700'
+                }`}>
+                {isTable ? '🪑 Servir na Mesa ➔' : isDelivery ? '🛵 Saiu p/ Entrega ➔' : '🛍️ Pronto p/ Retirada ➔'}
               </button>
             )}
 
             {(order.status === 'saiu_entrega' || order.status === 'pronto' || order.status === 'entregue' || order.status === 'concluido') && (
-              <button onClick={() => archiveOrder(order.id)} className="flex-1 bg-green-600 hover:bg-green-700 py-1.5 rounded-lg text-white">
+              <button 
+                onClick={() => archiveOrder(order.id)} 
+                className="flex-1 bg-green-600 hover:bg-green-700 py-2.5 rounded-xl text-white shadow font-extrabold text-xs">
                 ✅ Concluir & Arquivar
               </button>
             )}
 
-            <button onClick={() => archiveOrder(order.id)} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1.5 rounded-lg border border-gray-700">
+            <button onClick={() => archiveOrder(order.id)} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-2.5 rounded-xl border border-gray-700 font-bold">
               📦
             </button>
           </div>
 
-          <button onClick={() => handlePrintSingleOrder(order)} className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 py-1.5 rounded-lg text-[10px] font-bold text-gray-300">
-            🛈 Imprimir
+          <button onClick={() => handlePrintSingleOrder(order)} className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 py-2 rounded-xl text-xs font-bold text-gray-300 transition">
+            🛈 Imprimir Comprovante
           </button>
         </div>
       </div>
@@ -338,7 +415,7 @@ export default function CozinhaTenant() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-4 font-sans max-w-7xl mx-auto pb-12">
+    <div className="min-h-screen bg-gray-950 text-white p-4 sm:p-6 font-sans max-w-7xl mx-auto pb-12">
       <style jsx global>{`
         @media print {
           body * { visibility: hidden !important; }
@@ -372,7 +449,7 @@ export default function CozinhaTenant() {
             <p><b>LOCAL/TIPO:</b> {selectedOrderToPrint.customer_address || selectedOrderToPrint.address || (selectedOrderToPrint.order_type === 'delivery' ? 'ENTREGA' : 'RETIRADA')}</p>
             {selectedOrderToPrint.neighborhood && <p><b>BAIRRO:</b> {selectedOrderToPrint.neighborhood}</p>}
             {selectedOrderToPrint.reference && <p><b>REF:</b> {selectedOrderToPrint.reference}</p>}
-            <p><b>PAGAMENTO:</b> {selectedOrderToPrint.payment_method} ({selectedOrderToPrint.is_paid ? 'PAGO' : 'PENDENTE'})</p>
+            <p><b>PAGAMENTO:</b> {selectedOrderToPrint.payment_method} ({selectedOrderToPrint.is_paid ? 'PAGO' : 'COBRAR NA ENTREGA'})</p>
           </div>
 
           <div className="border-b border-black pb-2 mb-2">
@@ -396,14 +473,15 @@ export default function CozinhaTenant() {
         </div>
       )}
 
-      {/* CABEÇALHO DA COZINHA */}
-      <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6 no-print flex-wrap gap-2">
+      {/* CABEÇALHO KDS DA COZINHA */}
+      <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6 no-print flex-wrap gap-3">
         <div>
-          <h1 className="font-bold text-xl text-orange-500">👨‍🍳 Painel Kanban — {tenant.name}</h1>
+          <h1 className="font-extrabold text-xl sm:text-2xl text-orange-500">👨‍🍳 Painel KDS Cozinha — {tenant.name}</h1>
           <p className="text-xs text-gray-400">Notificação em tempo real ativa ⚡</p>
         </div>
-        <div className="flex space-x-2 items-center">
-          {/* BOTÃO PARA DESBLOQUEAR ÁUDIO */}
+
+        <div className="flex space-x-2 items-center flex-wrap gap-2">
+          {/* BOTÃO SOM */}
           <button
             onClick={enableAudioAlert}
             className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${
@@ -420,11 +498,21 @@ export default function CozinhaTenant() {
             {showArchived ? '📋 Voltar ao Kanban' : `📦 Arquivados (${archivedOrders.length})`}
           </button>
           
-          <button onClick={() => fetchOrders(tenant.id)} className="bg-orange-500 hover:bg-orange-600 px-3 py-2 rounded-xl text-xs font-bold transition">
+          <button onClick={() => fetchOrders(tenant.id)} className="bg-orange-500 hover:bg-orange-600 px-3.5 py-2 rounded-xl text-xs font-bold transition">
             🔄
           </button>
         </div>
       </header>
+
+      {/* FILTROS POR TIPO DE PEDIDO */}
+      {!showArchived && (
+        <div className="flex space-x-2 mb-6 no-print overflow-x-auto text-xs font-bold">
+          <button onClick={() => setFilterType('ALL')} className={`px-4 py-2 rounded-xl border transition ${filterType === 'ALL' ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-white'}`}>Todos os Pedidos</button>
+          <button onClick={() => setFilterType('DELIVERY')} className={`px-4 py-2 rounded-xl border transition ${filterType === 'DELIVERY' ? 'bg-purple-600 text-white border-purple-600' : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-white'}`}>🛵 Delivery</button>
+          <button onClick={() => setFilterType('BALCAO')} className={`px-4 py-2 rounded-xl border transition ${filterType === 'BALCAO' ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-white'}`}>🛍️ Retirada Balcão</button>
+          <button onClick={() => setFilterType('MESA')} className={`px-4 py-2 rounded-xl border transition ${filterType === 'MESA' ? 'bg-orange-600 text-white border-orange-600' : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-white'}`}>🪑 Consumo em Mesa</button>
+        </div>
+      )}
 
       {/* VISUALIZAÇÃO DOS ARQUIVADOS OU KANBAN */}
       {showArchived ? (
@@ -432,7 +520,7 @@ export default function CozinhaTenant() {
           <div className="flex justify-between items-center bg-gray-900 p-4 rounded-2xl border border-gray-800">
             <div>
               <h3 className="font-bold text-sm text-gray-200">📦 Histórico de Pedidos Arquivados</h3>
-              <p className="text-xs text-gray-400">Total: {archivedOrders.length} pedidos arquivados nesta sessão.</p>
+              <p className="text-xs text-gray-400">Total: {archivedOrders.length} pedidos arquivados.</p>
             </div>
             {archivedOrders.length > 0 && (
               <button 
@@ -443,21 +531,21 @@ export default function CozinhaTenant() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {archivedOrders.map(order => renderOrderCard(order))}
           </div>
         </div>
       ) : (
         /* KANBAN EM 3 COLUNAS */
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 no-print">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 no-print">
           {/* COLUNA 1: RECEBIDOS */}
-          <div className="bg-gray-900/60 p-3 rounded-2xl border border-yellow-500/30 space-y-3">
-            <div className="flex justify-between items-center border-b border-yellow-500/30 pb-2">
-              <h2 className="font-bold text-xs text-yellow-400 uppercase tracking-wider">🟡 1. RECEBIDOS ({recebidosOrders.length})</h2>
+          <div className="bg-gray-900/60 p-4 rounded-2xl border border-yellow-500/30 space-y-4">
+            <div className="flex justify-between items-center border-b border-yellow-500/30 pb-3">
+              <h2 className="font-extrabold text-xs text-yellow-400 uppercase tracking-wider">🟡 1. RECEBIDOS ({recebidosOrders.length})</h2>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {recebidosOrders.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-4">Sem novos pedidos</p>
+                <p className="text-xs text-gray-500 text-center py-6">Sem novos pedidos</p>
               ) : (
                 recebidosOrders.map(order => renderOrderCard(order))
               )}
@@ -465,27 +553,27 @@ export default function CozinhaTenant() {
           </div>
 
           {/* COLUNA 2: EM PRODUÇÃO */}
-          <div className="bg-gray-900/60 p-3 rounded-2xl border border-blue-500/30 space-y-3">
-            <div className="flex justify-between items-center border-b border-blue-500/30 pb-2">
-              <h2 className="font-bold text-xs text-blue-400 uppercase tracking-wider">👨‍🍳 2. EM PRODUÇÃO ({producaoOrders.length})</h2>
+          <div className="bg-gray-900/60 p-4 rounded-2xl border border-blue-500/30 space-y-4">
+            <div className="flex justify-between items-center border-b border-blue-500/30 pb-3">
+              <h2 className="font-extrabold text-xs text-blue-400 uppercase tracking-wider">👨‍🍳 2. EM PRODUÇÃO ({producaoOrders.length})</h2>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {producaoOrders.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-4">Nenhum item em preparo</p>
+                <p className="text-xs text-gray-500 text-center py-6">Nenhum item em preparo</p>
               ) : (
                 producaoOrders.map(order => renderOrderCard(order))
               )}
             </div>
           </div>
 
-          {/* COLUNA 3: SAIU PARA ENTREGA / PRONTO */}
-          <div className="bg-gray-900/60 p-3 rounded-2xl border border-purple-500/30 space-y-3">
-            <div className="flex justify-between items-center border-b border-purple-500/30 pb-2">
-              <h2 className="font-bold text-xs text-purple-400 uppercase tracking-wider">🛵 3. ENTREGA / PRONTO ({entregaOrders.length})</h2>
+          {/* COLUNA 3: ENTREGA / PRONTO */}
+          <div className="bg-gray-900/60 p-4 rounded-2xl border border-purple-500/30 space-y-4">
+            <div className="flex justify-between items-center border-b border-purple-500/30 pb-3">
+              <h2 className="font-extrabold text-xs text-purple-400 uppercase tracking-wider">🛵 3. ENTREGA / PRONTO ({entregaOrders.length})</h2>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {entregaOrders.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-4">Nenhum pedido a caminho ou pronto</p>
+                <p className="text-xs text-gray-500 text-center py-6">Nenhum pedido a caminho ou pronto</p>
               ) : (
                 entregaOrders.map(order => renderOrderCard(order))
               )}
