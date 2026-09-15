@@ -443,7 +443,7 @@ export default function DeliveryCliente() {
   const isOpen = isStoreOpen();
 
   return (
-    <div className="min-h-screen font-sans pb-24 max-w-md mx-auto transition-colors duration-300" style={{ backgroundColor: bgColor, color: textColor }}>
+    <div className="min-h-screen font-sans pb-28 max-w-md mx-auto transition-colors duration-300 relative" style={{ backgroundColor: bgColor, color: textColor }}>
       
       {/* BARRA DE AVISOS NO TOPO */}
       {tenant.custom_message && (
@@ -565,6 +565,49 @@ export default function DeliveryCliente() {
           </div>
         ))}
       </div>
+
+      {/* RODAPÉ DO ESTABELECIMENTO */}
+      <footer className="mt-12 border-t border-white/10 pt-8 pb-10 px-4 text-center space-y-4">
+        <div className="flex flex-col items-center justify-center space-y-2">
+          <img
+            src={tenant.logo_url || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'}
+            alt={tenant.name}
+            className="w-12 h-12 rounded-full border border-white/10 object-cover bg-gray-800 shadow"
+          />
+          <h3 className="font-bold text-sm" style={{ color: textColor }}>{tenant.name}</h3>
+          {tenant.opening_time && tenant.closing_time && (
+            <p className="text-[11px] opacity-70">
+              🕒 Horário: {tenant.opening_time} às {tenant.closing_time}
+            </p>
+          )}
+        </div>
+
+        <div className="flex justify-center items-center space-x-4 text-xs font-bold pt-1">
+          {tenant.whatsapp && (
+            <a
+              href={`https://wa.me/${tenant.whatsapp.replace(/\D/g, '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-green-500 hover:underline flex items-center space-x-1">
+              <span>💬 Contato WhatsApp</span>
+            </a>
+          )}
+          {tenant.instagram_url && (
+            <a
+              href={tenant.instagram_url.startsWith('http') ? tenant.instagram_url : `https://${tenant.instagram_url}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-pink-400 hover:underline flex items-center space-x-1">
+              <span>📸 Instagram</span>
+            </a>
+          )}
+        </div>
+
+        <div className="text-[10px] opacity-40 border-t border-white/5 pt-4 space-y-1">
+          <p>© {new Date().getFullYear()} {tenant.name}. Todos os direitos reservados.</p>
+          <p>Plataforma Desenvolvida com ⚡ Sinerge MKT</p>
+        </div>
+      </footer>
 
       {/* BARRA DO CARRINHO FLUTUANTE */}
       {cart.length > 0 && (
