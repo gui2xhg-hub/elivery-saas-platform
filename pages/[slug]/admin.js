@@ -54,7 +54,20 @@ export default function AdminTenant() {
     '📌 Outros'
   ];
 
-  const [newProd, setNewProd] = useState({ name: '', price: '', category_id: '', description: '', image: '', addons_list: '', max_addons: 0, borders_list: '' });
+  const INITIAL_PROD_STATE = {
+    name: '',
+    price: '',
+    category_id: '',
+    description: '',
+    image: '',
+    addons_list: '',
+    max_addons: 0,
+    borders_list: '',
+    is_combo: false,
+    combo_steps: []
+  };
+
+  const [newProd, setNewProd] = useState(INITIAL_PROD_STATE);
   const [editingProduct, setEditingProduct] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
   const [editingAddon, setEditingAddon] = useState(null);
@@ -123,6 +136,36 @@ export default function AdminTenant() {
       return arr.filter(d => d !== dayId);
     } else {
       return [...arr, dayId].sort();
+    }
+  };
+
+  // GERENCIAMENTO DE ETAPAS DE COMBO
+  const addComboStep = (mode) => {
+    const defaultStep = { title: '', category_type: ADDON_TYPES[0], max: 1 };
+    if (mode === 'new') {
+      setNewProd(prev => ({ ...prev, combo_steps: [...(prev.combo_steps || []), defaultStep] }));
+    } else {
+      setEditingProduct(prev => ({ ...prev, combo_steps: [...(prev.combo_steps || []), defaultStep] }));
+    }
+  };
+
+  const removeComboStep = (index, mode) => {
+    if (mode === 'new') {
+      setNewProd(prev => ({ ...prev, combo_steps: prev.combo_steps.filter((_, i) => i !== index) }));
+    } else {
+      setEditingProduct(prev => ({ ...prev, combo_steps: prev.combo_steps.filter((_, i) => i !== index) }));
+    }
+  };
+
+  const updateComboStep = (index, field, value, mode) => {
+    if (mode === 'new') {
+      const steps = [...(newProd.combo_steps || [])];
+      steps[index] = { ...steps[index], [field]: value };
+      setNewProd(prev => ({ ...prev, combo_steps: steps }));
+    } else {
+      const steps = [...(editingProduct.combo_steps || [])];
+      steps[index] = { ...steps[index], [field]: value };
+      setEditingProduct(prev => ({ ...prev, combo_steps: steps }));
     }
   };
 
@@ -198,7 +241,7 @@ export default function AdminTenant() {
     e.preventDefault();
     if (!newProd.name || !newProd.price) return alert("Preencha nome e preço!");
     const formattedPrice = parsePrice(newProd.price);
-    
+
     const { error } = await supabase.from('products').insert([{
       tenant_id: tenant.id,
       category_id: parseInt(newProd.category_id || categories[0]?.id),
@@ -209,12 +252,14 @@ export default function AdminTenant() {
       active: true,
       addons_list: newProd.addons_list,
       max_addons: parseInt(newProd.max_addons || 0),
-      borders_list: newProd.borders_list || ''
+      borders_list: newProd.borders_list || '',
+      is_combo: newProd.is_combo,
+      combo_steps: newProd.combo_steps || []
     }]);
 
     if (error) return alert("Erro ao cadastrar produto: " + error.message);
 
-    setNewProd({ name: '', price: '', category_id: categories[0]?.id || '', description: '', image: '', addons_list: '', max_addons: 0, borders_list: '' });
+    setNewProd({ ...INITIAL_PROD_STATE, category_id: categories[0]?.id || '' });
     fetchData();
   };
 
@@ -230,7 +275,9 @@ export default function AdminTenant() {
       image: editingProduct.image,
       addons_list: editingProduct.addons_list,
       max_addons: parseInt(editingProduct.max_addons || 0),
-      borders_list: editingProduct.borders_list || ''
+      borders_list: editingProduct.borders_list || '',
+      is_combo: editingProduct.is_combo || false,
+      combo_steps: editingProduct.combo_steps || []
     }).eq('id', editingProduct.id);
 
     if (error) return alert("Erro ao atualizar produto: " + error.message);
@@ -245,8 +292,8 @@ export default function AdminTenant() {
     const formattedPrice = parsePrice(newAddon.price);
 
     const payload = {
-      tenant_id: tenant.id, 
-      name: newAddon.name.trim(), 
+      tenant_id: tenant.id,
+      name: newAddon.name.trim(),
       price: formattedPrice,
       description: newAddon.description ? newAddon.description.trim() : '',
       category_type: newAddon.category_type || '🍕 Sabor de Pizza'
@@ -267,8 +314,8 @@ export default function AdminTenant() {
     e.preventDefault();
     const formattedPrice = parsePrice(editingAddon.price);
 
-    const { error } = await supabase.from('global_addons').update({ 
-      name: editingAddon.name.trim(), 
+    const { error } = await supabase.from('global_addons').update({
+      name: editingAddon.name.trim(),
       price: formattedPrice,
       description: editingAddon.description || '',
       category_type: editingAddon.category_type || '🍕 Sabor de Pizza'
@@ -373,7 +420,7 @@ export default function AdminTenant() {
     allOrders.forEach(order => {
       const rawPhone = order.customer_phone ? order.customer_phone.replace(/\D/g, '') : '';
       const key = rawPhone || order.customer_name?.toLowerCase().trim() || 'anonimo';
-      
+
       if (!customerMap[key]) {
         customerMap[key] = {
           name: order.customer_name || 'Cliente Sem Nome',
@@ -490,11 +537,11 @@ export default function AdminTenant() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
           {/* CADASTRO */}
           <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4 h-fit">
-            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Lanche / Item / Pizza</h3>
+            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Lanche / Item / Pizza / Combo</h3>
             <form onSubmit={handleAddProduct} className="space-y-3">
-              <input type="text" placeholder="Nome do Produto (Ex: X-Salada Especial ou Pizza Gigante)" value={newProd.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} />
-              <input type="text" placeholder="Descrição curta (Ex: Pão, Hambúrguer 150g, Queijo, Salada)" value={newProd.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, description: e.target.value })} />
-              
+              <input type="text" placeholder="Nome do Produto (Ex: X-Salada, Combo Família ou Pizza Gigante)" value={newProd.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} />
+              <input type="text" placeholder="Descrição curta (Ex: Pizza 60cm + Broto 20cm + Refri 2L)" value={newProd.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, description: e.target.value })} />
+
               <div className="grid grid-cols-2 gap-2">
                 <input type="text" placeholder="Preço R$" value={newProd.price} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, price: e.target.value })} />
                 <select value={newProd.category_id} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, category_id: e.target.value })}>
@@ -502,31 +549,107 @@ export default function AdminTenant() {
                 </select>
               </div>
 
-              {/* OPÇÕES ADICIONAIS PARA PIZZARIAS */}
-              <div className="bg-gray-950 p-3.5 rounded-xl border border-gray-800 space-y-2">
-                <span className="text-xs font-bold text-orange-400 block">🍕 Opções de Pizzaria (Opcional)</span>
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Limite Máximo de Sabores Escolhidos:</label>
-                  <input 
-                    type="number" 
-                    min="0"
-                    placeholder="0 = Ilimitado (Lanches). Ex: 2, 3 ou 4 para Pizzas" 
-                    value={newProd.max_addons} 
-                    className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none font-bold" 
-                    onChange={(e) => setNewProd({ ...newProd, max_addons: e.target.value })} 
+              {/* OPÇÃO DE COMBO / ESTRUTURA EM ETAPAS */}
+              <div className="bg-gray-950 p-3.5 rounded-xl border border-purple-500/30 space-y-3">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newProd.is_combo}
+                    onChange={(e) => setNewProd({ ...newProd, is_combo: e.target.checked })}
+                    className="w-4 h-4 accent-purple-500 rounded cursor-pointer"
                   />
-                </div>
+                  <span className="text-xs font-bold text-purple-400">🎁 Este produto é um Combo em Etapas?</span>
+                </label>
 
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Bordas Disponíveis (Opcional):</label>
-                  <input 
-                    type="text" 
-                    placeholder="Ex: Sem Borda:0, Catupiry:8.00, Cheddar:8.00" 
-                    value={newProd.borders_list} 
-                    className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" 
-                    onChange={(e) => setNewProd({ ...newProd, borders_list: e.target.value })} 
-                  />
-                </div>
+                {newProd.is_combo ? (
+                  <div className="space-y-2.5 pt-1">
+                    <span className="text-[11px] text-gray-400 block font-semibold">
+                      Configure as etapas do combo (ex: 1º Escolha os Sabores, 2º Escolha o Refri):
+                    </span>
+
+                    {(newProd.combo_steps || []).map((step, idx) => (
+                      <div key={idx} className="bg-gray-900 p-2.5 rounded-xl border border-gray-800 space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-orange-400">Etapa #{idx + 1}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeComboStep(idx, 'new')}
+                            className="text-[10px] text-red-400 hover:text-red-300 font-bold bg-red-500/10 px-2 py-0.5 rounded"
+                          >
+                            Remover
+                          </button>
+                        </div>
+
+                        <input
+                          type="text"
+                          placeholder="Título da Etapa (Ex: Escolha 1 Sabor Doce)"
+                          value={step.title}
+                          onChange={(e) => updateComboStep(idx, 'title', e.target.value, 'new')}
+                          className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none"
+                        />
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[9px] text-gray-400 block mb-0.5">Grupo do Item:</label>
+                            <select
+                              value={step.category_type}
+                              onChange={(e) => updateComboStep(idx, 'category_type', e.target.value, 'new')}
+                              className="w-full bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-[11px] text-white focus:outline-none"
+                            >
+                              {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-[9px] text-gray-400 block mb-0.5">Qtd Máxima:</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={step.max}
+                              onChange={(e) => updateComboStep(idx, 'max', parseInt(e.target.value) || 1, 'new')}
+                              className="w-full bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-[11px] text-white focus:outline-none font-bold"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    <button
+                      type="button"
+                      onClick={() => addComboStep('new')}
+                      className="w-full bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1"
+                    >
+                      <span>➕ Adicionar Etapa ao Combo</span>
+                    </button>
+                  </div>
+                ) : (
+                  /* OPÇÕES DE PIZZARIA PADRÃO (SEM COMBO) */
+                  <div className="space-y-2 pt-1 border-t border-gray-800">
+                    <span className="text-xs font-bold text-orange-400 block">🍕 Opções de Pizza Comum (Opcional)</span>
+                    <div>
+                      <label className="text-[11px] text-gray-400 block mb-1">Limite Máximo de Sabores Escolhidos:</label>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="0 = Ilimitado (Lanches). Ex: 2, 3 ou 4 para Pizzas"
+                        value={newProd.max_addons}
+                        className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none font-bold"
+                        onChange={(e) => setNewProd({ ...newProd, max_addons: e.target.value })}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] text-gray-400 block mb-1">Bordas Disponíveis (Opcional):</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Sem Borda:0, Catupiry:8.00, Cheddar:8.00"
+                        value={newProd.borders_list}
+                        className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none"
+                        onChange={(e) => setNewProd({ ...newProd, borders_list: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -538,12 +661,12 @@ export default function AdminTenant() {
                   </div>
                 )}
               </div>
-              
-              {/* AGRUPAMENTO DE ADICIONAIS/SABORES COM BOTAO DE MARCAR TODOS */}
+
+              {/* AGRUPAMENTO DE ADICIONAIS/SABORES COM BOTÃO DE MARCAR TODOS */}
               {globalAddons.length > 0 && (
                 <div className="border-t border-gray-800 pt-3 space-y-3">
-                  <label className="text-[11px] text-gray-300 font-bold block">Vincular Adicionais / Sabores ao Produto:</label>
-                  
+                  <label className="text-[11px] text-gray-300 font-bold block">Vincular Adicionais / Sabores Habilitados:</label>
+
                   {ADDON_TYPES.map(type => {
                     const itemsOfType = groupedAddons[type] || [];
                     if (itemsOfType.length === 0) return null;
@@ -561,7 +684,7 @@ export default function AdminTenant() {
                             {isAllSelected ? '❌ Desmarcar Todos' : '✅ Marcar Todos'}
                           </button>
                         </div>
-                        
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
                           {itemsOfType.map(a => {
                             const formattedStr = `${a.name}:${a.price}`;
@@ -596,15 +719,18 @@ export default function AdminTenant() {
               {products.map((item) => (
                 <div key={item.id} className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center space-x-3">
                   <div className="flex items-center space-x-3 flex-1 min-w-0">
-                    <img 
-                      src={item.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'} 
-                      alt={item.name} 
-                      className="w-14 h-14 rounded-xl object-cover border border-gray-800 bg-gray-800 shrink-0" 
+                    <img
+                      src={item.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'}
+                      alt={item.name}
+                      className="w-14 h-14 rounded-xl object-cover border border-gray-800 bg-gray-800 shrink-0"
                     />
                     <div className="truncate">
-                      <span className={`font-bold text-xs block truncate ${!item.active ? 'line-through text-gray-500' : 'text-white'}`}>{item.name}</span>
+                      <span className={`font-bold text-xs flex items-center space-x-1 truncate ${!item.active ? 'line-through text-gray-500' : 'text-white'}`}>
+                        <span className="truncate">{item.name}</span>
+                        {item.is_combo && <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.2 rounded font-bold shrink-0">COMBO</span>}
+                      </span>
                       <span className="text-xs text-orange-400 font-bold">
-                        R$ {Number(item.price).toFixed(2)} {item.max_addons > 0 && <span className="text-[10px] text-purple-400 font-normal ml-1">(Até {item.max_addons} sab.)</span>}
+                        R$ {Number(item.price).toFixed(2)} {item.max_addons > 0 && !item.is_combo && <span className="text-[10px] text-purple-400 font-normal ml-1">(Até {item.max_addons} sab.)</span>}
                       </span>
                     </div>
                   </div>
@@ -724,7 +850,7 @@ export default function AdminTenant() {
                           {client.phone && <p className="text-[10px] text-gray-400">📱 {client.phone}</p>}
                         </div>
                       </div>
-                      
+
                       <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-lg text-[11px] font-bold">
                         R$ {client.totalSpent.toFixed(2)}
                       </span>
@@ -861,7 +987,7 @@ export default function AdminTenant() {
           <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 no-print">
             <h3 className="font-bold text-sm text-orange-400">🪑 Gerador de QR Code por Mesa</h3>
             <p className="text-xs text-gray-400">Defina a quantidade de mesas para gerar os links e QR Codes prontos para impressão.</p>
-            
+
             <div className="flex items-center space-x-3 pt-1">
               <label className="text-xs font-bold text-gray-300 whitespace-nowrap">Qtd de Mesas:</label>
               <input
@@ -878,7 +1004,7 @@ export default function AdminTenant() {
           <section className="space-y-4 print-tables-area">
             <div className="flex justify-between items-center no-print">
               <h4 className="font-bold text-xs text-gray-300">Cartões para Impressão ({tableCount} mesas)</h4>
-              <button 
+              <button
                 onClick={() => window.print()}
                 className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow">
                 🖨️ Imprimir Cartões
@@ -954,12 +1080,12 @@ export default function AdminTenant() {
 
               <div>
                 <label className="text-[11px] text-gray-400 block mb-1">Link do Instagram:</label>
-                <input 
-                  type="text" 
-                  placeholder="Ex: https://instagram.com/pizzaria_top" 
-                  value={tenant.instagram_url || ''} 
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" 
-                  onChange={(e) => setTenant({ ...tenant, instagram_url: e.target.value })} 
+                <input
+                  type="text"
+                  placeholder="Ex: https://instagram.com/pizzaria_top"
+                  value={tenant.instagram_url || ''}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                  onChange={(e) => setTenant({ ...tenant, instagram_url: e.target.value })}
                 />
               </div>
 
@@ -1099,7 +1225,7 @@ export default function AdminTenant() {
           <div className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-green-500/40 space-y-3">
             <h3 className="font-bold text-sm text-green-400">📢 Disparar Promoção via WhatsApp</h3>
             <p className="text-xs text-gray-300"><b>Cliente:</b> {selectedPromoClient.name} ({selectedPromoClient.phone})</p>
-            
+
             <textarea
               rows={4}
               value={promoMessageText}
@@ -1158,13 +1284,14 @@ export default function AdminTenant() {
         </div>
       )}
 
+      {/* MODAL DE EDIÇÃO DE PRODUTO / COMBO */}
       {editingProduct && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateProduct} className="bg-gray-900 w-full max-w-md rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
-            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Produto</h3>
+            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Produto / Combo</h3>
             <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             <input type="text" value={editingProduct.description || ''} onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
-            
+
             <div className="grid grid-cols-2 gap-2">
               <input type="text" value={editingProduct.price} onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
               <select value={editingProduct.category_id} onChange={(e) => setEditingProduct({ ...editingProduct, category_id: e.target.value })} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none">
@@ -1172,16 +1299,92 @@ export default function AdminTenant() {
               </select>
             </div>
 
-            <div className="bg-gray-950 p-3.5 rounded-xl border border-gray-800 space-y-2">
-              <span className="text-xs font-bold text-orange-400 block">🍕 Opções de Pizzaria (Opcional)</span>
-              <div>
-                <label className="text-[10px] text-gray-400 block mb-0.5">Limite Máximo de Sabores:</label>
-                <input type="number" min="0" value={editingProduct.max_addons || 0} onChange={(e) => setEditingProduct({ ...editingProduct, max_addons: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" />
-              </div>
-              <div>
-                <label className="text-[10px] text-gray-400 block mb-0.5">Bordas Disponíveis:</label>
-                <input type="text" placeholder="Ex: Sem Borda:0, Catupiry:8.00" value={editingProduct.borders_list || ''} onChange={(e) => setEditingProduct({ ...editingProduct, borders_list: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" />
-              </div>
+            {/* OPÇÃO DE COMBO NA EDIÇÃO */}
+            <div className="bg-gray-950 p-3.5 rounded-xl border border-purple-500/30 space-y-3">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editingProduct.is_combo || false}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, is_combo: e.target.checked })}
+                  className="w-4 h-4 accent-purple-500 rounded cursor-pointer"
+                />
+                <span className="text-xs font-bold text-purple-400">🎁 Este produto é um Combo em Etapas?</span>
+              </label>
+
+              {editingProduct.is_combo ? (
+                <div className="space-y-2.5 pt-1">
+                  <span className="text-[11px] text-gray-400 block font-semibold">
+                    Etapas Configuradas:
+                  </span>
+
+                  {(editingProduct.combo_steps || []).map((step, idx) => (
+                    <div key={idx} className="bg-gray-900 p-2.5 rounded-xl border border-gray-800 space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold text-orange-400">Etapa #{idx + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeComboStep(idx, 'edit')}
+                          className="text-[10px] text-red-400 hover:text-red-300 font-bold bg-red-500/10 px-2 py-0.5 rounded"
+                        >
+                          Remover
+                        </button>
+                      </div>
+
+                      <input
+                        type="text"
+                        placeholder="Título da Etapa (Ex: Escolha 1 Sabor Doce)"
+                        value={step.title}
+                        onChange={(e) => updateComboStep(idx, 'title', e.target.value, 'edit')}
+                        className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none"
+                      />
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[9px] text-gray-400 block mb-0.5">Grupo do Item:</label>
+                          <select
+                            value={step.category_type}
+                            onChange={(e) => updateComboStep(idx, 'category_type', e.target.value, 'edit')}
+                            className="w-full bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-[11px] text-white focus:outline-none"
+                          >
+                            {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[9px] text-gray-400 block mb-0.5">Qtd Máxima:</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={step.max}
+                            onChange={(e) => updateComboStep(idx, 'max', parseInt(e.target.value) || 1, 'edit')}
+                            className="w-full bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-[11px] text-white focus:outline-none font-bold"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => addComboStep('edit')}
+                    className="w-full bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1"
+                  >
+                    <span>➕ Adicionar Etapa ao Combo</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2 pt-1 border-t border-gray-800">
+                  <span className="text-xs font-bold text-orange-400 block">🍕 Opções de Pizza Comum (Opcional)</span>
+                  <div>
+                    <label className="text-[10px] text-gray-400 block mb-0.5">Limite Máximo de Sabores:</label>
+                    <input type="number" min="0" value={editingProduct.max_addons || 0} onChange={(e) => setEditingProduct({ ...editingProduct, max_addons: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-400 block mb-0.5">Bordas Disponíveis:</label>
+                    <input type="text" placeholder="Ex: Sem Borda:0, Catupiry:8.00" value={editingProduct.borders_list || ''} onChange={(e) => setEditingProduct({ ...editingProduct, borders_list: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
