@@ -126,6 +126,31 @@ export default function AdminTenant() {
     }
   };
 
+  // FUNÇÃO PARA MARCAR / DESMARCAR TODOS OS SABORES DE UM GRUPO
+  const handleToggleGroupAddons = (itemsGroup, currentAddonsList, mode) => {
+    let currentArr = currentAddonsList ? currentAddonsList.split(',').filter(Boolean) : [];
+    const allSelected = itemsGroup.every(a => (currentAddonsList || '').includes(a.name));
+
+    if (allSelected) {
+      itemsGroup.forEach(a => {
+        currentArr = currentArr.filter(item => !item.startsWith(a.name));
+      });
+    } else {
+      itemsGroup.forEach(a => {
+        if (!currentArr.some(item => item.startsWith(a.name))) {
+          currentArr.push(`${a.name}:${a.price}`);
+        }
+      });
+    }
+
+    const updatedStr = currentArr.join(',');
+    if (mode === 'new') {
+      setNewProd(prev => ({ ...prev, addons_list: updatedStr }));
+    } else if (mode === 'edit') {
+      setEditingProduct(prev => ({ ...prev, addons_list: updatedStr }));
+    }
+  };
+
   const handleSaveTenantSettings = async (e) => {
     e.preventDefault();
     const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
@@ -230,7 +255,7 @@ export default function AdminTenant() {
     const { error } = await supabase.from('global_addons').insert([payload]);
 
     if (error) {
-      alert("Erro ao salvar adicional: " + error.message + "\n\nSe o erro for sobre 'category_type', execute a SQL enviada no chat!");
+      alert("Erro ao salvar adicional: " + error.message);
       return;
     }
 
@@ -385,7 +410,7 @@ export default function AdminTenant() {
     setSelectedPromoClient(null);
   };
 
-  // AGRUPA OS ADICIONAIS POR TIPO (COM FALLBACK SE ESTIVER VAZIO)
+  // AGRUPA OS ADICIONAIS POR TIPO
   const groupAddonsByType = (addonsArray) => {
     const grouped = {};
     ADDON_TYPES.forEach(type => { grouped[type] = []; });
@@ -514,7 +539,7 @@ export default function AdminTenant() {
                 )}
               </div>
               
-              {/* AGRUPAMENTO DE ADICIONAIS/SABORES POR CATEGORIA */}
+              {/* AGRUPAMENTO DE ADICIONAIS/SABORES COM BOTAO DE MARCAR TODOS */}
               {globalAddons.length > 0 && (
                 <div className="border-t border-gray-800 pt-3 space-y-3">
                   <label className="text-[11px] text-gray-300 font-bold block">Vincular Adicionais / Sabores ao Produto:</label>
@@ -523,9 +548,20 @@ export default function AdminTenant() {
                     const itemsOfType = groupedAddons[type] || [];
                     if (itemsOfType.length === 0) return null;
 
+                    const isAllSelected = itemsOfType.every(a => (newProd.addons_list || '').includes(a.name));
+
                     return (
-                      <div key={type} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800/80 space-y-1.5">
-                        <span className="text-[11px] font-bold text-orange-400 block border-b border-gray-800 pb-1">{type}</span>
+                      <div key={type} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 space-y-1.5">
+                        <div className="flex justify-between items-center border-b border-gray-800 pb-1">
+                          <span className="text-[11px] font-bold text-orange-400">{type}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleGroupAddons(itemsOfType, newProd.addons_list, 'new')}
+                            className="text-[10px] text-orange-300 hover:text-orange-200 font-bold bg-orange-500/20 hover:bg-orange-500/30 px-2 py-0.5 rounded-md border border-orange-500/30 transition">
+                            {isAllSelected ? '❌ Desmarcar Todos' : '✅ Marcar Todos'}
+                          </button>
+                        </div>
+                        
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
                           {itemsOfType.map(a => {
                             const formattedStr = `${a.name}:${a.price}`;
@@ -1158,7 +1194,7 @@ export default function AdminTenant() {
               )}
             </div>
 
-            {/* EDIÇÃO DE VÍNCULO COM AGRUPAMENTO */}
+            {/* EDIÇÃO DE VÍNCULO COM BOTÃO DE MARCAR TODOS */}
             {globalAddons.length > 0 && (
               <div className="border-t border-gray-800 pt-3 space-y-3">
                 <label className="text-[11px] text-gray-300 font-bold block">Adicionais / Sabores Vinculados:</label>
@@ -1166,9 +1202,20 @@ export default function AdminTenant() {
                   const itemsOfType = groupedAddons[type] || [];
                   if (itemsOfType.length === 0) return null;
 
+                  const isAllSelected = itemsOfType.every(a => (editingProduct.addons_list || '').includes(a.name));
+
                   return (
                     <div key={type} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 space-y-1.5">
-                      <span className="text-[10px] font-bold text-orange-400 block border-b border-gray-800 pb-1">{type}</span>
+                      <div className="flex justify-between items-center border-b border-gray-800 pb-1">
+                        <span className="text-[10px] font-bold text-orange-400">{type}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleGroupAddons(itemsOfType, editingProduct.addons_list, 'edit')}
+                          className="text-[10px] text-orange-300 hover:text-orange-200 font-bold bg-orange-500/20 hover:bg-orange-500/30 px-2 py-0.5 rounded-md border border-orange-500/30 transition">
+                          {isAllSelected ? '❌ Desmarcar Todos' : '✅ Marcar Todos'}
+                        </button>
+                      </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
                         {itemsOfType.map(a => {
                           const formattedStr = `${a.name}:${a.price}`;
