@@ -19,6 +19,7 @@ export default function DeliveryCliente() {
   const [tenant, setTenant] = useState(null);
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
+  const [globalAddons, setGlobalAddons] = useState([]);
   const [neighborhoods, setNeighborhoods] = useState([]);
   const [selectedCat, setSelectedCat] = useState('ALL');
   const [loading, setLoading] = useState(true);
@@ -26,10 +27,11 @@ export default function DeliveryCliente() {
   // DETECÇÃO DE MESA VIA URL (?mesa=05 ou ?m=05)
   const [tableNumber, setTableNumber] = useState('');
 
-  // MODAL DE DETALHES DO PRODUTO (ADICIONAIS E OBSERVAÇÃO)
+  // MODAL DE DETALHES DO PRODUTO (ADICIONAIS, BORDAS E OBSERVAÇÃO)
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [productQuantity, setProductQuantity] = useState(1);
   const [selectedAddons, setSelectedAddons] = useState([]);
+  const [selectedBorder, setSelectedBorder] = useState(null); // BORDA SELECIONADA
   const [itemObservation, setItemObservation] = useState('');
 
   // CARRINHO DE COMPRAS E CHECKOUT
@@ -128,10 +130,12 @@ export default function DeliveryCliente() {
 
       const { data: cData } = await supabase.from('categories').select('*').eq('tenant_id', tData.id).order('id', { ascending: true });
       const { data: pData } = await supabase.from('products').select('*').eq('tenant_id', tData.id).eq('active', true).order('id', { ascending: true });
+      const { data: aData } = await supabase.from('global_addons').select('*').eq('tenant_id', tData.id).order('id', { ascending: true });
       const { data: nData } = await supabase.from('neighborhoods').select('*').eq('tenant_id', tData.id).order('name', { ascending: true });
 
       if (cData) setCategories(cData);
       if (pData) setProducts(pData);
+      if (aData) setGlobalAddons(aData);
       if (nData) setNeighborhoods(nData);
     }
     setLoading(false);
@@ -170,6 +174,14 @@ export default function DeliveryCliente() {
     setProductQuantity(1);
     setSelectedAddons([]);
     setItemObservation('');
+
+    // SE O PRODUTO TIVER BORDAS CADASTRADAS, SELECIONA A PRIMEIRA POR PADRÃO
+    const borders = getBordersArray(product.borders_list);
+    if (borders.length > 0) {
+      setSelectedBorder(borders[0]);
+    } else {
+      setSelectedBorder(null);
+    }
   };
 
   // NORMAS DE LIMITAÇÃO DE SABORES / ADICIONAIS
@@ -191,7 +203,8 @@ export default function DeliveryCliente() {
     if (!selectedProduct) return;
 
     const addonsTotal = selectedAddons.reduce((sum, a) => sum + Number(a.price), 0);
-    const unitPrice = Number(selectedProduct.price) + addonsTotal;
+    const borderFee = selectedBorder ? Number(selectedBorder.price) : 0;
+    const unitPrice = Number(selectedProduct.price) + addonsTotal + borderFee;
 
     const cartItem = {
       cartItemId: `${selectedProduct.id}-${Date.now()}`,
@@ -201,6 +214,7 @@ export default function DeliveryCliente() {
       unitPrice: unitPrice,
       quantity: productQuantity,
       selectedAddons: selectedAddons,
+      selectedBorder: selectedBorder,
       observation: itemObservation,
       image: selectedProduct.image
     };
@@ -232,7 +246,10 @@ export default function DeliveryCliente() {
     let itemsText = cart.map(i => {
       let txt = `• ${i.quantity}x ${i.name} (R$ ${(i.unitPrice * i.quantity).toFixed(2)})`;
       if (i.selectedAddons && i.selectedAddons.length > 0) {
-        txt += `\n   + Adicionais/Sabores: ${i.selectedAddons.map(a => `${a.name} (+R$ ${Number(a.price).toFixed(2)})`).join(', ')}`;
+        txt += `\n   + Sabores/Adicionais: ${i.selectedAddons.map(a => `${a.name}${Number(a.price) > 0 ? ` (+R$ ${Number(a.price).toFixed(2)})` : ''}`).join(', ')}`;
+      }
+      if (i.selectedBorder && i.selectedBorder.name !== 'Sem Borda') {
+        txt += `\n   + Borda: ${i.selectedBorder.name}${Number(i.selectedBorder.price) > 0 ? ` (+R$ ${Number(i.selectedBorder.price).toFixed(2)})` : ''}`;
       }
       if (i.observation) {
         txt += `\n   Obs: _"${i.observation}"_`;
@@ -402,19 +419,40 @@ export default function DeliveryCliente() {
     alert(`Pedido #${createdOrder.id} enviado com sucesso!`);
   };
 
+  // PARSER DE SABORES COM INGREDIENTES VINCULADOS
   const getProductAddonsArray = (addonsStr) => {
     if (!addonsStr) return [];
 
+    let list = [];
     if (typeof addonsStr === 'object') {
-      return Array.isArray(addonsStr) ? addonsStr : [];
+      list = Array.isArray(addonsStr) ? addonsStr : [];
+    } else {
+      try {
+        const parsed = JSON.parse(addonsStr);
+        if (Array.isArray(parsed)) list = parsed;
+      } catch (e) {
+        list = String(addonsStr).split(',').filter(Boolean).map(item => {
+          const parts = item.split(':');
+          const name = parts[0] ? parts[0].trim() : item;
+          const price = parts[1] ? parseFloat(parts[1].replace(',', '.')) : 0;
+          return { name, price: isNaN(price) ? 0 : price };
+        });
+      }
     }
 
-    try {
-      const parsed = JSON.parse(addonsStr);
-      if (Array.isArray(parsed)) return parsed;
-    } catch (e) {}
+    return list.map(item => {
+      const matched = globalAddons.find(g => g.name.toLowerCase().trim() === item.name.toLowerCase().trim());
+      return {
+        ...item,
+        description: item.description || matched?.description || ''
+      };
+    });
+  };
 
-    return String(addonsStr).split(',').filter(Boolean).map(item => {
+  // PARSER DE BORDAS RECHEADAS
+  const getBordersArray = (bordersStr) => {
+    if (!bordersStr) return [];
+    return String(bordersStr).split(',').filter(Boolean).map(item => {
       const parts = item.split(':');
       const name = parts[0] ? parts[0].trim() : item;
       const price = parts[1] ? parseFloat(parts[1].replace(',', '.')) : 0;
@@ -614,7 +652,7 @@ export default function DeliveryCliente() {
         </div>
       )}
 
-      {/* MODAL DE ADICIONAIS / SABORES DO PRODUTO */}
+      {/* MODAL DE DETALHES DO ITEM (SELEÇÃO DE SABORES, BORDAS E INGREDIENTES) */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -626,14 +664,15 @@ export default function DeliveryCliente() {
             <img src={selectedProduct.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=300&auto=format&fit=crop&q=80'} alt={selectedProduct.name} className="w-full h-36 rounded-xl object-cover border border-white/10" />
             <p className="text-xs opacity-70">{selectedProduct.description}</p>
 
+            {/* SEÇÃO 1: ESCOLHA OS SABORES / ADICIONAIS E EXIBA INGREDIENTES */}
             {getProductAddonsArray(selectedProduct.addons_list).length > 0 && (
               <div className="space-y-2 pt-2 border-t border-white/10">
                 <div className="flex justify-between items-center">
-                  <label className="text-xs font-bold block opacity-80">
+                  <label className="text-xs font-bold block opacity-90">
                     {selectedProduct.max_addons > 0 ? '🍕 Escolha os Sabores:' : '➕ Adicionais Opcionais:'}
                   </label>
 
-                  {/* CONTADOR EM TEMPO REAL PARA O CLIENTE */}
+                  {/* CONTADOR DE SABORES EM TEMPO REAL */}
                   {selectedProduct.max_addons > 0 && (
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                       selectedAddons.length === Number(selectedProduct.max_addons)
@@ -656,10 +695,40 @@ export default function DeliveryCliente() {
                         className="p-2.5 rounded-xl border flex justify-between items-center text-xs cursor-pointer transition">
                         <div className="flex items-center space-x-2">
                           <input type="checkbox" checked={isChecked} onChange={() => {}} className="accent-orange-500" />
-                          <span>{addon.name}</span>
+                          <div>
+                            <span className="font-bold block">{addon.name}</span>
+                            {addon.description && <p className="text-[10px] opacity-60 leading-tight">{addon.description}</p>}
+                          </div>
                         </div>
-                        <span style={{ color: primaryColor }} className="font-bold">
+                        <span style={{ color: primaryColor }} className="font-bold shrink-0 whitespace-nowrap pl-1">
                           {Number(addon.price) > 0 ? `+ R$ ${Number(addon.price).toFixed(2)}` : 'Grátis'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* SEÇÃO 2: ESCOLHA A BORDA RECHEADA (APENAS SE O PRODUTO TIVER BORDAS) */}
+            {getBordersArray(selectedProduct.borders_list).length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-white/10">
+                <label className="text-xs font-bold block opacity-90">🫓 Escolha a Borda:</label>
+                <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                  {getBordersArray(selectedProduct.borders_list).map((border, idx) => {
+                    const isSelected = selectedBorder?.name === border.name;
+                    return (
+                      <div
+                        key={idx}
+                        onClick={() => setSelectedBorder(border)}
+                        style={{ backgroundColor: isSelected ? `${primaryColor}22` : bgColor, borderColor: isSelected ? primaryColor : 'rgba(255,255,255,0.1)' }}
+                        className="p-2.5 rounded-xl border flex justify-between items-center text-xs cursor-pointer transition">
+                        <div className="flex items-center space-x-2">
+                          <input type="radio" checked={isSelected} onChange={() => {}} className="accent-orange-500" />
+                          <span className="font-bold">{border.name}</span>
+                        </div>
+                        <span style={{ color: primaryColor }} className="font-bold text-[11px]">
+                          {Number(border.price) > 0 ? `+ R$ ${Number(border.price).toFixed(2)}` : 'Grátis'}
                         </span>
                       </div>
                     );
@@ -672,7 +741,7 @@ export default function DeliveryCliente() {
               <label className="text-xs font-bold block opacity-80">📝 Observação do Item:</label>
               <input
                 type="text"
-                placeholder="Ex: Sem cebola, massa fina..."
+                placeholder="Ex: Sem cebola, retirar azeitona..."
                 value={itemObservation}
                 onChange={(e) => setItemObservation(e.target.value)}
                 style={{ backgroundColor: bgColor, color: textColor }}
@@ -691,7 +760,7 @@ export default function DeliveryCliente() {
                 onClick={handleAddProductToCart}
                 style={{ backgroundColor: primaryColor, color: btnTextColor }}
                 className="flex-1 font-bold py-3 rounded-xl text-xs shadow-lg transition">
-                Adicionar • R$ {((Number(selectedProduct.price) + selectedAddons.reduce((a, b) => a + Number(b.price), 0)) * productQuantity).toFixed(2)}
+                Adicionar • R$ {((Number(selectedProduct.price) + selectedAddons.reduce((a, b) => a + Number(b.price), 0) + (selectedBorder ? Number(selectedBorder.price) : 0)) * productQuantity).toFixed(2)}
               </button>
             </div>
           </div>
@@ -715,7 +784,10 @@ export default function DeliveryCliente() {
                   <div className="flex-1">
                     <span className="font-bold block">{item.quantity}x {item.name}</span>
                     {item.selectedAddons && item.selectedAddons.length > 0 && (
-                      <p className="text-[10px] opacity-60">+ {item.selectedAddons.map(a => a.name).join(', ')}</p>
+                      <p className="text-[10px] opacity-60">Sabores: {item.selectedAddons.map(a => a.name).join(', ')}</p>
+                    )}
+                    {item.selectedBorder && item.selectedBorder.name !== 'Sem Borda' && (
+                      <p className="text-[10px] opacity-60">Borda: {item.selectedBorder.name}</p>
                     )}
                     {item.observation && (
                       <p className="text-[10px] text-orange-400 italic">Obs: "{item.observation}"</p>
