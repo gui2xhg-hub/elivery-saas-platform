@@ -13,10 +13,23 @@ export default function CozinhaTenant() {
   const [showArchived, setShowArchived] = useState(false);
   const [filterType, setFilterType] = useState('ALL'); // ALL, DELIVERY, BALCAO, MESA
 
-  // ESTADO DE ÁUDIO DE NOTIFICAÇÃO
+  // ESTADO DE ÁUDIO E IMPRESSÃO AUTOMÁTICA
   const [soundEnabled, setSoundEnabled] = useState(false);
+  const [autoPrintEnabled, setAutoPrintEnabled] = useState(false);
+  
   const audioCtxRef = useRef(null);
   const prevOrdersCountRef = useRef(0);
+  const autoPrintRef = useRef(autoPrintEnabled);
+  const soundEnabledRef = useRef(soundEnabled);
+
+  // MANTÉM OS REFS ATUALIZADOS PARA O REALTIME SEM RECRIAR O CANAL
+  useEffect(() => {
+    autoPrintRef.current = autoPrintEnabled;
+  }, [autoPrintEnabled]);
+
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
 
   useEffect(() => {
     let unsubscribeRealtime = null;
@@ -62,7 +75,19 @@ export default function CozinhaTenant() {
           table: 'orders',
           filter: `tenant_id=eq.${tenantId}`
         },
-        () => {
+        (payload) => {
+          // DETECTA SE É UM NOVO PEDIDO (INSERT)
+          if (payload.eventType === 'INSERT' && payload.new) {
+            if (soundEnabledRef.current) {
+              playBeepSound();
+            }
+
+            // SE IMPRESSÃO AUTOMÁTICA ESTIVER LIGADA, DISPARA A IMPRESSÃO NA HORA
+            if (autoPrintRef.current) {
+              handlePrintSingleOrder(payload.new);
+            }
+          }
+
           fetchOrders(tenantId, true);
         }
       )
@@ -123,7 +148,7 @@ export default function CozinhaTenant() {
     if (oData) {
       const activeRecebidos = oData.filter(o => (!o.status || o.status === 'recebido' || o.status === 'pendente' || o.status === 'novo') && !o.archived).length;
       
-      if (isInterval && activeRecebidos > prevOrdersCountRef.current && soundEnabled) {
+      if (isInterval && activeRecebidos > prevOrdersCountRef.current && soundEnabledRef.current) {
         playBeepSound();
       }
       
@@ -220,7 +245,6 @@ export default function CozinhaTenant() {
     const isPix = payMethodUpper.includes('PIX');
     const isMoney = payMethodUpper.includes('DINHEIRO');
     const isCardOnline = payMethodUpper.includes('ONLINE') || payMethodUpper.includes('PAGO ONLINE');
-    const isCardMachine = payMethodUpper.includes('MAQUININHA');
 
     const fullAddr = order.customer_address || order.address || '';
     const isTable = fullAddr.toUpperCase().includes('MESA') || order.table_number || order.order_type === 'MESA' || order.order_type === 'mesa';
@@ -490,6 +514,17 @@ export default function CozinhaTenant() {
                 : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40 animate-pulse'
             }`}>
             {soundEnabled ? '🔊 Som Ativo' : '🔔 Ativar Alerta Sonoro'}
+          </button>
+
+          {/* BOTÃO IMPRESSÃO AUTOMÁTICA */}
+          <button
+            onClick={() => setAutoPrintEnabled(!autoPrintEnabled)}
+            className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${
+              autoPrintEnabled
+                ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                : 'bg-gray-800 text-gray-400 border-gray-700 hover:text-white'
+            }`}>
+            {autoPrintEnabled ? '🖨️ Impressão Auto: LIGADA' : '🖨️ Impressão Auto: DESLIGADA'}
           </button>
 
           <button 
