@@ -46,7 +46,7 @@ export default function AdminTenant() {
     { id: 0, label: 'Dom' }
   ];
 
-  const [newProd, setNewProd] = useState({ name: '', price: '', category_id: '', description: '', image: '', addons_list: '' });
+  const [newProd, setNewProd] = useState({ name: '', price: '', category_id: '', description: '', image: '', addons_list: '', max_addons: 0 });
   const [editingProduct, setEditingProduct] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
   const [editingAddon, setEditingAddon] = useState(null);
@@ -145,7 +145,6 @@ export default function AdminTenant() {
     else { alert("Configurações salvas com sucesso!"); fetchData(); }
   };
 
-  // LIMPAR HISTÓRICO DE PEDIDOS / ZERAR TESTES FINANCEIROS
   const handleClearFinancialData = async () => {
     if (confirm("⚠️ ATENÇÃO: Tem certeza que deseja zerar TODOS os pedidos e dados financeiros?\n\nEsta ação vai apagar definitivamente todos os pedidos de teste do banco de dados. Não poderá ser desfeito!")) {
       const { error } = await supabase
@@ -162,7 +161,6 @@ export default function AdminTenant() {
     }
   };
 
-  // HANDLERS DE CADASTRO E EDIÇÃO DE PRODUTO (COM IMAGEM)
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if (!newProd.name || !newProd.price) return alert("Preencha nome e preço!");
@@ -176,10 +174,11 @@ export default function AdminTenant() {
       price: formattedPrice,
       image: newProd.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=300&auto=format&fit=crop&q=80',
       active: true,
-      addons_list: newProd.addons_list
+      addons_list: newProd.addons_list,
+      max_addons: parseInt(newProd.max_addons || 0)
     }]);
 
-    setNewProd({ name: '', price: '', category_id: categories[0]?.id || '', description: '', image: '', addons_list: '' });
+    setNewProd({ name: '', price: '', category_id: categories[0]?.id || '', description: '', image: '', addons_list: '', max_addons: 0 });
     fetchData();
   };
 
@@ -193,7 +192,8 @@ export default function AdminTenant() {
       description: editingProduct.description,
       category_id: parseInt(editingProduct.category_id),
       image: editingProduct.image,
-      addons_list: editingProduct.addons_list
+      addons_list: editingProduct.addons_list,
+      max_addons: parseInt(editingProduct.max_addons || 0)
     }).eq('id', editingProduct.id);
 
     setEditingProduct(null);
@@ -253,7 +253,6 @@ export default function AdminTenant() {
     fetchData();
   };
 
-  // CÁLCULO SEGURO DO RELATÓRIO FINANCEIRO
   const getFilteredOrders = () => {
     const now = new Date();
     return allOrders.filter(o => {
@@ -275,7 +274,6 @@ export default function AdminTenant() {
   const totalSubtotal = filteredOrders.reduce((sum, o) => sum + Number(o.subtotal || o.total || 0), 0);
   const totalDeliveryFees = filteredOrders.reduce((sum, o) => sum + Number(o.delivery_fee || 0), 0);
 
-  // DETALHAMENTO DE FORMAS DE PAGAMENTO
   const paymentBreakdown = {
     pix: filteredOrders.filter(o => (o.payment_method || '').toUpperCase().includes('PIX')).reduce((sum, o) => sum + Number(o.total || 0), 0),
     dinheiro: filteredOrders.filter(o => (o.payment_method || '').toUpperCase().includes('DINHEIRO')).reduce((sum, o) => sum + Number(o.total || 0), 0),
@@ -301,7 +299,6 @@ export default function AdminTenant() {
     .map(([name, qty]) => ({ name, qty }))
     .sort((a, b) => b.qty - a.qty);
 
-  // CONSOLIDADO E RANKING DOS MELHORES CLIENTES
   const getCustomerList = () => {
     const customerMap = {};
     allOrders.forEach(order => {
@@ -403,13 +400,13 @@ export default function AdminTenant() {
         <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
       </div>
 
-      {/* ABA ITENS / PRODUTOS (COM COM MINIATURA DE FOTO) */}
+      {/* ABA ITENS / PRODUTOS */}
       {activeTab === 'products' && (
         <div className="space-y-6 no-print">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Lanche / Item</h3>
+            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Lanche / Item / Pizza</h3>
             <form onSubmit={handleAddProduct} className="space-y-3">
-              <input type="text" placeholder="Nome do Produto" value={newProd.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} />
+              <input type="text" placeholder="Nome do Produto (Ex: Pizza Gigante)" value={newProd.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} />
               <input type="text" placeholder="Descrição curta" value={newProd.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, description: e.target.value })} />
               
               <div className="flex space-x-2">
@@ -419,7 +416,20 @@ export default function AdminTenant() {
                 </select>
               </div>
 
-              {/* INPUT DE FOTO COM PRÉVIA EM TEMPO REAL */}
+              {/* CAMPO NOVO: LIMITE DE SABORES/ADICIONAIS */}
+              <div>
+                <label className="text-[11px] text-orange-400 font-bold block mb-1">🍕 Limite Máximo de Sabores/Opções Escolhidas:</label>
+                <input 
+                  type="number" 
+                  min="0"
+                  placeholder="0 = Ilimitado (Lanches/Hambúrgueres). Ex: 2, 3 ou 4 para Pizzas" 
+                  value={newProd.max_addons} 
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none font-bold" 
+                  onChange={(e) => setNewProd({ ...newProd, max_addons: e.target.value })} 
+                />
+                <span className="text-[10px] text-gray-400 block mt-1">Deixe em branco ou 0 para permitir adicionais ilimitados.</span>
+              </div>
+
               <div>
                 <input type="text" placeholder="URL da Foto (https://...)" value={newProd.image} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, image: e.target.value })} />
                 {newProd.image && (
@@ -432,7 +442,7 @@ export default function AdminTenant() {
               
               {globalAddons.length > 0 && (
                 <div className="border-t border-gray-800 pt-2">
-                  <label className="text-[11px] text-gray-400 block mb-1">Adicionais Opcionais Vinculados:</label>
+                  <label className="text-[11px] text-gray-400 block mb-1">Adicionais / Sabores Opcionais Vinculados:</label>
                   <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
                     {globalAddons.map(a => {
                       const formattedStr = `${a.name}:${a.price}`;
@@ -452,11 +462,11 @@ export default function AdminTenant() {
                   </div>
                 </div>
               )}
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs hover:bg-green-700 transition">Salvar Lanche 🚀</button>
+              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs hover:bg-green-700 transition">Salvar Lanche / Pizza 🚀</button>
             </form>
           </section>
 
-          {/* LISTA DE PRODUTOS COM EXIBIÇÃO DA MINIATURA */}
+          {/* LISTA DE PRODUTOS */}
           <section className="space-y-2">
             <h3 className="font-bold text-sm text-gray-300">📋 Produtos ({products.length})</h3>
             {products.map((item) => (
@@ -469,7 +479,9 @@ export default function AdminTenant() {
                   />
                   <div className="truncate">
                     <span className={`font-bold text-xs block truncate ${!item.active ? 'line-through text-gray-500' : 'text-white'}`}>{item.name}</span>
-                    <span className="text-xs text-orange-400 font-bold">R$ {Number(item.price).toFixed(2)}</span>
+                    <span className="text-xs text-orange-400 font-bold">
+                      R$ {Number(item.price).toFixed(2)} {item.max_addons > 0 && <span className="text-[10px] text-purple-400 font-normal ml-1">(Até {item.max_addons} opç.)</span>}
+                    </span>
                   </div>
                 </div>
 
@@ -484,7 +496,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA DE CLIENTES E RANKING DOS MELHORES */}
+      {/* DEMAIS ABAS PERMANECEM EXATAMENTE IGUAIS */}
       {activeTab === 'clients' && (
         <div className="space-y-6 no-print">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2">
@@ -533,7 +545,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA RELATÓRIOS E FINANCEIRO DETALHADO + IMPRESSÃO */}
+      {/* RELATÓRIOS */}
       {activeTab === 'reports' && (
         <div className="space-y-4">
           <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs no-print">
@@ -552,7 +564,6 @@ export default function AdminTenant() {
             </div>
           </div>
 
-          {/* ÁREA IMPRESSA / EXIBIÇÃO FINANCEIRA */}
           <div className="print-area space-y-4">
             <div className="hidden print:block text-center border-b border-black pb-2 mb-2">
               <h2 className="font-bold text-base">{tenant.name}</h2>
@@ -571,7 +582,6 @@ export default function AdminTenant() {
               </div>
             </div>
 
-            {/* DETALHAMENTO DE VALORES */}
             <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2 text-xs print:border-black print:bg-white print:text-black">
               <h3 className="font-bold text-xs text-orange-400 uppercase border-b border-gray-800 pb-2 print:text-black print:border-black">💰 Detalhamento de Faturamento</h3>
               <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
@@ -588,7 +598,6 @@ export default function AdminTenant() {
               </div>
             </section>
 
-            {/* DETALHAMENTO POR FORMA DE PAGAMENTO */}
             <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2 text-xs print:border-black print:bg-white print:text-black">
               <h3 className="font-bold text-xs text-orange-400 uppercase border-b border-gray-800 pb-2 print:text-black print:border-black">💳 Faturamento por Pagamento</h3>
               <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
@@ -615,7 +624,6 @@ export default function AdminTenant() {
               )}
             </section>
 
-            {/* ITENS MAIS VENDIDOS */}
             <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 print:border-black print:bg-white print:text-black">
               <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider print:text-black">🏆 ITENS MAIS VENDIDOS</h3>
               <div className="space-y-2">
@@ -633,7 +641,6 @@ export default function AdminTenant() {
             </section>
           </div>
 
-          {/* ZERAR DADOS DE TESTE */}
           <section className="bg-gray-900 p-4 rounded-xl border border-red-500/30 flex justify-between items-center mt-4 no-print">
             <div>
               <h4 className="font-bold text-xs text-red-400">🧹 Zerar Dados de Teste</h4>
@@ -801,7 +808,6 @@ export default function AdminTenant() {
                 />
               </div>
 
-              {/* HORÁRIOS E DIAS DE FUNCIONAMENTO */}
               <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-3">
                 <div className="flex justify-between items-center flex-wrap gap-1">
                   <label className="text-[11px] font-bold text-orange-400 block">🛵 Dias de Funcionamento do Delivery:</label>
@@ -880,7 +886,6 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
               </div>
 
-              {/* PIX DINÂMICO E PAGAMENTOS AUTOMÁTICOS */}
               <div className="pt-3 border-t border-gray-800 space-y-3">
                 <div className="flex justify-between items-center">
                   <div>
@@ -999,6 +1004,18 @@ export default function AdminTenant() {
               <select value={editingProduct.category_id} onChange={(e) => setEditingProduct({ ...editingProduct, category_id: e.target.value })} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none">
                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-orange-400 font-bold block mb-1">🍕 Limite Máximo de Sabores/Opções Escolhidas:</label>
+              <input 
+                type="number" 
+                min="0"
+                placeholder="0 = Ilimitado (Lanches)" 
+                value={editingProduct.max_addons || 0} 
+                onChange={(e) => setEditingProduct({ ...editingProduct, max_addons: e.target.value })} 
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none font-bold" 
+              />
             </div>
 
             <div>
