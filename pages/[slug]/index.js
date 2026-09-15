@@ -27,21 +27,22 @@ export default function DeliveryCliente() {
   // DETECÇÃO DE MESA VIA URL (?mesa=05 ou ?m=05)
   const [tableNumber, setTableNumber] = useState('');
 
-  // MODAL DE DETALHES DO PRODUTO (ADICIONAIS, BORDAS E OBSERVAÇÃO)
+  // MODAL DE DETALHES DO PRODUTO (ADICIONAIS, COMBOS, BORDAS E OBSERVAÇÃO)
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [productQuantity, setProductQuantity] = useState(1);
   const [selectedAddons, setSelectedAddons] = useState([]);
-  const [selectedBorder, setSelectedBorder] = useState(null); // BORDA SELECIONADA
+  const [comboSelections, setComboSelections] = useState({}); // { [stepIndex]: [addonObj1, addonObj2] }
+  const [selectedBorder, setSelectedBorder] = useState(null);
   const [itemObservation, setItemObservation] = useState('');
 
   // CARRINHO DE COMPRAS E CHECKOUT
   const [cart, setCart] = useState([]);
   const [showCartModal, setShowCartModal] = useState(false);
-  const [deliveryType, setDeliveryType] = useState('ENTREGA'); // 'ENTREGA', 'BALCAO' ou 'MESA'
+  const [deliveryType, setDeliveryType] = useState('ENTREGA');
   const [selectedNeighFee, setSelectedNeighFee] = useState(0);
   const [selectedNeighName, setSelectedNeighName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Pagar no Balcão');
-  const [cardPaymentType, setCardPaymentType] = useState('maquininha'); // 'maquininha' ou 'online'
+  const [cardPaymentType, setCardPaymentType] = useState('maquininha');
   const [changeValue, setChangeValue] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -70,7 +71,6 @@ export default function DeliveryCliente() {
       }
     }
 
-    // CARREGA DADOS SALVOS DO CLIENTE (LOCALSTORAGE)
     if (typeof window !== 'undefined') {
       const savedName = localStorage.getItem('delivery_client_name');
       const savedPhone = localStorage.getItem('delivery_client_phone');
@@ -115,7 +115,6 @@ export default function DeliveryCliente() {
     if (tData) {
       setTenant(tData);
 
-      // CARREGA PIXEL DO META
       if (tData.pixel_id && typeof window !== 'undefined') {
         !(function (f, b, e, v, n, t, s) {
           if (f.fbq) return; n = f.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); };
@@ -173,9 +172,9 @@ export default function DeliveryCliente() {
     setSelectedProduct(product);
     setProductQuantity(1);
     setSelectedAddons([]);
+    setComboSelections({});
     setItemObservation('');
 
-    // SE O PRODUTO TIVER BORDAS CADASTRADAS, SELECIONA A PRIMEIRA POR PADRÃO
     const borders = getBordersArray(product.borders_list);
     if (borders.length > 0) {
       setSelectedBorder(borders[0]);
@@ -184,7 +183,7 @@ export default function DeliveryCliente() {
     }
   };
 
-  // NORMAS DE LIMITAÇÃO DE SABORES / ADICIONAIS
+  // NORMAS DE LIMITAÇÃO PARA PRODUTOS NORMAIS
   const toggleAddon = (addon) => {
     const exists = selectedAddons.some(a => a.name === addon.name);
     const maxAllowed = Number(selectedProduct?.max_addons || 0);
@@ -199,12 +198,62 @@ export default function DeliveryCliente() {
     }
   };
 
+  // NORMAS DE LIMITAÇÃO PARA ETAPAS DE COMBO
+  const toggleComboAddon = (stepIdx, addon, stepMax) => {
+    const currentStepSelected = comboSelections[stepIdx] || [];
+    const exists = currentStepSelected.some(a => a.name === addon.name);
+
+    if (exists) {
+      setComboSelections({
+        ...comboSelections,
+        [stepIdx]: currentStepSelected.filter(a => a.name !== addon.name)
+      });
+    } else {
+      if (stepMax > 0 && currentStepSelected.length >= stepMax) {
+        return alert(`Nesta etapa você pode escolher no máximo ${stepMax} opção(ões)!`);
+      }
+      setComboSelections({
+        ...comboSelections,
+        [stepIdx]: [...currentStepSelected, addon]
+      });
+    }
+  };
+
   const handleAddProductToCart = () => {
     if (!selectedProduct) return;
 
-    const addonsTotal = selectedAddons.reduce((sum, a) => sum + Number(a.price), 0);
+    // VALIDAÇÃO DE COMBO
+    if (selectedProduct.is_combo && selectedProduct.combo_steps?.length > 0) {
+      for (let idx = 0; idx < selectedProduct.combo_steps.length; idx++) {
+        const step = selectedProduct.combo_steps[idx];
+        const selectedInStep = comboSelections[idx] || [];
+        if (selectedInStep.length === 0) {
+          return alert(`Por favor, selecione as opções da etapa: "${step.title || `Etapa #${idx + 1}`}"`);
+        }
+      }
+    }
+
+    let unitPrice = Number(selectedProduct.price);
+    let formattedComboSteps = [];
+
+    if (selectedProduct.is_combo && selectedProduct.combo_steps?.length > 0) {
+      let comboExtras = 0;
+      Object.values(comboSelections).forEach(addons => {
+        addons.forEach(a => { comboExtras += Number(a.price || 0); });
+      });
+      unitPrice += comboExtras;
+
+      formattedComboSteps = selectedProduct.combo_steps.map((step, idx) => ({
+        title: step.title || `Etapa #${idx + 1}`,
+        items: comboSelections[idx] || []
+      }));
+    } else {
+      const addonsTotal = selectedAddons.reduce((sum, a) => sum + Number(a.price), 0);
+      unitPrice += addonsTotal;
+    }
+
     const borderFee = selectedBorder ? Number(selectedBorder.price) : 0;
-    const unitPrice = Number(selectedProduct.price) + addonsTotal + borderFee;
+    unitPrice += borderFee;
 
     const cartItem = {
       cartItemId: `${selectedProduct.id}-${Date.now()}`,
@@ -213,6 +262,8 @@ export default function DeliveryCliente() {
       basePrice: Number(selectedProduct.price),
       unitPrice: unitPrice,
       quantity: productQuantity,
+      is_combo: selectedProduct.is_combo || false,
+      comboSteps: formattedComboSteps,
       selectedAddons: selectedAddons,
       selectedBorder: selectedBorder,
       observation: itemObservation,
@@ -245,9 +296,18 @@ export default function DeliveryCliente() {
   const sendWhatsAppNotification = (orderId, isPaid = false, customPaymentLabel = null) => {
     let itemsText = cart.map(i => {
       let txt = `• ${i.quantity}x ${i.name} (R$ ${(i.unitPrice * i.quantity).toFixed(2)})`;
-      if (i.selectedAddons && i.selectedAddons.length > 0) {
+      
+      if (i.is_combo && i.comboSteps && i.comboSteps.length > 0) {
+        i.comboSteps.forEach(step => {
+          const itemsStr = step.items.map(a => `${a.name}${Number(a.price) > 0 ? ` (+R$ ${Number(a.price).toFixed(2)})` : ''}`).join(', ');
+          if (itemsStr) {
+            txt += `\n   └ *${step.title}:* ${itemsStr}`;
+          }
+        });
+      } else if (i.selectedAddons && i.selectedAddons.length > 0) {
         txt += `\n   + Sabores/Adicionais: ${i.selectedAddons.map(a => `${a.name}${Number(a.price) > 0 ? ` (+R$ ${Number(a.price).toFixed(2)})` : ''}`).join(', ')}`;
       }
+
       if (i.selectedBorder && i.selectedBorder.name !== 'Sem Borda') {
         txt += `\n   + Borda: ${i.selectedBorder.name}${Number(i.selectedBorder.price) > 0 ? ` (+R$ ${Number(i.selectedBorder.price).toFixed(2)})` : ''}`;
       }
@@ -419,7 +479,7 @@ export default function DeliveryCliente() {
     alert(`Pedido #${createdOrder.id} enviado com sucesso!`);
   };
 
-  // PARSER DE SABORES COM INGREDIENTES VINCULADOS
+  // PARSER DE SABORES COM INGREDIENTES E TIPO DE CATEGORIA
   const getProductAddonsArray = (addonsStr) => {
     if (!addonsStr) return [];
 
@@ -444,7 +504,8 @@ export default function DeliveryCliente() {
       const matched = globalAddons.find(g => g.name.toLowerCase().trim() === item.name.toLowerCase().trim());
       return {
         ...item,
-        description: item.description || matched?.description || ''
+        description: item.description || matched?.description || '',
+        category_type: matched?.category_type || '🍕 Sabor de Pizza'
       };
     });
   };
@@ -476,6 +537,23 @@ export default function DeliveryCliente() {
   const filteredProducts = selectedCat === 'ALL' ? products : products.filter(p => String(p.category_id) === String(selectedCat));
   const promoBannerList = tenant.promo_banners ? tenant.promo_banners.split(',').map(b => b.trim()).filter(Boolean) : [];
   const isOpen = isStoreOpen();
+
+  // CÁLCULO DINÂMICO DE PREÇO NO MODAL DO PRODUTO
+  let currentModalUnitPrice = Number(selectedProduct?.price || 0);
+  if (selectedProduct) {
+    if (selectedProduct.is_combo && selectedProduct.combo_steps?.length > 0) {
+      let comboExtras = 0;
+      Object.values(comboSelections).forEach(addons => {
+        addons.forEach(a => { comboExtras += Number(a.price || 0); });
+      });
+      currentModalUnitPrice += comboExtras;
+    } else {
+      currentModalUnitPrice += selectedAddons.reduce((a, b) => a + Number(b.price || 0), 0);
+    }
+    if (selectedBorder) {
+      currentModalUnitPrice += Number(selectedBorder.price || 0);
+    }
+  }
 
   return (
     <div className="min-h-screen font-sans pb-28 max-w-md mx-auto transition-colors duration-300 relative" style={{ backgroundColor: bgColor, color: textColor }}>
@@ -581,11 +659,14 @@ export default function DeliveryCliente() {
             <div className="flex items-center space-x-3">
               <img src={p.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'} alt={p.name} className="w-16 h-16 rounded-xl object-cover border border-white/10 bg-gray-800 shrink-0" />
               <div>
-                <h3 className="font-bold text-xs" style={{ color: textColor }}>{p.name}</h3>
+                <h3 className="font-bold text-xs flex items-center space-x-1" style={{ color: textColor }}>
+                  <span>{p.name}</span>
+                  {p.is_combo && <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.2 rounded font-bold">COMBO</span>}
+                </h3>
                 <p className="text-[10px] opacity-60 line-clamp-2">{p.description}</p>
                 <span className="font-bold text-xs block mt-1" style={{ color: primaryColor }}>
                   R$ {Number(p.price).toFixed(2)}
-                  {p.max_addons > 0 && <span className="text-[10px] opacity-70 font-normal ml-1">(Até {p.max_addons} sabores)</span>}
+                  {p.max_addons > 0 && !p.is_combo && <span className="text-[10px] opacity-70 font-normal ml-1">(Até {p.max_addons} sab.)</span>}
                 </span>
               </div>
             </div>
@@ -652,7 +733,7 @@ export default function DeliveryCliente() {
         </div>
       )}
 
-      {/* MODAL DE DETALHES DO ITEM (SELEÇÃO DE SABORES, BORDAS E INGREDIENTES) */}
+      {/* MODAL DE DETALHES DO ITEM (COMBO EM ETAPAS OU ITEM SIMPLES) */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -664,53 +745,118 @@ export default function DeliveryCliente() {
             <img src={selectedProduct.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=300&auto=format&fit=crop&q=80'} alt={selectedProduct.name} className="w-full h-36 rounded-xl object-cover border border-white/10" />
             <p className="text-xs opacity-70">{selectedProduct.description}</p>
 
-            {/* SEÇÃO 1: ESCOLHA OS SABORES / ADICIONAIS E EXIBA INGREDIENTES */}
-            {getProductAddonsArray(selectedProduct.addons_list).length > 0 && (
-              <div className="space-y-2 pt-2 border-t border-white/10">
-                <div className="flex justify-between items-center">
-                  <label className="text-xs font-bold block opacity-90">
-                    {selectedProduct.max_addons > 0 ? '🍕 Escolha os Sabores:' : '➕ Adicionais Opcionais:'}
-                  </label>
+            {/* MONTAGEM DE COMBO EM ETAPAS */}
+            {selectedProduct.is_combo && selectedProduct.combo_steps?.length > 0 ? (
+              <div className="space-y-4 pt-2 border-t border-white/10">
+                {selectedProduct.combo_steps.map((step, stepIdx) => {
+                  const allLinkedAddons = getProductAddonsArray(selectedProduct.addons_list);
+                  let stepAddons = allLinkedAddons.filter(a => a.category_type === step.category_type);
+                  
+                  if (stepAddons.length === 0) {
+                    stepAddons = globalAddons.filter(g => g.category_type === step.category_type);
+                  }
 
-                  {/* CONTADOR DE SABORES EM TEMPO REAL */}
-                  {selectedProduct.max_addons > 0 && (
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                      selectedAddons.length === Number(selectedProduct.max_addons)
-                        ? 'bg-green-500/20 text-green-400 border-green-500/30'
-                        : 'bg-orange-500/20 text-orange-400 border-orange-500/30'
-                    }`}>
-                      Selecionados: {selectedAddons.length} / {selectedProduct.max_addons}
-                    </span>
-                  )}
-                </div>
+                  const selectedInStep = comboSelections[stepIdx] || [];
+                  const stepMax = Number(step.max || 1);
 
-                <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                  {getProductAddonsArray(selectedProduct.addons_list).map((addon, idx) => {
-                    const isChecked = selectedAddons.some(a => a.name === addon.name);
-                    return (
-                      <div
-                        key={idx}
-                        onClick={() => toggleAddon(addon)}
-                        style={{ backgroundColor: isChecked ? `${primaryColor}22` : bgColor, borderColor: isChecked ? primaryColor : 'rgba(255,255,255,0.1)' }}
-                        className="p-2.5 rounded-xl border flex justify-between items-center text-xs cursor-pointer transition">
-                        <div className="flex items-center space-x-2">
-                          <input type="checkbox" checked={isChecked} onChange={() => {}} className="accent-orange-500" />
-                          <div>
-                            <span className="font-bold block">{addon.name}</span>
-                            {addon.description && <p className="text-[10px] opacity-60 leading-tight">{addon.description}</p>}
-                          </div>
-                        </div>
-                        <span style={{ color: primaryColor }} className="font-bold shrink-0 whitespace-nowrap pl-1">
-                          {Number(addon.price) > 0 ? `+ R$ ${Number(addon.price).toFixed(2)}` : 'Grátis'}
+                  return (
+                    <div key={stepIdx} className="space-y-2 bg-black/20 p-3 rounded-xl border border-white/10">
+                      <div className="flex justify-between items-center">
+                        <label className="text-xs font-bold block text-orange-400">
+                          {step.title || `Etapa #${stepIdx + 1}`}
+                        </label>
+
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          selectedInStep.length === stepMax
+                            ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                            : 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                        }`}>
+                          {selectedInStep.length} / {stepMax}
                         </span>
                       </div>
-                    );
-                  })}
-                </div>
+
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                        {stepAddons.length === 0 ? (
+                          <p className="text-[10px] opacity-50 italic">Nenhum item cadastrado nesta categoria.</p>
+                        ) : (
+                          stepAddons.map((addon, idx) => {
+                            const isChecked = selectedInStep.some(a => a.name === addon.name);
+                            return (
+                              <div
+                                key={idx}
+                                onClick={() => toggleComboAddon(stepIdx, addon, stepMax)}
+                                style={{
+                                  backgroundColor: isChecked ? `${primaryColor}22` : bgColor,
+                                  borderColor: isChecked ? primaryColor : 'rgba(255,255,255,0.1)'
+                                }}
+                                className="p-2.5 rounded-xl border flex justify-between items-center text-xs cursor-pointer transition">
+                                <div className="flex items-center space-x-2">
+                                  <input type="checkbox" checked={isChecked} onChange={() => {}} className="accent-orange-500" />
+                                  <div>
+                                    <span className="font-bold block">{addon.name}</span>
+                                    {addon.description && <p className="text-[10px] opacity-60 leading-tight">{addon.description}</p>}
+                                  </div>
+                                </div>
+                                <span style={{ color: primaryColor }} className="font-bold shrink-0 whitespace-nowrap pl-1">
+                                  {Number(addon.price) > 0 ? `+ R$ ${Number(addon.price).toFixed(2)}` : 'Incluso'}
+                                </span>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+            ) : (
+              /* SEÇÃO DE ITEM SIMPLES / PIZZA PADRÃO */
+              getProductAddonsArray(selectedProduct.addons_list).length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-white/10">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-bold block opacity-90">
+                      {selectedProduct.max_addons > 0 ? '🍕 Escolha os Sabores:' : '➕ Adicionais Opcionais:'}
+                    </label>
+
+                    {selectedProduct.max_addons > 0 && (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        selectedAddons.length === Number(selectedProduct.max_addons)
+                          ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                          : 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                      }`}>
+                        Selecionados: {selectedAddons.length} / {selectedProduct.max_addons}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                    {getProductAddonsArray(selectedProduct.addons_list).map((addon, idx) => {
+                      const isChecked = selectedAddons.some(a => a.name === addon.name);
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => toggleAddon(addon)}
+                          style={{ backgroundColor: isChecked ? `${primaryColor}22` : bgColor, borderColor: isChecked ? primaryColor : 'rgba(255,255,255,0.1)' }}
+                          className="p-2.5 rounded-xl border flex justify-between items-center text-xs cursor-pointer transition">
+                          <div className="flex items-center space-x-2">
+                            <input type="checkbox" checked={isChecked} onChange={() => {}} className="accent-orange-500" />
+                            <div>
+                              <span className="font-bold block">{addon.name}</span>
+                              {addon.description && <p className="text-[10px] opacity-60 leading-tight">{addon.description}</p>}
+                            </div>
+                          </div>
+                          <span style={{ color: primaryColor }} className="font-bold shrink-0 whitespace-nowrap pl-1">
+                            {Number(addon.price) > 0 ? `+ R$ ${Number(addon.price).toFixed(2)}` : 'Grátis'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )
             )}
 
-            {/* SEÇÃO 2: ESCOLHA A BORDA RECHEADA (APENAS SE O PRODUTO TIVER BORDAS) */}
+            {/* SEÇÃO DE BORDAS RECHEADAS */}
             {getBordersArray(selectedProduct.borders_list).length > 0 && (
               <div className="space-y-2 pt-2 border-t border-white/10">
                 <label className="text-xs font-bold block opacity-90">🫓 Escolha a Borda:</label>
@@ -760,7 +906,7 @@ export default function DeliveryCliente() {
                 onClick={handleAddProductToCart}
                 style={{ backgroundColor: primaryColor, color: btnTextColor }}
                 className="flex-1 font-bold py-3 rounded-xl text-xs shadow-lg transition">
-                Adicionar • R$ {((Number(selectedProduct.price) + selectedAddons.reduce((a, b) => a + Number(b.price), 0) + (selectedBorder ? Number(selectedBorder.price) : 0)) * productQuantity).toFixed(2)}
+                Adicionar • R$ {(currentModalUnitPrice * productQuantity).toFixed(2)}
               </button>
             </div>
           </div>
@@ -782,17 +928,32 @@ export default function DeliveryCliente() {
               {cart.map(item => (
                 <div key={item.cartItemId} style={{ backgroundColor: bgColor }} className="p-2.5 rounded-xl border border-white/10 flex justify-between items-start text-xs space-x-2">
                   <div className="flex-1">
-                    <span className="font-bold block">{item.quantity}x {item.name}</span>
-                    {item.selectedAddons && item.selectedAddons.length > 0 && (
-                      <p className="text-[10px] opacity-60">Sabores: {item.selectedAddons.map(a => a.name).join(', ')}</p>
+                    <span className="font-bold block flex items-center space-x-1">
+                      <span>{item.quantity}x {item.name}</span>
+                      {item.is_combo && <span className="text-[8px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1 rounded font-bold">COMBO</span>}
+                    </span>
+
+                    {item.is_combo && item.comboSteps?.length > 0 ? (
+                      <div className="space-y-0.5 mt-1 border-l-2 border-purple-500/40 pl-2">
+                        {item.comboSteps.map((step, sIdx) => (
+                          <p key={sIdx} className="text-[10px] opacity-80">
+                            <b>{step.title}:</b> {step.items.map(i => i.name).join(', ')}
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      item.selectedAddons && item.selectedAddons.length > 0 && (
+                        <p className="text-[10px] opacity-60">Sabores/Adicionais: {item.selectedAddons.map(a => a.name).join(', ')}</p>
+                      )
                     )}
+
                     {item.selectedBorder && item.selectedBorder.name !== 'Sem Borda' && (
                       <p className="text-[10px] opacity-60">Borda: {item.selectedBorder.name}</p>
                     )}
                     {item.observation && (
                       <p className="text-[10px] text-orange-400 italic">Obs: "{item.observation}"</p>
                     )}
-                    <span style={{ color: primaryColor }} className="font-bold block mt-0.5">R$ {(item.unitPrice * item.quantity).toFixed(2)}</span>
+                    <span style={{ color: primaryColor }} className="font-bold block mt-1">R$ {(item.unitPrice * item.quantity).toFixed(2)}</span>
                   </div>
 
                   <button onClick={() => removeFromCart(item.cartItemId)} className="text-red-400 font-bold text-xs p-1">🗑</button>
