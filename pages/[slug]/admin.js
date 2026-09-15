@@ -149,7 +149,7 @@ export default function AdminTenant() {
       pix_access_token: tenant.pix_access_token || ''
     }).eq('id', tenant.id);
 
-    if (error) alert("Erro ao salvar: " + error.message);
+    if (error) alert("Erro ao salvar configurações: " + error.message);
     else { alert("Configurações salvas com sucesso!"); fetchData(); }
   };
 
@@ -174,7 +174,7 @@ export default function AdminTenant() {
     if (!newProd.name || !newProd.price) return alert("Preencha nome e preço!");
     const formattedPrice = parsePrice(newProd.price);
     
-    await supabase.from('products').insert([{
+    const { error } = await supabase.from('products').insert([{
       tenant_id: tenant.id,
       category_id: parseInt(newProd.category_id || categories[0]?.id),
       name: newProd.name.trim(),
@@ -187,6 +187,8 @@ export default function AdminTenant() {
       borders_list: newProd.borders_list || ''
     }]);
 
+    if (error) return alert("Erro ao cadastrar produto: " + error.message);
+
     setNewProd({ name: '', price: '', category_id: categories[0]?.id || '', description: '', image: '', addons_list: '', max_addons: 0, borders_list: '' });
     fetchData();
   };
@@ -195,7 +197,7 @@ export default function AdminTenant() {
     e.preventDefault();
     const formattedPrice = parsePrice(editingProduct.price);
 
-    await supabase.from('products').update({
+    const { error } = await supabase.from('products').update({
       name: editingProduct.name.trim(),
       price: formattedPrice,
       description: editingProduct.description,
@@ -206,6 +208,8 @@ export default function AdminTenant() {
       borders_list: editingProduct.borders_list || ''
     }).eq('id', editingProduct.id);
 
+    if (error) return alert("Erro ao atualizar produto: " + error.message);
+
     setEditingProduct(null);
     fetchData();
   };
@@ -215,13 +219,21 @@ export default function AdminTenant() {
     if (!newAddon.name) return alert("Preencha o nome do adicional/sabor!");
     const formattedPrice = parsePrice(newAddon.price);
 
-    await supabase.from('global_addons').insert([{ 
+    const payload = {
       tenant_id: tenant.id, 
       name: newAddon.name.trim(), 
       price: formattedPrice,
       description: newAddon.description ? newAddon.description.trim() : '',
       category_type: newAddon.category_type || '🍕 Sabor de Pizza'
-    }]);
+    };
+
+    const { error } = await supabase.from('global_addons').insert([payload]);
+
+    if (error) {
+      alert("Erro ao salvar adicional: " + error.message + "\n\nSe o erro for sobre 'category_type', execute a SQL enviada no chat!");
+      return;
+    }
+
     setNewAddon({ name: '', price: '', description: '', category_type: '🍕 Sabor de Pizza' });
     fetchData();
   };
@@ -230,12 +242,15 @@ export default function AdminTenant() {
     e.preventDefault();
     const formattedPrice = parsePrice(editingAddon.price);
 
-    await supabase.from('global_addons').update({ 
+    const { error } = await supabase.from('global_addons').update({ 
       name: editingAddon.name.trim(), 
       price: formattedPrice,
       description: editingAddon.description || '',
       category_type: editingAddon.category_type || '🍕 Sabor de Pizza'
     }).eq('id', editingAddon.id);
+
+    if (error) return alert("Erro ao editar adicional: " + error.message);
+
     setEditingAddon(null);
     fetchData();
   };
@@ -245,7 +260,9 @@ export default function AdminTenant() {
     if (!newNeigh.name) return alert("Preencha o nome do bairro!");
     const formattedFee = parsePrice(newNeigh.fee);
 
-    await supabase.from('neighborhoods').insert([{ tenant_id: tenant.id, name: newNeigh.name.trim(), fee: formattedFee }]);
+    const { error } = await supabase.from('neighborhoods').insert([{ tenant_id: tenant.id, name: newNeigh.name.trim(), fee: formattedFee }]);
+    if (error) return alert("Erro ao adicionar bairro: " + error.message);
+
     setNewNeigh({ name: '', fee: '' });
     fetchData();
   };
@@ -254,7 +271,9 @@ export default function AdminTenant() {
     e.preventDefault();
     const formattedFee = parsePrice(editingNeigh.fee);
 
-    await supabase.from('neighborhoods').update({ name: editingNeigh.name.trim(), fee: formattedFee }).eq('id', editingNeigh.id);
+    const { error } = await supabase.from('neighborhoods').update({ name: editingNeigh.name.trim(), fee: formattedFee }).eq('id', editingNeigh.id);
+    if (error) return alert("Erro ao atualizar bairro: " + error.message);
+
     setEditingNeigh(null);
     fetchData();
   };
@@ -262,14 +281,18 @@ export default function AdminTenant() {
   const handleAddCategory = async (e) => {
     e.preventDefault();
     if (!newCatName.trim()) return;
-    await supabase.from('categories').insert([{ tenant_id: tenant.id, name: newCatName.trim() }]);
+    const { error } = await supabase.from('categories').insert([{ tenant_id: tenant.id, name: newCatName.trim() }]);
+    if (error) return alert("Erro ao cadastrar categoria: " + error.message);
+
     setNewCatName('');
     fetchData();
   };
 
   const handleUpdateCategory = async (e) => {
     e.preventDefault();
-    await supabase.from('categories').update({ name: editingCategory.name.trim() }).eq('id', editingCategory.id);
+    const { error } = await supabase.from('categories').update({ name: editingCategory.name.trim() }).eq('id', editingCategory.id);
+    if (error) return alert("Erro ao atualizar categoria: " + error.message);
+
     setEditingCategory(null);
     fetchData();
   };
@@ -362,7 +385,7 @@ export default function AdminTenant() {
     setSelectedPromoClient(null);
   };
 
-  // FUNÇÃO AUXILIAR PARA AGRUPAR ADICIONAIS POR TIPO
+  // AGRUPA OS ADICIONAIS POR TIPO (COM FALLBACK SE ESTIVER VAZIO)
   const groupAddonsByType = (addonsArray) => {
     const grouped = {};
     ADDON_TYPES.forEach(type => { grouped[type] = []; });
@@ -425,14 +448,14 @@ export default function AdminTenant() {
         <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-xl text-red-400 font-bold transition">Sair</button>
       </header>
 
-      {/* ABAS DE NAVEGAÇÃO */}
+      {/* ABAS DE NAVEGAÇÃO REORDENADAS */}
       <div className="flex space-x-2 bg-gray-900 p-1.5 rounded-xl border border-gray-800 mb-6 text-xs font-bold overflow-x-auto no-print scrollbar-none">
         <button onClick={() => setActiveTab('products')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🍔 Itens</button>
+        <button onClick={() => setActiveTab('addons')} className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>➕ Adicionais/Sabores</button>
+        <button onClick={() => setActiveTab('categories')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🏷️ Categorias</button>
         <button onClick={() => setActiveTab('clients')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'clients' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>👥 Clientes</button>
         <button onClick={() => setActiveTab('reports')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>📊 Financeiro</button>
         <button onClick={() => setActiveTab('tables')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'tables' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🪑 Mesas QR</button>
-        <button onClick={() => setActiveTab('categories')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🏷️ Categorias</button>
-        <button onClick={() => setActiveTab('addons')} className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>➕ Adicionais/Sabores</button>
         <button onClick={() => setActiveTab('neighborhoods')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'neighborhoods' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🛵 Bairros</button>
         <button onClick={() => setActiveTab('settings')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>⚙️ Config</button>
       </div>
@@ -558,6 +581,84 @@ export default function AdminTenant() {
                 </div>
               ))}
             </div>
+          </section>
+        </div>
+      )}
+
+      {/* ABA ADICIONAIS / SABORES REORGANIZADA POR TIPO */}
+      {activeTab === 'addons' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
+          <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
+            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Adicional ou Sabor</h3>
+            <form onSubmit={handleAddGlobalAddon} className="space-y-3">
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Categoria / Tipo:</label>
+                <select
+                  value={newAddon.category_type}
+                  onChange={(e) => setNewAddon({ ...newAddon, category_type: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold">
+                  {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+
+              <input type="text" placeholder="Nome Ex: Bacon Extra ou Calabresa" value={newAddon.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, name: e.target.value })} />
+              <input type="text" placeholder="Ingredientes / Descrição Ex: Fatias crocantes de bacon" value={newAddon.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, description: e.target.value })} />
+              <input type="text" placeholder="Valor Adicional R$ Ex: 4.50 (ou 0.00)" value={newAddon.price} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, price: e.target.value })} />
+              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-xl text-xs hover:bg-green-700 transition">Cadastrar no Sistema</button>
+            </form>
+          </section>
+
+          <section className="lg:col-span-2 space-y-4 h-fit">
+            {ADDON_TYPES.map(type => {
+              const list = groupedAddons[type] || [];
+              if (list.length === 0) return null;
+
+              return (
+                <div key={type} className="bg-gray-900 p-4 rounded-2xl border border-gray-800 space-y-3">
+                  <h4 className="font-bold text-xs text-orange-400 uppercase tracking-wider">{type} ({list.length})</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {list.map((a) => (
+                      <div key={a.id} className="bg-gray-950 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
+                        <div>
+                          <span className="font-bold block text-white">{a.name}</span>
+                          {a.description && <p className="text-[10px] text-gray-400 italic mb-0.5">{a.description}</p>}
+                          <span className="text-orange-400 font-bold">+ R$ {Number(a.price).toFixed(2)}</span>
+                        </div>
+                        <div className="flex space-x-1.5">
+                          <button onClick={() => setEditingAddon(a)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
+                          <button onClick={async () => { if (confirm("Excluir?")) { const { error } = await supabase.from('global_addons').delete().eq('id', a.id); if (error) alert(error.message); else fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </section>
+        </div>
+      )}
+
+      {/* CATEGORIAS */}
+      {activeTab === 'categories' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
+          <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
+            <h3 className="font-bold text-sm text-orange-400">🏷️ Nova Categoria</h3>
+            <form onSubmit={handleAddCategory} className="flex space-x-2">
+              <input type="text" placeholder="Nome" value={newCatName} className="flex-1 bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewCatName(e.target.value)} />
+              <button type="submit" className="bg-green-600 font-bold px-4 py-2.5 rounded-xl text-xs">Adicionar</button>
+            </form>
+          </section>
+
+          <section className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 h-fit">
+            {categories.map((c) => (
+              <div key={c.id} className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center text-xs">
+                <span className="font-bold text-white">{c.name}</span>
+                <div className="flex space-x-1.5">
+                  <button onClick={() => setEditingCategory(c)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
+                  <button onClick={async () => { if (confirm("Excluir?")) { const { error } = await supabase.from('categories').delete().eq('id', c.id); if (error) alert(error.message); else fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
+                </div>
+              </div>
+            ))}
           </section>
         </div>
       )}
@@ -768,59 +869,6 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA ADICIONAIS / SABORES REORGANIZADA POR TIPO */}
-      {activeTab === 'addons' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
-          <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
-            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Adicional ou Sabor</h3>
-            <form onSubmit={handleAddGlobalAddon} className="space-y-3">
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Categoria / Tipo:</label>
-                <select
-                  value={newAddon.category_type}
-                  onChange={(e) => setNewAddon({ ...newAddon, category_type: e.target.value })}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold">
-                  {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-
-              <input type="text" placeholder="Nome Ex: Bacon Extra ou Calabresa" value={newAddon.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, name: e.target.value })} />
-              <input type="text" placeholder="Ingredientes / Descrição Ex: Fatias crocantes de bacon" value={newAddon.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, description: e.target.value })} />
-              <input type="text" placeholder="Valor Adicional R$ Ex: 4.50 (ou 0.00)" value={newAddon.price} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, price: e.target.value })} />
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-xl text-xs hover:bg-green-700 transition">Cadastrar no Sistema</button>
-            </form>
-          </section>
-
-          <section className="lg:col-span-2 space-y-4 h-fit">
-            {ADDON_TYPES.map(type => {
-              const list = groupedAddons[type] || [];
-              if (list.length === 0) return null;
-
-              return (
-                <div key={type} className="bg-gray-900 p-4 rounded-2xl border border-gray-800 space-y-3">
-                  <h4 className="font-bold text-xs text-orange-400 uppercase tracking-wider">{type} ({list.length})</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                    {list.map((a) => (
-                      <div key={a.id} className="bg-gray-950 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
-                        <div>
-                          <span className="font-bold block text-white">{a.name}</span>
-                          {a.description && <p className="text-[10px] text-gray-400 italic mb-0.5">{a.description}</p>}
-                          <span className="text-orange-400 font-bold">+ R$ {Number(a.price).toFixed(2)}</span>
-                        </div>
-                        <div className="flex space-x-1.5">
-                          <button onClick={() => setEditingAddon(a)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
-                          <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('global_addons').delete().eq('id', a.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </section>
-        </div>
-      )}
-
       {/* BAIRROS */}
       {activeTab === 'neighborhoods' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
@@ -842,32 +890,7 @@ export default function AdminTenant() {
                 </div>
                 <div className="flex space-x-1.5">
                   <button onClick={() => setEditingNeigh(n)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
-                  <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('neighborhoods').delete().eq('id', n.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
-                </div>
-              </div>
-            ))}
-          </section>
-        </div>
-      )}
-
-      {/* CATEGORIAS */}
-      {activeTab === 'categories' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
-          <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
-            <h3 className="font-bold text-sm text-orange-400">🏷️ Nova Categoria</h3>
-            <form onSubmit={handleAddCategory} className="flex space-x-2">
-              <input type="text" placeholder="Nome" value={newCatName} className="flex-1 bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewCatName(e.target.value)} />
-              <button type="submit" className="bg-green-600 font-bold px-4 py-2.5 rounded-xl text-xs">Adicionar</button>
-            </form>
-          </section>
-
-          <section className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 h-fit">
-            {categories.map((c) => (
-              <div key={c.id} className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center text-xs">
-                <span className="font-bold text-white">{c.name}</span>
-                <div className="flex space-x-1.5">
-                  <button onClick={() => setEditingCategory(c)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
-                  <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('categories').delete().eq('id', c.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
+                  <button onClick={async () => { if (confirm("Excluir?")) { const { error } = await supabase.from('neighborhoods').delete().eq('id', n.id); if (error) alert(error.message); else fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
                 </div>
               </div>
             ))}
