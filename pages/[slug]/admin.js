@@ -35,7 +35,7 @@ export default function AdminTenant() {
   const [tableCount, setTableCount] = useState(10);
   const [baseUrl, setBaseUrl] = useState('');
 
-  // DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
+  // DIAS DA SEMANA
   const ALL_DAYS = [
     { id: 1, label: 'Seg' },
     { id: 2, label: 'Ter' },
@@ -46,6 +46,14 @@ export default function AdminTenant() {
     { id: 0, label: 'Dom' }
   ];
 
+  // TIPOS DE ADICIONAIS PARA ORGANIZAÇÃO
+  const ADDON_TYPES = [
+    '🍕 Sabor de Pizza',
+    '🍔 Adicional de Lanche',
+    '🥤 Molhos & Acompanhamentos',
+    '📌 Outros'
+  ];
+
   const [newProd, setNewProd] = useState({ name: '', price: '', category_id: '', description: '', image: '', addons_list: '', max_addons: 0, borders_list: '' });
   const [editingProduct, setEditingProduct] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
@@ -53,7 +61,7 @@ export default function AdminTenant() {
   const [editingNeigh, setEditingNeigh] = useState(null);
 
   const [newCatName, setNewCatName] = useState('');
-  const [newAddon, setNewAddon] = useState({ name: '', price: '', description: '' });
+  const [newAddon, setNewAddon] = useState({ name: '', price: '', description: '', category_type: '🍕 Sabor de Pizza' });
   const [newNeigh, setNewNeigh] = useState({ name: '', fee: '' });
 
   useEffect(() => {
@@ -211,9 +219,10 @@ export default function AdminTenant() {
       tenant_id: tenant.id, 
       name: newAddon.name.trim(), 
       price: formattedPrice,
-      description: newAddon.description ? newAddon.description.trim() : ''
+      description: newAddon.description ? newAddon.description.trim() : '',
+      category_type: newAddon.category_type || '🍕 Sabor de Pizza'
     }]);
-    setNewAddon({ name: '', price: '', description: '' });
+    setNewAddon({ name: '', price: '', description: '', category_type: '🍕 Sabor de Pizza' });
     fetchData();
   };
 
@@ -224,7 +233,8 @@ export default function AdminTenant() {
     await supabase.from('global_addons').update({ 
       name: editingAddon.name.trim(), 
       price: formattedPrice,
-      description: editingAddon.description || ''
+      description: editingAddon.description || '',
+      category_type: editingAddon.category_type || '🍕 Sabor de Pizza'
     }).eq('id', editingAddon.id);
     setEditingAddon(null);
     fetchData();
@@ -352,6 +362,20 @@ export default function AdminTenant() {
     setSelectedPromoClient(null);
   };
 
+  // FUNÇÃO AUXILIAR PARA AGRUPAR ADICIONAIS POR TIPO
+  const groupAddonsByType = (addonsArray) => {
+    const grouped = {};
+    ADDON_TYPES.forEach(type => { grouped[type] = []; });
+
+    addonsArray.forEach(addon => {
+      const type = addon.category_type || '🍕 Sabor de Pizza';
+      if (!grouped[type]) grouped[type] = [];
+      grouped[type].push(addon);
+    });
+
+    return grouped;
+  };
+
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-sm text-gray-400">Carregando admin...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Restaurante não encontrado</h1></div>;
 
@@ -369,6 +393,8 @@ export default function AdminTenant() {
       </div>
     );
   }
+
+  const groupedAddons = groupAddonsByType(globalAddons);
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto font-sans pb-12">
@@ -418,8 +444,8 @@ export default function AdminTenant() {
           <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4 h-fit">
             <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Lanche / Item / Pizza</h3>
             <form onSubmit={handleAddProduct} className="space-y-3">
-              <input type="text" placeholder="Nome do Produto (Ex: Pizza Gigante 35cm)" value={newProd.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} />
-              <input type="text" placeholder="Descrição curta (Ex: 8 fatias, serve até 3 pessoas)" value={newProd.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, description: e.target.value })} />
+              <input type="text" placeholder="Nome do Produto (Ex: X-Salada Especial ou Pizza Gigante)" value={newProd.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} />
+              <input type="text" placeholder="Descrição curta (Ex: Pão, Hambúrguer 150g, Queijo, Salada)" value={newProd.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, description: e.target.value })} />
               
               <div className="grid grid-cols-2 gap-2">
                 <input type="text" placeholder="Preço R$" value={newProd.price} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, price: e.target.value })} />
@@ -432,7 +458,7 @@ export default function AdminTenant() {
               <div className="bg-gray-950 p-3.5 rounded-xl border border-gray-800 space-y-2">
                 <span className="text-xs font-bold text-orange-400 block">🍕 Opções de Pizzaria (Opcional)</span>
                 <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Limite Máximo de Sabores/Opções Escolhidas:</label>
+                  <label className="text-[11px] text-gray-400 block mb-1">Limite Máximo de Sabores Escolhidos:</label>
                   <input 
                     type="number" 
                     min="0"
@@ -441,7 +467,6 @@ export default function AdminTenant() {
                     className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none font-bold" 
                     onChange={(e) => setNewProd({ ...newProd, max_addons: e.target.value })} 
                   />
-                  <span className="text-[10px] text-gray-500 block mt-0.5">Deixe em branco ou 0 para permitir selecionáveis ilimitados.</span>
                 </div>
 
                 <div>
@@ -453,7 +478,6 @@ export default function AdminTenant() {
                     className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" 
                     onChange={(e) => setNewProd({ ...newProd, borders_list: e.target.value })} 
                   />
-                  <span className="text-[10px] text-gray-500 block mt-0.5">Formato Nome:Preço separados por vírgula (Ex: Catupiry:8.00)</span>
                 </div>
               </div>
 
@@ -462,34 +486,47 @@ export default function AdminTenant() {
                 {newProd.image && (
                   <div className="mt-2 flex items-center space-x-2 bg-gray-950 p-2 rounded-lg border border-gray-800">
                     <img src={newProd.image} alt="Prévia" className="w-10 h-10 rounded-md object-cover border border-gray-700" onError={(e) => e.target.style.display = 'none'} />
-                    <span className="text-[10px] text-gray-400">Prévia da foto vinculada</span>
+                    <span className="text-[10px] text-gray-400">Prévia da foto</span>
                   </div>
                 )}
               </div>
               
+              {/* AGRUPAMENTO DE ADICIONAIS/SABORES POR CATEGORIA */}
               {globalAddons.length > 0 && (
-                <div className="border-t border-gray-800 pt-2">
-                  <label className="text-[11px] text-gray-400 block mb-1">Adicionais / Sabores Vinculados:</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto">
-                    {globalAddons.map(a => {
-                      const formattedStr = `${a.name}:${a.price}`;
-                      const isSelected = (newProd.addons_list || '').includes(a.name);
-                      return (
-                        <label key={a.id} className="flex items-center space-x-1.5 bg-gray-800 p-2 rounded-lg text-[11px] cursor-pointer">
-                          <input type="checkbox" checked={isSelected} onChange={(e) => {
-                            let currentArr = newProd.addons_list ? newProd.addons_list.split(',').filter(Boolean) : [];
-                            if (e.target.checked) currentArr.push(formattedStr);
-                            else currentArr = currentArr.filter(item => !item.startsWith(a.name));
-                            setNewProd({ ...newProd, addons_list: currentArr.join(',') });
-                          }} />
-                          <span className="truncate">{a.name} (+R${Number(a.price).toFixed(2)})</span>
-                        </label>
-                      );
-                    })}
-                  </div>
+                <div className="border-t border-gray-800 pt-3 space-y-3">
+                  <label className="text-[11px] text-gray-300 font-bold block">Vincular Adicionais / Sabores ao Produto:</label>
+                  
+                  {ADDON_TYPES.map(type => {
+                    const itemsOfType = groupedAddons[type] || [];
+                    if (itemsOfType.length === 0) return null;
+
+                    return (
+                      <div key={type} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800/80 space-y-1.5">
+                        <span className="text-[11px] font-bold text-orange-400 block border-b border-gray-800 pb-1">{type}</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
+                          {itemsOfType.map(a => {
+                            const formattedStr = `${a.name}:${a.price}`;
+                            const isSelected = (newProd.addons_list || '').includes(a.name);
+                            return (
+                              <label key={a.id} className="flex items-center space-x-1.5 bg-gray-800 p-1.5 rounded-lg text-[10px] cursor-pointer hover:bg-gray-750 transition">
+                                <input type="checkbox" checked={isSelected} onChange={(e) => {
+                                  let currentArr = newProd.addons_list ? newProd.addons_list.split(',').filter(Boolean) : [];
+                                  if (e.target.checked) currentArr.push(formattedStr);
+                                  else currentArr = currentArr.filter(item => !item.startsWith(a.name));
+                                  setNewProd({ ...newProd, addons_list: currentArr.join(',') });
+                                }} />
+                                <span className="truncate">{a.name} (+R${Number(a.price).toFixed(2)})</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-              <button type="submit" className="w-full bg-green-600 font-bold py-3 rounded-xl text-xs hover:bg-green-700 transition shadow-lg">Salvar Lanche / Pizza 🚀</button>
+
+              <button type="submit" className="w-full bg-green-600 font-bold py-3 rounded-xl text-xs hover:bg-green-700 transition shadow-lg">Salvar Produto 🚀</button>
             </form>
           </section>
 
@@ -525,7 +562,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA DE CLIENTES E RANKING DOS MELHORES */}
+      {/* ABA DE CLIENTES E RANKING */}
       {activeTab === 'clients' && (
         <div className="space-y-6 no-print">
           <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-1">
@@ -576,7 +613,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA RELATÓRIOS E FINANCEIRO DETALHADO + IMPRESSÃO */}
+      {/* ABA RELATÓRIOS E FINANCEIRO DETALHADO */}
       {activeTab === 'reports' && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-center bg-gray-900 p-4 rounded-2xl border border-gray-800 gap-3 no-print">
@@ -595,7 +632,6 @@ export default function AdminTenant() {
             </button>
           </div>
 
-          {/* ÁREA IMPRESSA / EXIBIÇÃO FINANCEIRA */}
           <div className="print-area space-y-6">
             <div className="hidden print:block text-center border-b border-black pb-2 mb-2">
               <h2 className="font-bold text-base">{tenant.name}</h2>
@@ -667,7 +703,6 @@ export default function AdminTenant() {
             </div>
           </div>
 
-          {/* ZERAR DADOS DE TESTE */}
           <section className="bg-gray-900 p-5 rounded-2xl border border-red-500/30 flex justify-between items-center no-print">
             <div>
               <h4 className="font-bold text-xs text-red-400">🧹 Zerar Dados de Teste</h4>
@@ -733,33 +768,55 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ADICIONAIS / SABORES */}
+      {/* ABA ADICIONAIS / SABORES REORGANIZADA POR TIPO */}
       {activeTab === 'addons' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
           <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
-            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Adicional / Sabor</h3>
+            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Adicional ou Sabor</h3>
             <form onSubmit={handleAddGlobalAddon} className="space-y-3">
-              <input type="text" placeholder="Nome Ex: Calabresa ou Bacon Extra" value={newAddon.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, name: e.target.value })} />
-              <input type="text" placeholder="Ingredientes / Descrição Ex: Molho, mussarela e calabresa" value={newAddon.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, description: e.target.value })} />
-              <input type="text" placeholder="Valor Adicional R$ Ex: 0.00 ou 5.00" value={newAddon.price} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, price: e.target.value })} />
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-xl text-xs hover:bg-green-700 transition">Cadastrar Sabor / Adicional</button>
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Categoria / Tipo:</label>
+                <select
+                  value={newAddon.category_type}
+                  onChange={(e) => setNewAddon({ ...newAddon, category_type: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold">
+                  {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+
+              <input type="text" placeholder="Nome Ex: Bacon Extra ou Calabresa" value={newAddon.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, name: e.target.value })} />
+              <input type="text" placeholder="Ingredientes / Descrição Ex: Fatias crocantes de bacon" value={newAddon.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, description: e.target.value })} />
+              <input type="text" placeholder="Valor Adicional R$ Ex: 4.50 (ou 0.00)" value={newAddon.price} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, price: e.target.value })} />
+              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-xl text-xs hover:bg-green-700 transition">Cadastrar no Sistema</button>
             </form>
           </section>
 
-          <section className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 h-fit">
-            {globalAddons.map((a) => (
-              <div key={a.id} className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center text-xs">
-                <div>
-                  <span className="font-bold block text-white">{a.name}</span>
-                  {a.description && <p className="text-[10px] text-gray-400 italic mb-0.5">{a.description}</p>}
-                  <span className="text-orange-400 font-bold">+ R$ {Number(a.price).toFixed(2)}</span>
+          <section className="lg:col-span-2 space-y-4 h-fit">
+            {ADDON_TYPES.map(type => {
+              const list = groupedAddons[type] || [];
+              if (list.length === 0) return null;
+
+              return (
+                <div key={type} className="bg-gray-900 p-4 rounded-2xl border border-gray-800 space-y-3">
+                  <h4 className="font-bold text-xs text-orange-400 uppercase tracking-wider">{type} ({list.length})</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {list.map((a) => (
+                      <div key={a.id} className="bg-gray-950 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
+                        <div>
+                          <span className="font-bold block text-white">{a.name}</span>
+                          {a.description && <p className="text-[10px] text-gray-400 italic mb-0.5">{a.description}</p>}
+                          <span className="text-orange-400 font-bold">+ R$ {Number(a.price).toFixed(2)}</span>
+                        </div>
+                        <div className="flex space-x-1.5">
+                          <button onClick={() => setEditingAddon(a)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
+                          <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('global_addons').delete().eq('id', a.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex space-x-1.5">
-                  <button onClick={() => setEditingAddon(a)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
-                  <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('global_addons').delete().eq('id', a.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </section>
         </div>
       )}
@@ -1003,7 +1060,16 @@ export default function AdminTenant() {
       {editingAddon && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateAddon} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
-            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Sabor / Adicional</h3>
+            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Adicional / Sabor</h3>
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">Categoria / Tipo:</label>
+              <select
+                value={editingAddon.category_type || '🍕 Sabor de Pizza'}
+                onChange={(e) => setEditingAddon({ ...editingAddon, category_type: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold">
+                {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
             <input type="text" value={editingAddon.name} onChange={(e) => setEditingAddon({ ...editingAddon, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             <input type="text" placeholder="Ingredientes / Descrição" value={editingAddon.description || ''} onChange={(e) => setEditingAddon({ ...editingAddon, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             <input type="text" value={editingAddon.price} onChange={(e) => setEditingAddon({ ...editingAddon, price: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
@@ -1068,6 +1134,40 @@ export default function AdminTenant() {
                 </div>
               )}
             </div>
+
+            {/* EDIÇÃO DE VÍNCULO COM AGRUPAMENTO */}
+            {globalAddons.length > 0 && (
+              <div className="border-t border-gray-800 pt-3 space-y-3">
+                <label className="text-[11px] text-gray-300 font-bold block">Adicionais / Sabores Vinculados:</label>
+                {ADDON_TYPES.map(type => {
+                  const itemsOfType = groupedAddons[type] || [];
+                  if (itemsOfType.length === 0) return null;
+
+                  return (
+                    <div key={type} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 space-y-1.5">
+                      <span className="text-[10px] font-bold text-orange-400 block border-b border-gray-800 pb-1">{type}</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
+                        {itemsOfType.map(a => {
+                          const formattedStr = `${a.name}:${a.price}`;
+                          const isSelected = (editingProduct.addons_list || '').includes(a.name);
+                          return (
+                            <label key={a.id} className="flex items-center space-x-1.5 bg-gray-800 p-1.5 rounded-lg text-[10px] cursor-pointer">
+                              <input type="checkbox" checked={isSelected} onChange={(e) => {
+                                let currentArr = editingProduct.addons_list ? editingProduct.addons_list.split(',').filter(Boolean) : [];
+                                if (e.target.checked) currentArr.push(formattedStr);
+                                else currentArr = currentArr.filter(item => !item.startsWith(a.name));
+                                setEditingProduct({ ...editingProduct, addons_list: currentArr.join(',') });
+                              }} />
+                              <span className="truncate">{a.name} (+R${Number(a.price).toFixed(2)})</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="flex space-x-2 pt-2">
               <button type="button" onClick={() => setEditingProduct(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs font-bold text-gray-300">Cancelar</button>
