@@ -46,9 +46,11 @@ export default function AdminTenant() {
     { id: 0, label: 'Dom' }
   ];
 
-  // TIPOS DE ADICIONAIS PARA ORGANIZAÇÃO
+  // TIPOS DE ADICIONAIS EXPANDIDOS PARA MAIOR CONTROLE
   const ADDON_TYPES = [
-    '🍕 Sabor de Pizza',
+    '🍕 Pizza Salgada',
+    '🍫 Pizza Doce',
+    '🫓 Tipo / Sabor de Borda',
     '🍔 Adicional de Lanche',
     '🥤 Molhos & Acompanhamentos',
     '📌 Outros'
@@ -74,7 +76,7 @@ export default function AdminTenant() {
   const [editingNeigh, setEditingNeigh] = useState(null);
 
   const [newCatName, setNewCatName] = useState('');
-  const [newAddon, setNewAddon] = useState({ name: '', price: '', description: '', category_type: '🍕 Sabor de Pizza' });
+  const [newAddon, setNewAddon] = useState({ name: '', price: '', description: '', category_type: '🍕 Pizza Salgada' });
   const [newNeigh, setNewNeigh] = useState({ name: '', fee: '' });
 
   useEffect(() => {
@@ -169,7 +171,7 @@ export default function AdminTenant() {
     }
   };
 
-  // FUNÇÃO PARA MARCAR / DESMARCAR TODOS OS SABORES DE UM GRUPO
+  // MARCAR / DESMARCAR TODOS OS SABORES DE UM GRUPO
   const handleToggleGroupAddons = (itemsGroup, currentAddonsList, mode) => {
     let currentArr = currentAddonsList ? currentAddonsList.split(',').filter(Boolean) : [];
     const allSelected = itemsGroup.every(a => (currentAddonsList || '').includes(a.name));
@@ -222,7 +224,7 @@ export default function AdminTenant() {
   };
 
   const handleClearFinancialData = async () => {
-    if (confirm("⚠️ ATENÇÃO: Tem certeza que deseja zerar TODOS os pedidos e dados financeiros?\n\nEsta ação vai apagar definitivamente todos os pedidos de teste do banco de dados. Não poderá ser desfeito!")) {
+    if (confirm("⚠️ ATENÇÃO: Tem certeza que deseja zerar TODOS os pedidos e dados financeiros?\n\nEsta ação vai apagar definitivamente todos os pedidos do banco de dados.")) {
       const { error } = await supabase
         .from('orders')
         .delete()
@@ -231,7 +233,7 @@ export default function AdminTenant() {
       if (error) {
         alert("Erro ao limpar financeiro: " + error.message);
       } else {
-        alert("Histórico financeiro e pedidos zerados com sucesso!");
+        alert("Histórico financeiro zerado com sucesso!");
         fetchData();
       }
     }
@@ -296,7 +298,7 @@ export default function AdminTenant() {
       name: newAddon.name.trim(),
       price: formattedPrice,
       description: newAddon.description ? newAddon.description.trim() : '',
-      category_type: newAddon.category_type || '🍕 Sabor de Pizza'
+      category_type: newAddon.category_type || '🍕 Pizza Salgada'
     };
 
     const { error } = await supabase.from('global_addons').insert([payload]);
@@ -306,7 +308,7 @@ export default function AdminTenant() {
       return;
     }
 
-    setNewAddon({ name: '', price: '', description: '', category_type: '🍕 Sabor de Pizza' });
+    setNewAddon({ name: '', price: '', description: '', category_type: '🍕 Pizza Salgada' });
     fetchData();
   };
 
@@ -318,7 +320,7 @@ export default function AdminTenant() {
       name: editingAddon.name.trim(),
       price: formattedPrice,
       description: editingAddon.description || '',
-      category_type: editingAddon.category_type || '🍕 Sabor de Pizza'
+      category_type: editingAddon.category_type || '🍕 Pizza Salgada'
     }).eq('id', editingAddon.id);
 
     if (error) return alert("Erro ao editar adicional: " + error.message);
@@ -457,13 +459,13 @@ export default function AdminTenant() {
     setSelectedPromoClient(null);
   };
 
-  // AGRUPA OS ADICIONAIS POR TIPO
+  // AGRUPA ADICIONAIS POR TIPO
   const groupAddonsByType = (addonsArray) => {
     const grouped = {};
     ADDON_TYPES.forEach(type => { grouped[type] = []; });
 
     addonsArray.forEach(addon => {
-      const type = addon.category_type || '🍕 Sabor de Pizza';
+      const type = addon.category_type || '🍕 Pizza Salgada';
       if (!grouped[type]) grouped[type] = [];
       grouped[type].push(addon);
     });
@@ -520,7 +522,7 @@ export default function AdminTenant() {
         <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-xl text-red-400 font-bold transition">Sair</button>
       </header>
 
-      {/* ABAS DE NAVEGAÇÃO REORDENADAS */}
+      {/* ABAS DE NAVEGAÇÃO */}
       <div className="flex space-x-2 bg-gray-900 p-1.5 rounded-xl border border-gray-800 mb-6 text-xs font-bold overflow-x-auto no-print scrollbar-none">
         <button onClick={() => setActiveTab('products')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🍔 Itens</button>
         <button onClick={() => setActiveTab('addons')} className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>➕ Adicionais/Sabores</button>
@@ -535,7 +537,6 @@ export default function AdminTenant() {
       {/* ABA ITENS / PRODUTOS */}
       {activeTab === 'products' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
-          {/* CADASTRO */}
           <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4 h-fit">
             <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Lanche / Item / Pizza / Combo</h3>
             <form onSubmit={handleAddProduct} className="space-y-3">
@@ -564,7 +565,7 @@ export default function AdminTenant() {
                 {newProd.is_combo ? (
                   <div className="space-y-2.5 pt-1">
                     <span className="text-[11px] text-gray-400 block font-semibold">
-                      Configure as etapas do combo (ex: 1º Escolha os Sabores, 2º Escolha o Refri):
+                      Configure as etapas do combo (ex: 1º Escolha a Salgada, 2º Escolha a Doce):
                     </span>
 
                     {(newProd.combo_steps || []).map((step, idx) => (
@@ -623,7 +624,6 @@ export default function AdminTenant() {
                     </button>
                   </div>
                 ) : (
-                  /* OPÇÕES DE PIZZARIA PADRÃO (SEM COMBO) */
                   <div className="space-y-2 pt-1 border-t border-gray-800">
                     <span className="text-xs font-bold text-orange-400 block">🍕 Opções de Pizza Comum (Opcional)</span>
                     <div>
@@ -662,7 +662,6 @@ export default function AdminTenant() {
                 )}
               </div>
 
-              {/* AGRUPAMENTO DE ADICIONAIS/SABORES COM BOTÃO DE MARCAR TODOS */}
               {globalAddons.length > 0 && (
                 <div className="border-t border-gray-800 pt-3 space-y-3">
                   <label className="text-[11px] text-gray-300 font-bold block">Vincular Adicionais / Sabores Habilitados:</label>
@@ -825,7 +824,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA DE CLIENTES E RANKING */}
+      {/* ABA CLIENTES */}
       {activeTab === 'clients' && (
         <div className="space-y-6 no-print">
           <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-1">
@@ -876,7 +875,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA RELATÓRIOS E FINANCEIRO DETALHADO */}
+      {/* ABA RELATÓRIOS E FINANCEIRO */}
       {activeTab === 'reports' && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-center bg-gray-900 p-4 rounded-2xl border border-gray-800 gap-3 no-print">
@@ -1249,7 +1248,7 @@ export default function AdminTenant() {
             <div>
               <label className="text-[11px] text-gray-400 block mb-1">Categoria / Tipo:</label>
               <select
-                value={editingAddon.category_type || '🍕 Sabor de Pizza'}
+                value={editingAddon.category_type || '🍕 Pizza Salgada'}
                 onChange={(e) => setEditingAddon({ ...editingAddon, category_type: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold">
                 {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
@@ -1397,7 +1396,6 @@ export default function AdminTenant() {
               )}
             </div>
 
-            {/* EDIÇÃO DE VÍNCULO COM BOTÃO DE MARCAR TODOS */}
             {globalAddons.length > 0 && (
               <div className="border-t border-gray-800 pt-3 space-y-3">
                 <label className="text-[11px] text-gray-300 font-bold block">Adicionais / Sabores Vinculados:</label>
