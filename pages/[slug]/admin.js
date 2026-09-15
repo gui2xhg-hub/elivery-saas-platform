@@ -145,7 +145,6 @@ export default function AdminTenant() {
     else { alert("Configurações salvas com sucesso!"); fetchData(); }
   };
 
-  // LIMPAR HISTÓRICO DE PEDIDOS / ZERAR TESTES FINANCEIROS
   const handleClearFinancialData = async () => {
     if (confirm("⚠️ ATENÇÃO: Tem certeza que deseja zerar TODOS os pedidos e dados financeiros?\n\nEsta ação vai apagar definitivamente todos os pedidos de teste do banco de dados. Não poderá ser desfeito!")) {
       const { error } = await supabase
@@ -162,7 +161,6 @@ export default function AdminTenant() {
     }
   };
 
-  // HANDLERS DE CADASTRO E EDIÇÃO DE PRODUTO
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if (!newProd.name || !newProd.price) return alert("Preencha nome e preço!");
@@ -266,7 +264,6 @@ export default function AdminTenant() {
     fetchData();
   };
 
-  // CÁLCULO SEGURO DO RELATÓRIO FINANCEIRO
   const getFilteredOrders = () => {
     const now = new Date();
     return allOrders.filter(o => {
@@ -288,7 +285,6 @@ export default function AdminTenant() {
   const totalSubtotal = filteredOrders.reduce((sum, o) => sum + Number(o.subtotal || o.total || 0), 0);
   const totalDeliveryFees = filteredOrders.reduce((sum, o) => sum + Number(o.delivery_fee || 0), 0);
 
-  // DETALHAMENTO DE FORMAS DE PAGAMENTO
   const paymentBreakdown = {
     pix: filteredOrders.filter(o => (o.payment_method || '').toUpperCase().includes('PIX')).reduce((sum, o) => sum + Number(o.total || 0), 0),
     dinheiro: filteredOrders.filter(o => (o.payment_method || '').toUpperCase().includes('DINHEIRO')).reduce((sum, o) => sum + Number(o.total || 0), 0),
@@ -314,7 +310,6 @@ export default function AdminTenant() {
     .map(([name, qty]) => ({ name, qty }))
     .sort((a, b) => b.qty - a.qty);
 
-  // CONSOLIDADO E RANKING DOS MELHORES CLIENTES
   const getCustomerList = () => {
     const customerMap = {};
     allOrders.forEach(order => {
@@ -376,7 +371,7 @@ export default function AdminTenant() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-4 max-w-md mx-auto font-sans pb-12">
+    <div className="min-h-screen bg-gray-950 text-white p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto font-sans pb-12">
       <style jsx global>{`
         @media print {
           body * { visibility: hidden !important; }
@@ -396,44 +391,45 @@ export default function AdminTenant() {
       `}</style>
 
       {/* CABEÇALHO ADMIN */}
-      <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-4 no-print">
+      <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6 no-print">
         <div>
-          <h1 className="font-bold text-lg text-orange-500">{tenant.name}</h1>
-          <p className="text-xs text-gray-400">Painel de Gestão</p>
+          <h1 className="font-bold text-xl sm:text-2xl text-orange-500">{tenant.name}</h1>
+          <p className="text-xs sm:text-sm text-gray-400">Painel de Gestão e Controle</p>
         </div>
-        <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 px-3 py-1.5 rounded-lg text-red-400 font-bold">Sair</button>
+        <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-xl text-red-400 font-bold transition">Sair</button>
       </header>
 
       {/* ABAS DE NAVEGAÇÃO */}
-      <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto no-print">
-        <button onClick={() => setActiveTab('products')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🍔 Itens</button>
-        <button onClick={() => setActiveTab('clients')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'clients' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👥 Clientes</button>
-        <button onClick={() => setActiveTab('reports')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>📊 Financeiro</button>
-        <button onClick={() => setActiveTab('tables')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'tables' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🪑 Mesas QR</button>
-        <button onClick={() => setActiveTab('categories')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🏷️ Categorias</button>
-        <button onClick={() => setActiveTab('addons')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>➕ Adicionais / Sabores</button>
-        <button onClick={() => setActiveTab('neighborhoods')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'neighborhoods' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🛵 Bairros</button>
-        <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2.5 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
+      <div className="flex space-x-2 bg-gray-900 p-1.5 rounded-xl border border-gray-800 mb-6 text-xs font-bold overflow-x-auto no-print scrollbar-none">
+        <button onClick={() => setActiveTab('products')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🍔 Itens</button>
+        <button onClick={() => setActiveTab('clients')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'clients' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>👥 Clientes</button>
+        <button onClick={() => setActiveTab('reports')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>📊 Financeiro</button>
+        <button onClick={() => setActiveTab('tables')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'tables' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🪑 Mesas QR</button>
+        <button onClick={() => setActiveTab('categories')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🏷️ Categorias</button>
+        <button onClick={() => setActiveTab('addons')} className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>➕ Adicionais/Sabores</button>
+        <button onClick={() => setActiveTab('neighborhoods')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'neighborhoods' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🛵 Bairros</button>
+        <button onClick={() => setActiveTab('settings')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>⚙️ Config</button>
       </div>
 
       {/* ABA ITENS / PRODUTOS */}
       {activeTab === 'products' && (
-        <div className="space-y-6 no-print">
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
+          {/* CADASTRO */}
+          <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4 h-fit">
             <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Lanche / Item / Pizza</h3>
             <form onSubmit={handleAddProduct} className="space-y-3">
-              <input type="text" placeholder="Nome do Produto (Ex: Pizza Gigante 35cm)" value={newProd.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} />
-              <input type="text" placeholder="Descrição curta (Ex: 8 fatias, serve até 3 pessoas)" value={newProd.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, description: e.target.value })} />
+              <input type="text" placeholder="Nome do Produto (Ex: Pizza Gigante 35cm)" value={newProd.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, name: e.target.value })} />
+              <input type="text" placeholder="Descrição curta (Ex: 8 fatias, serve até 3 pessoas)" value={newProd.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, description: e.target.value })} />
               
-              <div className="flex space-x-2">
-                <input type="text" placeholder="Preço R$" value={newProd.price} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, price: e.target.value })} />
-                <select value={newProd.category_id} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, category_id: e.target.value })}>
+              <div className="grid grid-cols-2 gap-2">
+                <input type="text" placeholder="Preço R$" value={newProd.price} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, price: e.target.value })} />
+                <select value={newProd.category_id} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, category_id: e.target.value })}>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
 
               {/* OPÇÕES ADICIONAIS PARA PIZZARIAS */}
-              <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
+              <div className="bg-gray-950 p-3.5 rounded-xl border border-gray-800 space-y-2">
                 <span className="text-xs font-bold text-orange-400 block">🍕 Opções de Pizzaria (Opcional)</span>
                 <div>
                   <label className="text-[11px] text-gray-400 block mb-1">Limite Máximo de Sabores/Opções Escolhidas:</label>
@@ -461,9 +457,8 @@ export default function AdminTenant() {
                 </div>
               </div>
 
-              {/* INPUT DE FOTO COM PRÉVIA */}
               <div>
-                <input type="text" placeholder="URL da Foto (https://...)" value={newProd.image} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, image: e.target.value })} />
+                <input type="text" placeholder="URL da Foto (https://...)" value={newProd.image} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, image: e.target.value })} />
                 {newProd.image && (
                   <div className="mt-2 flex items-center space-x-2 bg-gray-950 p-2 rounded-lg border border-gray-800">
                     <img src={newProd.image} alt="Prévia" className="w-10 h-10 rounded-md object-cover border border-gray-700" onError={(e) => e.target.style.display = 'none'} />
@@ -474,13 +469,13 @@ export default function AdminTenant() {
               
               {globalAddons.length > 0 && (
                 <div className="border-t border-gray-800 pt-2">
-                  <label className="text-[11px] text-gray-400 block mb-1">Adicionais / Sabores Opcionais Vinculados:</label>
-                  <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+                  <label className="text-[11px] text-gray-400 block mb-1">Adicionais / Sabores Vinculados:</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto">
                     {globalAddons.map(a => {
                       const formattedStr = `${a.name}:${a.price}`;
                       const isSelected = (newProd.addons_list || '').includes(a.name);
                       return (
-                        <label key={a.id} className="flex items-center space-x-1.5 bg-gray-800 p-2 rounded text-[11px] cursor-pointer">
+                        <label key={a.id} className="flex items-center space-x-1.5 bg-gray-800 p-2 rounded-lg text-[11px] cursor-pointer">
                           <input type="checkbox" checked={isSelected} onChange={(e) => {
                             let currentArr = newProd.addons_list ? newProd.addons_list.split(',').filter(Boolean) : [];
                             if (e.target.checked) currentArr.push(formattedStr);
@@ -494,36 +489,38 @@ export default function AdminTenant() {
                   </div>
                 </div>
               )}
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs hover:bg-green-700 transition">Salvar Lanche / Pizza 🚀</button>
+              <button type="submit" className="w-full bg-green-600 font-bold py-3 rounded-xl text-xs hover:bg-green-700 transition shadow-lg">Salvar Lanche / Pizza 🚀</button>
             </form>
           </section>
 
           {/* LISTA DE PRODUTOS */}
-          <section className="space-y-2">
+          <section className="lg:col-span-2 space-y-3">
             <h3 className="font-bold text-sm text-gray-300">📋 Produtos ({products.length})</h3>
-            {products.map((item) => (
-              <div key={item.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center space-x-3">
-                <div className="flex items-center space-x-3 flex-1 min-w-0">
-                  <img 
-                    src={item.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'} 
-                    alt={item.name} 
-                    className="w-12 h-12 rounded-lg object-cover border border-gray-800 bg-gray-800 shrink-0" 
-                  />
-                  <div className="truncate">
-                    <span className={`font-bold text-xs block truncate ${!item.active ? 'line-through text-gray-500' : 'text-white'}`}>{item.name}</span>
-                    <span className="text-xs text-orange-400 font-bold">
-                      R$ {Number(item.price).toFixed(2)} {item.max_addons > 0 && <span className="text-[10px] text-purple-400 font-normal ml-1">(Até {item.max_addons} sab.)</span>}
-                    </span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {products.map((item) => (
+                <div key={item.id} className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center space-x-3">
+                  <div className="flex items-center space-x-3 flex-1 min-w-0">
+                    <img 
+                      src={item.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'} 
+                      alt={item.name} 
+                      className="w-14 h-14 rounded-xl object-cover border border-gray-800 bg-gray-800 shrink-0" 
+                    />
+                    <div className="truncate">
+                      <span className={`font-bold text-xs block truncate ${!item.active ? 'line-through text-gray-500' : 'text-white'}`}>{item.name}</span>
+                      <span className="text-xs text-orange-400 font-bold">
+                        R$ {Number(item.price).toFixed(2)} {item.max_addons > 0 && <span className="text-[10px] text-purple-400 font-normal ml-1">(Até {item.max_addons} sab.)</span>}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-1.5 shrink-0">
+                    <button onClick={() => setEditingProduct(item)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30 hover:bg-blue-600/30 transition">✏️</button>
+                    <button onClick={async () => { await supabase.from('products').update({ active: !item.active }).eq('id', item.id); fetchData(); }} className={`text-[10px] font-bold px-2.5 py-2 rounded-xl ${item.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{item.active ? 'Ativo' : 'Pausado'}</button>
+                    <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('products').delete().eq('id', item.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold hover:bg-red-500/30 transition">🗑</button>
                   </div>
                 </div>
-
-                <div className="flex items-center space-x-1.5 shrink-0">
-                  <button onClick={() => setEditingProduct(item)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
-                  <button onClick={async () => { await supabase.from('products').update({ active: !item.active }).eq('id', item.id); fetchData(); }} className={`text-[10px] font-bold px-2 py-1.5 rounded-lg ${item.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{item.active ? 'Ativo' : 'Pausado'}</button>
-                  <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('products').delete().eq('id', item.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-1.5 rounded-lg font-bold">🗑</button>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </section>
         </div>
       )}
@@ -531,42 +528,44 @@ export default function AdminTenant() {
       {/* ABA DE CLIENTES E RANKING DOS MELHORES */}
       {activeTab === 'clients' && (
         <div className="space-y-6 no-print">
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2">
+          <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-1">
             <h3 className="font-bold text-sm text-orange-400">👥 Registro & Ranking de Clientes</h3>
             <p className="text-xs text-gray-400">Clientes identificados automaticamente pelo histórico de compras.</p>
           </section>
 
-          <section className="space-y-2">
+          <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {customerList.length === 0 ? (
-              <p className="text-xs text-gray-500 text-center py-4">Nenhum cliente cadastrado ainda.</p>
+              <p className="text-xs text-gray-500 text-center py-4 col-span-full">Nenhum cliente cadastrado ainda.</p>
             ) : (
               customerList.map((client, idx) => (
-                <div key={idx} className="bg-gray-900 p-3 rounded-xl border border-gray-800 space-y-2">
-                  <div className="flex justify-between items-start">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-extrabold text-xs text-orange-400">
-                        {idx === 0 ? '👑 #1' : idx === 1 ? '🥈 #2' : idx === 3 ? '🥉 #3' : `#${idx + 1}`}
-                      </span>
-                      <div>
-                        <h4 className="font-bold text-xs text-white">{client.name}</h4>
-                        {client.phone && <p className="text-[10px] text-gray-400">📱 {client.phone}</p>}
+                <div key={idx} className="bg-gray-900 p-4 rounded-2xl border border-gray-800 space-y-3 flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-extrabold text-xs text-orange-400">
+                          {idx === 0 ? '👑 #1' : idx === 1 ? '🥈 #2' : idx === 2 ? '🥉 #3' : `#${idx + 1}`}
+                        </span>
+                        <div>
+                          <h4 className="font-bold text-xs text-white">{client.name}</h4>
+                          {client.phone && <p className="text-[10px] text-gray-400">📱 {client.phone}</p>}
+                        </div>
                       </div>
+                      
+                      <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-lg text-[11px] font-bold">
+                        R$ {client.totalSpent.toFixed(2)}
+                      </span>
                     </div>
-                    
-                    <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded text-[11px] font-bold">
-                      R$ {client.totalSpent.toFixed(2)}
-                    </span>
-                  </div>
 
-                  <div className="flex justify-between items-center text-[10px] text-gray-400 bg-gray-950 p-2 rounded-lg border border-gray-800/80">
-                    <span>📦 <b>{client.totalOrders}</b> pedido(s)</span>
-                    <span>🕒 Último: <b>{new Date(client.lastOrderDate).toLocaleDateString('pt-BR')}</b></span>
+                    <div className="flex justify-between items-center text-[10px] text-gray-400 bg-gray-950 p-2.5 rounded-xl border border-gray-800/80">
+                      <span>📦 <b>{client.totalOrders}</b> pedido(s)</span>
+                      <span>🕒 Último: <b>{new Date(client.lastOrderDate).toLocaleDateString('pt-BR')}</b></span>
+                    </div>
                   </div>
 
                   {client.phone && (
                     <button
                       onClick={() => handleOpenPromoModal(client)}
-                      className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 rounded-lg text-xs flex items-center justify-center space-x-1 transition">
+                      className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center space-x-1 transition shadow">
                       <span>📢 Enviar Promoção WhatsApp</span>
                     </button>
                   )}
@@ -579,112 +578,106 @@ export default function AdminTenant() {
 
       {/* ABA RELATÓRIOS E FINANCEIRO DETALHADO + IMPRESSÃO */}
       {activeTab === 'reports' && (
-        <div className="space-y-4">
-          <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs no-print">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-400 font-bold">Período de Vendas:</span>
-              <button onClick={() => window.print()} className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-2.5 py-1 rounded-lg text-[10px] transition">
-                🖨️ Imprimir Relatório
-              </button>
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between items-center bg-gray-900 p-4 rounded-2xl border border-gray-800 gap-3 no-print">
+            <div className="flex items-center space-x-2">
+              <span className="text-gray-400 text-xs font-bold">Filtrar Período:</span>
+              <div className="flex space-x-1 overflow-x-auto">
+                <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>Tudo</button>
+                <button onClick={() => setReportFilter('today')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'today' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>Hoje</button>
+                <button onClick={() => setReportFilter('7days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '7days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>7 Dias</button>
+                <button onClick={() => setReportFilter('30days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '30days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>30 Dias</button>
+              </div>
             </div>
 
-            <div className="flex space-x-1 overflow-x-auto pb-1">
-              <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Tudo</button>
-              <button onClick={() => setReportFilter('today')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'today' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Hoje</button>
-              <button onClick={() => setReportFilter('7days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '7days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>7 Dias</button>
-              <button onClick={() => setReportFilter('30days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '30days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>30 Dias</button>
-            </div>
+            <button onClick={() => window.print()} className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-2 rounded-xl text-xs transition shadow w-full sm:w-auto">
+              🖨️ Imprimir Relatório
+            </button>
           </div>
 
           {/* ÁREA IMPRESSA / EXIBIÇÃO FINANCEIRA */}
-          <div className="print-area space-y-4">
+          <div className="print-area space-y-6">
             <div className="hidden print:block text-center border-b border-black pb-2 mb-2">
               <h2 className="font-bold text-base">{tenant.name}</h2>
-              <p className="text-xs">RELATÓRIO FINANCIAL DE VENDAS</p>
+              <p className="text-xs">RELATÓRIO FINANCEIRO DE VENDAS</p>
               <p className="text-[10px]">Data: {new Date().toLocaleDateString('pt-BR')}</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 print:border-black print:bg-white print:text-black">
-                <span className="text-[11px] text-gray-400 block mb-1 print:text-black">Faturamento Total</span>
-                <span className="text-lg font-bold text-green-400 print:text-black">R$ {totalRevenue.toFixed(2)}</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 print:border-black print:bg-white print:text-black">
+                <span className="text-xs text-gray-400 block mb-1 print:text-black">Faturamento Total</span>
+                <span className="text-2xl font-extrabold text-green-400 print:text-black">R$ {totalRevenue.toFixed(2)}</span>
               </div>
-              <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 print:border-black print:bg-white print:text-black">
-                <span className="text-[11px] text-gray-400 block mb-1 print:text-black">Total de Pedidos</span>
-                <span className="text-lg font-bold text-orange-400 print:text-black">{filteredOrders.length}</span>
+              <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 print:border-black print:bg-white print:text-black">
+                <span className="text-xs text-gray-400 block mb-1 print:text-black">Total de Pedidos</span>
+                <span className="text-2xl font-extrabold text-orange-400 print:text-black">{filteredOrders.length}</span>
+              </div>
+              <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 print:border-black print:bg-white print:text-black">
+                <span className="text-xs text-gray-400 block mb-1 print:text-black">Subtotal Produtos</span>
+                <span className="text-2xl font-extrabold text-blue-400 print:text-black">R$ {totalSubtotal.toFixed(2)}</span>
+              </div>
+              <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 print:border-black print:bg-white print:text-black">
+                <span className="text-xs text-gray-400 block mb-1 print:text-black">Taxas de Entrega</span>
+                <span className="text-2xl font-extrabold text-purple-400 print:text-black">R$ {totalDeliveryFees.toFixed(2)}</span>
               </div>
             </div>
 
-            <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2 text-xs print:border-black print:bg-white print:text-black">
-              <h3 className="font-bold text-xs text-orange-400 uppercase border-b border-gray-800 pb-2 print:text-black print:border-black">💰 Detalhamento de Faturamento</h3>
-              <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
-                <span className="text-gray-400 print:text-black">Produtos (Subtotal):</span>
-                <span className="font-bold">R$ {totalSubtotal.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
-                <span className="text-gray-400 print:text-black">Taxas de Entrega:</span>
-                <span className="font-bold">R$ {totalDeliveryFees.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between py-1 font-bold text-green-400 print:text-black">
-                <span>TOTAL CONSOLIDADO:</span>
-                <span>R$ {totalRevenue.toFixed(2)}</span>
-              </div>
-            </section>
-
-            <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2 text-xs print:border-black print:bg-white print:text-black">
-              <h3 className="font-bold text-xs text-orange-400 uppercase border-b border-gray-800 pb-2 print:text-black print:border-black">💳 Faturamento por Pagamento</h3>
-              <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
-                <span className="text-gray-400 print:text-black">⚡ PIX Dinâmico / Manual:</span>
-                <span className="font-bold">R$ {paymentBreakdown.pix.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
-                <span className="text-gray-400 print:text-black">🌐 Cartão Pago Online (Site):</span>
-                <span className="font-bold">R$ {paymentBreakdown.cardOnline.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
-                <span className="text-gray-400 print:text-black">🛵 Cartão na Maquininha:</span>
-                <span className="font-bold">R$ {paymentBreakdown.cardMachine.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-gray-800/60 print:border-black">
-                <span className="text-gray-400 print:text-black">💵 Dinheiro Espécie:</span>
-                <span className="font-bold">R$ {paymentBreakdown.dinheiro.toFixed(2)}</span>
-              </div>
-              {paymentBreakdown.other > 0 && (
-                <div className="flex justify-between py-1">
-                  <span className="text-gray-400 print:text-black">📌 Pagar no Balcão / Outros:</span>
-                  <span className="font-bold">R$ {paymentBreakdown.other.toFixed(2)}</span>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 text-xs print:border-black print:bg-white print:text-black">
+                <h3 className="font-bold text-xs text-orange-400 uppercase border-b border-gray-800 pb-2 print:text-black print:border-black">💳 Faturamento por Pagamento</h3>
+                <div className="flex justify-between py-2 border-b border-gray-800/60 print:border-black">
+                  <span className="text-gray-400 print:text-black">⚡ PIX Dinâmico / Manual:</span>
+                  <span className="font-bold">R$ {paymentBreakdown.pix.toFixed(2)}</span>
                 </div>
-              )}
-            </section>
-
-            <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 print:border-black print:bg-white print:text-black">
-              <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider print:text-black">🏆 ITENS MAIS VENDIDOS</h3>
-              <div className="space-y-2">
-                {topProducts.length === 0 ? (
-                  <p className="text-xs text-gray-400">Nenhum pedido registrado ainda.</p>
-                ) : (
-                  topProducts.map((p, idx) => (
-                    <div key={idx} className="flex justify-between items-center bg-gray-800 p-2.5 rounded-lg text-xs print:bg-white print:border-b print:border-black">
-                      <span className="font-bold text-white print:text-black">{idx + 1}. {p.name}</span>
-                      <span className="bg-orange-500/20 text-orange-400 px-2.5 py-1 rounded-md font-bold print:text-black">{p.qty} un.</span>
-                    </div>
-                  ))
+                <div className="flex justify-between py-2 border-b border-gray-800/60 print:border-black">
+                  <span className="text-gray-400 print:text-black">🌐 Cartão Pago Online (Site):</span>
+                  <span className="font-bold">R$ {paymentBreakdown.cardOnline.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-gray-800/60 print:border-black">
+                  <span className="text-gray-400 print:text-black">🛵 Cartão na Maquininha:</span>
+                  <span className="font-bold">R$ {paymentBreakdown.cardMachine.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-gray-800/60 print:border-black">
+                  <span className="text-gray-400 print:text-black">💵 Dinheiro Espécie:</span>
+                  <span className="font-bold">R$ {paymentBreakdown.dinheiro.toFixed(2)}</span>
+                </div>
+                {paymentBreakdown.other > 0 && (
+                  <div className="flex justify-between py-2">
+                    <span className="text-gray-400 print:text-black">📌 Pagar no Balcão / Outros:</span>
+                    <span className="font-bold">R$ {paymentBreakdown.other.toFixed(2)}</span>
+                  </div>
                 )}
-              </div>
-            </section>
+              </section>
+
+              <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 print:border-black print:bg-white print:text-black">
+                <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider print:text-black">🏆 ITENS MAIS VENDIDOS</h3>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {topProducts.length === 0 ? (
+                    <p className="text-xs text-gray-400">Nenhum pedido registrado ainda.</p>
+                  ) : (
+                    topProducts.map((p, idx) => (
+                      <div key={idx} className="flex justify-between items-center bg-gray-800 p-3 rounded-xl text-xs print:bg-white print:border-b print:border-black">
+                        <span className="font-bold text-white print:text-black">{idx + 1}. {p.name}</span>
+                        <span className="bg-orange-500/20 text-orange-400 px-3 py-1 rounded-lg font-bold print:text-black">{p.qty} un.</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            </div>
           </div>
 
           {/* ZERAR DADOS DE TESTE */}
-          <section className="bg-gray-900 p-4 rounded-xl border border-red-500/30 flex justify-between items-center mt-4 no-print">
+          <section className="bg-gray-900 p-5 rounded-2xl border border-red-500/30 flex justify-between items-center no-print">
             <div>
               <h4 className="font-bold text-xs text-red-400">🧹 Zerar Dados de Teste</h4>
-              <p className="text-[10px] text-gray-400">Apaga todo o histórico de pedidos para recomeçar do zero.</p>
+              <p className="text-[11px] text-gray-400">Apaga todo o histórico de pedidos para recomeçar do zero.</p>
             </div>
             <button
               type="button"
               onClick={handleClearFinancialData}
-              className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/40 px-3 py-2 rounded-xl text-xs font-bold transition">
-              🗑️ Limpar
+              className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/40 px-4 py-2.5 rounded-xl text-xs font-bold transition">
+              🗑️ Limpar Pedidos
             </button>
           </section>
         </div>
@@ -693,11 +686,11 @@ export default function AdminTenant() {
       {/* ABA MESAS QR CODE */}
       {activeTab === 'tables' && (
         <div className="space-y-6">
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 no-print">
+          <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 no-print">
             <h3 className="font-bold text-sm text-orange-400">🪑 Gerador de QR Code por Mesa</h3>
             <p className="text-xs text-gray-400">Defina a quantidade de mesas para gerar os links e QR Codes prontos para impressão.</p>
             
-            <div className="flex items-center space-x-2 pt-1">
+            <div className="flex items-center space-x-3 pt-1">
               <label className="text-xs font-bold text-gray-300 whitespace-nowrap">Qtd de Mesas:</label>
               <input
                 type="number"
@@ -705,33 +698,33 @@ export default function AdminTenant() {
                 max="100"
                 value={tableCount}
                 onChange={(e) => setTableCount(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-24 bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white text-center font-bold"
+                className="w-28 bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white text-center font-bold"
               />
             </div>
           </section>
 
-          <section className="space-y-3 print-tables-area">
+          <section className="space-y-4 print-tables-area">
             <div className="flex justify-between items-center no-print">
               <h4 className="font-bold text-xs text-gray-300">Cartões para Impressão ({tableCount} mesas)</h4>
               <button 
                 onClick={() => window.print()}
-                className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition">
+                className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow">
                 🖨️ Imprimir Cartões
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {Array.from({ length: tableCount }, (_, i) => {
                 const tableNum = String(i + 1).padStart(2, '0');
                 const tableUrl = `${baseUrl}/${tenant.slug}?mesa=${tableNum}`;
                 const qrCodeApi = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(tableUrl)}`;
 
                 return (
-                  <div key={i} className="bg-gray-900 p-3 rounded-2xl border border-gray-800 flex flex-col items-center space-y-2 text-center print:bg-white print:border-black print:text-black">
-                    <span className="font-extrabold text-sm text-orange-400 print:text-black">{tenant.name}</span>
-                    <span className="font-bold text-xs bg-orange-500 text-white px-2 py-0.5 rounded-md print:bg-black print:text-white">MESA {tableNum}</span>
+                  <div key={i} className="bg-gray-900 p-4 rounded-2xl border border-gray-800 flex flex-col items-center space-y-2 text-center print:bg-white print:border-black print:text-black">
+                    <span className="font-extrabold text-xs text-orange-400 print:text-black truncate max-w-full">{tenant.name}</span>
+                    <span className="font-bold text-xs bg-orange-500 text-white px-2.5 py-0.5 rounded-md print:bg-black print:text-white">MESA {tableNum}</span>
                     <img src={qrCodeApi} alt={`Mesa ${tableNum}`} className="w-28 h-28 rounded-xl bg-white p-1.5 border border-gray-700 shadow" />
-                    <span className="text-[9px] opacity-70">Escaneie para fazer seu pedido</span>
+                    <span className="text-[9px] opacity-70">Escaneie para pedir</span>
                   </div>
                 );
               })}
@@ -742,27 +735,28 @@ export default function AdminTenant() {
 
       {/* ADICIONAIS / SABORES */}
       {activeTab === 'addons' && (
-        <div className="space-y-6 no-print">
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Adicional / Sabor de Pizza</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
+          <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
+            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Adicional / Sabor</h3>
             <form onSubmit={handleAddGlobalAddon} className="space-y-3">
-              <input type="text" placeholder="Nome Ex: Calabresa ou Bacon Extra" value={newAddon.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, name: e.target.value })} />
-              <input type="text" placeholder="Ingredientes / Descrição Ex: Molho de tomate, mussarela, calabresa e cebola" value={newAddon.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, description: e.target.value })} />
-              <input type="text" placeholder="Valor Adicional R$ Ex: 0.00 para padrão ou 5.00 para especial" value={newAddon.price} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, price: e.target.value })} />
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs hover:bg-green-700 transition">Cadastrar Sabor / Adicional</button>
+              <input type="text" placeholder="Nome Ex: Calabresa ou Bacon Extra" value={newAddon.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, name: e.target.value })} />
+              <input type="text" placeholder="Ingredientes / Descrição Ex: Molho, mussarela e calabresa" value={newAddon.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, description: e.target.value })} />
+              <input type="text" placeholder="Valor Adicional R$ Ex: 0.00 ou 5.00" value={newAddon.price} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, price: e.target.value })} />
+              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-xl text-xs hover:bg-green-700 transition">Cadastrar Sabor / Adicional</button>
             </form>
           </section>
-          <section className="space-y-2">
+
+          <section className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 h-fit">
             {globalAddons.map((a) => (
-              <div key={a.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
+              <div key={a.id} className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center text-xs">
                 <div>
                   <span className="font-bold block text-white">{a.name}</span>
                   {a.description && <p className="text-[10px] text-gray-400 italic mb-0.5">{a.description}</p>}
                   <span className="text-orange-400 font-bold">+ R$ {Number(a.price).toFixed(2)}</span>
                 </div>
                 <div className="flex space-x-1.5">
-                  <button onClick={() => setEditingAddon(a)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
-                  <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('global_addons').delete().eq('id', a.id); fetchData(); } }} className="text-red-400 font-bold p-1">🗑</button>
+                  <button onClick={() => setEditingAddon(a)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
+                  <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('global_addons').delete().eq('id', a.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
                 </div>
               </div>
             ))}
@@ -772,25 +766,26 @@ export default function AdminTenant() {
 
       {/* BAIRROS */}
       {activeTab === 'neighborhoods' && (
-        <div className="space-y-6 no-print">
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
+          <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
             <h3 className="font-bold text-sm text-orange-400">🛵 Novo Bairro</h3>
             <form onSubmit={handleAddNeighborhood} className="space-y-3">
-              <input type="text" placeholder="Nome do Bairro" value={newNeigh.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewNeigh({ ...newNeigh, name: e.target.value })} />
-              <input type="text" placeholder="Taxa R$" value={newNeigh.fee} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewNeigh({ ...newNeigh, fee: e.target.value })} />
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs">Cadastrar Bairro</button>
+              <input type="text" placeholder="Nome do Bairro" value={newNeigh.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewNeigh({ ...newNeigh, name: e.target.value })} />
+              <input type="text" placeholder="Taxa R$" value={newNeigh.fee} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewNeigh({ ...newNeigh, fee: e.target.value })} />
+              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-xl text-xs">Cadastrar Bairro</button>
             </form>
           </section>
-          <section className="space-y-2">
+
+          <section className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 h-fit">
             {neighborhoods.map((n) => (
-              <div key={n.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
+              <div key={n.id} className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center text-xs">
                 <div>
                   <span className="font-bold block text-white">{n.name}</span>
                   <span className="text-orange-400 font-bold">Taxa: R$ {Number(n.fee).toFixed(2)}</span>
                 </div>
                 <div className="flex space-x-1.5">
-                  <button onClick={() => setEditingNeigh(n)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
-                  <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('neighborhoods').delete().eq('id', n.id); fetchData(); } }} className="text-red-400 font-bold p-1">🗑</button>
+                  <button onClick={() => setEditingNeigh(n)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
+                  <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('neighborhoods').delete().eq('id', n.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
                 </div>
               </div>
             ))}
@@ -800,21 +795,22 @@ export default function AdminTenant() {
 
       {/* CATEGORIAS */}
       {activeTab === 'categories' && (
-        <div className="space-y-6 no-print">
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
+          <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
             <h3 className="font-bold text-sm text-orange-400">🏷️ Nova Categoria</h3>
             <form onSubmit={handleAddCategory} className="flex space-x-2">
-              <input type="text" placeholder="Nome" value={newCatName} className="flex-1 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewCatName(e.target.value)} />
-              <button type="submit" className="bg-green-600 font-bold px-4 py-2.5 rounded-lg text-xs">Adicionar</button>
+              <input type="text" placeholder="Nome" value={newCatName} className="flex-1 bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewCatName(e.target.value)} />
+              <button type="submit" className="bg-green-600 font-bold px-4 py-2.5 rounded-xl text-xs">Adicionar</button>
             </form>
           </section>
-          <section className="space-y-2">
+
+          <section className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 h-fit">
             {categories.map((c) => (
-              <div key={c.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
+              <div key={c.id} className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center text-xs">
                 <span className="font-bold text-white">{c.name}</span>
                 <div className="flex space-x-1.5">
-                  <button onClick={() => setEditingCategory(c)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
-                  <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('categories').delete().eq('id', c.id); fetchData(); } }} className="text-red-400 font-bold p-1">🗑</button>
+                  <button onClick={() => setEditingCategory(c)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
+                  <button onClick={async () => { if (confirm("Excluir?")) { await supabase.from('categories').delete().eq('id', c.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
                 </div>
               </div>
             ))}
@@ -824,13 +820,20 @@ export default function AdminTenant() {
 
       {/* CONFIGURAÇÕES DA LOJA */}
       {activeTab === 'settings' && (
-        <div className="space-y-6 no-print">
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-sm text-orange-400">⚙️ Configurações da Loja</h3>
-            <form onSubmit={handleSaveTenantSettings} className="space-y-3">
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Nome da Loja:</label>
-                <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
+        <div className="no-print">
+          <section className="bg-gray-900 p-6 rounded-2xl border border-gray-800 space-y-4 max-w-4xl mx-auto">
+            <h3 className="font-bold text-base text-orange-400">⚙️ Configurações Gerais da Loja</h3>
+            <form onSubmit={handleSaveTenantSettings} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Nome da Loja:</label>
+                  <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">WhatsApp de Vendas:</label>
+                  <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
+                </div>
               </div>
 
               <div>
@@ -839,23 +842,23 @@ export default function AdminTenant() {
                   type="text" 
                   placeholder="Ex: https://instagram.com/pizzaria_top" 
                   value={tenant.instagram_url || ''} 
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" 
                   onChange={(e) => setTenant({ ...tenant, instagram_url: e.target.value })} 
                 />
               </div>
 
               {/* HORÁRIOS E DIAS DE FUNCIONAMENTO */}
-              <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-3">
-                <div className="flex justify-between items-center flex-wrap gap-1">
-                  <label className="text-[11px] font-bold text-orange-400 block">🛵 Dias de Funcionamento do Delivery:</label>
+              <div className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-3">
+                <div className="flex justify-between items-center flex-wrap gap-2">
+                  <label className="text-xs font-bold text-orange-400 block">🛵 Dias de Funcionamento do Delivery:</label>
                   <div className="flex space-x-1 text-[10px]">
-                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [1, 2, 3, 4, 5] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-bold">Seg-Sex</button>
-                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [1, 2, 3, 4, 5, 6] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-bold">Seg-Sáb</button>
-                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [0, 1, 2, 3, 4, 5, 6] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-bold">Todos</button>
+                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [1, 2, 3, 4, 5] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2.5 py-1 rounded-lg font-bold">Seg-Sex</button>
+                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [1, 2, 3, 4, 5, 6] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2.5 py-1 rounded-lg font-bold">Seg-Sáb</button>
+                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [0, 1, 2, 3, 4, 5, 6] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2.5 py-1 rounded-lg font-bold">Todos</button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-7 gap-1">
+                <div className="grid grid-cols-7 gap-1.5">
                   {ALL_DAYS.map(day => {
                     const isSelected = (tenant.work_days || []).includes(day.id);
                     return (
@@ -863,90 +866,89 @@ export default function AdminTenant() {
                         key={day.id}
                         type="button"
                         onClick={() => setTenant({ ...tenant, work_days: toggleDaySelection(tenant.work_days, day.id) })}
-                        className={`py-1.5 rounded-lg text-[10px] font-bold border transition ${isSelected ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-900 text-gray-500 border-gray-800'}`}>
+                        className={`py-2 rounded-xl text-xs font-bold border transition ${isSelected ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-900 text-gray-500 border-gray-800'}`}>
                         {day.label}
                       </button>
                     );
                   })}
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-800/80">
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-800/80">
                   <div>
                     <label className="text-[11px] text-gray-400 block mb-1">Horário Abertura:</label>
-                    <input type="time" value={tenant.opening_time || '18:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, opening_time: e.target.value })} />
+                    <input type="time" value={tenant.opening_time || '18:00'} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, opening_time: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-[11px] text-gray-400 block mb-1">Horário Fechamento:</label>
-                    <input type="time" value={tenant.closing_time || '23:30'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, closing_time: e.target.value })} />
+                    <input type="time" value={tenant.closing_time || '23:30'} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, closing_time: e.target.value })} />
                   </div>
                 </div>
               </div>
 
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">ID do Pixel do Meta (Facebook/Instagram):</label>
-                <input type="text" placeholder="Ex: 123456789012345" value={tenant.pixel_id || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none font-mono" onChange={(e) => setTenant({ ...tenant, pixel_id: e.target.value })} />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">ID do Pixel do Meta (Facebook/Instagram):</label>
+                  <input type="text" placeholder="Ex: 123456789012345" value={tenant.pixel_id || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-mono" onChange={(e) => setTenant({ ...tenant, pixel_id: e.target.value })} />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Aviso/Instrução no Pedido:</label>
+                  <input type="text" placeholder="Ex: Chave PIX: CNPJ 00.000..." value={tenant.custom_message || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, custom_message: e.target.value })} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">URL da Logo (Perfil):</label>
+                  <input type="text" value={tenant.logo_url || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, logo_url: e.target.value })} />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">URL do Banner (Capa):</label>
+                  <input type="text" value={tenant.banner_url || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, banner_url: e.target.value })} />
+                </div>
               </div>
 
               <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Aviso/Instrução Adicional no Pedido:</label>
-                <input type="text" placeholder="Ex: Chave PIX: CNPJ 00.000.000/0001-00. Entrega em 40 min." value={tenant.custom_message || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, custom_message: e.target.value })} />
+                <label className="text-[11px] text-gray-400 block mb-1">Banners de Promoção (URLs separadas por vírgula):</label>
+                <input type="text" placeholder="https://link1.com, https://link2.com" value={tenant.promo_banners || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, promo_banners: e.target.value })} />
               </div>
 
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">URL da Logo (Perfil):</label>
-                <input type="text" value={tenant.logo_url || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, logo_url: e.target.value })} />
-              </div>
-
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">URL do Banner (Capa):</label>
-                <input type="text" value={tenant.banner_url || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, banner_url: e.target.value })} />
-              </div>
-
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">URLs dos Banners de Promoção (Separados por vírgula):</label>
-                <input type="text" placeholder="https://link1.com, https://link2.com" value={tenant.promo_banners || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, promo_banners: e.target.value })} />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[11px] text-gray-400 block mb-1">Cor Principal:</label>
-                  <input type="color" value={tenant.primary_color || '#FF8C00'} onChange={(e) => setTenant({ ...tenant, primary_color: e.target.value })} className="h-9 w-full bg-gray-800 rounded cursor-pointer" />
+                  <input type="color" value={tenant.primary_color || '#FF8C00'} onChange={(e) => setTenant({ ...tenant, primary_color: e.target.value })} className="h-10 w-full bg-gray-800 rounded-xl cursor-pointer" />
                 </div>
                 <div>
                   <label className="text-[11px] text-gray-400 block mb-1">Cor Secundária:</label>
-                  <input type="color" value={tenant.secondary_color || '#111827'} onChange={(e) => setTenant({ ...tenant, secondary_color: e.target.value })} className="h-9 w-full bg-gray-800 rounded cursor-pointer" />
+                  <input type="color" value={tenant.secondary_color || '#111827'} onChange={(e) => setTenant({ ...tenant, secondary_color: e.target.value })} className="h-10 w-full bg-gray-800 rounded-xl cursor-pointer" />
                 </div>
               </div>
 
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">WhatsApp:</label>
-                <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
-              </div>
-
               {/* PIX DINÂMICO E PAGAMENTOS AUTOMÁTICOS */}
-              <div className="pt-3 border-t border-gray-800 space-y-3">
-                <div className="flex justify-between items-center">
+              <div className="pt-4 border-t border-gray-800 space-y-3">
+                <div className="flex justify-between items-center bg-gray-950 p-4 rounded-2xl border border-gray-800">
                   <div>
                     <h4 className="font-bold text-xs text-green-400">⚡ PIX Dinâmico com Baixa Automática</h4>
-                    <p className="text-[10px] text-gray-400">Confirma o pagamento sozinho sem conferir comprovante.</p>
+                    <p className="text-[10px] text-gray-400">Confirma o pagamento sozinho no banco.</p>
                   </div>
 
                   <input
                     type="checkbox"
                     checked={tenant.pix_enabled || false}
                     onChange={(e) => setTenant({ ...tenant, pix_enabled: e.target.checked })}
-                    className="w-4 h-4 accent-green-500 cursor-pointer"
+                    className="w-5 h-5 accent-green-500 cursor-pointer"
                   />
                 </div>
 
                 {tenant.pix_enabled && (
-                  <div className="space-y-2 bg-gray-800/60 p-3 rounded-xl border border-gray-700">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-800/60 p-4 rounded-2xl border border-gray-700">
                     <div>
                       <label className="text-[11px] text-gray-400 block mb-1">Gateway de Pagamento:</label>
                       <select
                         value={tenant.pix_provider || 'mercadopago'}
                         onChange={(e) => setTenant({ ...tenant, pix_provider: e.target.value })}
-                        className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none">
+                        className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none">
                         <option value="mercadopago">Mercado Pago</option>
                         <option value="efi">Efí (Gerencianet)</option>
                         <option value="asaas">Asaas</option>
@@ -954,12 +956,12 @@ export default function AdminTenant() {
                     </div>
 
                     <div>
-                      <label className="text-[11px] text-gray-400 block mb-1">Token de Acesso / Chave de API:</label>
+                      <label className="text-[11px] text-gray-400 block mb-1">Token de Acesso / API:</label>
                       <input
                         type="password"
                         placeholder="Ex: APP_USR-xxxx-xxxx..."
                         value={tenant.pix_access_token || ''}
-                        className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none"
+                        className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
                         onChange={(e) => setTenant({ ...tenant, pix_access_token: e.target.value })}
                       />
                     </div>
@@ -967,8 +969,8 @@ export default function AdminTenant() {
                 )}
               </div>
 
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs transition hover:bg-green-700">
-                Salvar Alterações
+              <button type="submit" className="w-full bg-green-600 font-bold py-3.5 rounded-xl text-xs transition hover:bg-green-700 shadow-lg">
+                Salvar Configurações da Loja
               </button>
             </form>
           </section>
@@ -986,12 +988,12 @@ export default function AdminTenant() {
               rows={4}
               value={promoMessageText}
               onChange={(e) => setPromoMessageText(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+              className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
             />
 
             <div className="flex space-x-2">
-              <button type="button" onClick={() => setSelectedPromoClient(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button>
-              <button type="button" onClick={handleSendPromoWhatsapp} className="w-1/2 bg-green-600 hover:bg-green-700 py-2 rounded-lg text-xs font-bold text-white">Enviar 🚀</button>
+              <button type="button" onClick={() => setSelectedPromoClient(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Cancelar</button>
+              <button type="button" onClick={handleSendPromoWhatsapp} className="w-1/2 bg-green-600 hover:bg-green-700 py-2.5 rounded-xl text-xs font-bold text-white">Enviar 🚀</button>
             </div>
           </div>
         </div>
@@ -1002,10 +1004,10 @@ export default function AdminTenant() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateAddon} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Sabor / Adicional</h3>
-            <input type="text" value={editingAddon.name} onChange={(e) => setEditingAddon({ ...editingAddon, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <input type="text" placeholder="Ingredientes / Descrição" value={editingAddon.description || ''} onChange={(e) => setEditingAddon({ ...editingAddon, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <input type="text" value={editingAddon.price} onChange={(e) => setEditingAddon({ ...editingAddon, price: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <div className="flex space-x-2"><button type="button" onClick={() => setEditingAddon(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Salvar</button></div>
+            <input type="text" value={editingAddon.name} onChange={(e) => setEditingAddon({ ...editingAddon, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
+            <input type="text" placeholder="Ingredientes / Descrição" value={editingAddon.description || ''} onChange={(e) => setEditingAddon({ ...editingAddon, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
+            <input type="text" value={editingAddon.price} onChange={(e) => setEditingAddon({ ...editingAddon, price: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
+            <div className="flex space-x-2"><button type="button" onClick={() => setEditingAddon(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-xl text-xs font-bold text-white">Salvar</button></div>
           </form>
         </div>
       )}
@@ -1014,9 +1016,9 @@ export default function AdminTenant() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateNeigh} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Bairro</h3>
-            <input type="text" value={editingNeigh.name} onChange={(e) => setEditingNeigh({ ...editingNeigh, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <input type="text" value={editingNeigh.fee} onChange={(e) => setEditingNeigh({ ...editingNeigh, fee: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <div className="flex space-x-2"><button type="button" onClick={() => setEditingNeigh(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Salvar</button></div>
+            <input type="text" value={editingNeigh.name} onChange={(e) => setEditingNeigh({ ...editingNeigh, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
+            <input type="text" value={editingNeigh.fee} onChange={(e) => setEditingNeigh({ ...editingNeigh, fee: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
+            <div className="flex space-x-2"><button type="button" onClick={() => setEditingNeigh(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-xl text-xs font-bold text-white">Salvar</button></div>
           </form>
         </div>
       )}
@@ -1025,27 +1027,27 @@ export default function AdminTenant() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateCategory} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Categoria</h3>
-            <input type="text" value={editingCategory.name} onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <div className="flex space-x-2"><button type="button" onClick={() => setEditingCategory(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Salvar</button></div>
+            <input type="text" value={editingCategory.name} onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
+            <div className="flex space-x-2"><button type="button" onClick={() => setEditingCategory(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-xl text-xs font-bold text-white">Salvar</button></div>
           </form>
         </div>
       )}
 
       {editingProduct && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
-          <form onSubmit={handleUpdateProduct} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
+          <form onSubmit={handleUpdateProduct} className="bg-gray-900 w-full max-w-md rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Produto</h3>
-            <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <input type="text" value={editingProduct.description || ''} onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+            <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
+            <input type="text" value={editingProduct.description || ''} onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             
-            <div className="flex space-x-2">
-              <input type="text" value={editingProduct.price} onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-              <select value={editingProduct.category_id} onChange={(e) => setEditingProduct({ ...editingProduct, category_id: e.target.value })} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none">
+            <div className="grid grid-cols-2 gap-2">
+              <input type="text" value={editingProduct.price} onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
+              <select value={editingProduct.category_id} onChange={(e) => setEditingProduct({ ...editingProduct, category_id: e.target.value })} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none">
                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
 
-            <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
+            <div className="bg-gray-950 p-3.5 rounded-xl border border-gray-800 space-y-2">
               <span className="text-xs font-bold text-orange-400 block">🍕 Opções de Pizzaria (Opcional)</span>
               <div>
                 <label className="text-[10px] text-gray-400 block mb-0.5">Limite Máximo de Sabores:</label>
@@ -1058,7 +1060,7 @@ export default function AdminTenant() {
             </div>
 
             <div>
-              <input type="text" placeholder="URL da Foto" value={editingProduct.image || ''} onChange={(e) => setEditingProduct({ ...editingProduct, image: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+              <input type="text" placeholder="URL da Foto" value={editingProduct.image || ''} onChange={(e) => setEditingProduct({ ...editingProduct, image: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
               {editingProduct.image && (
                 <div className="mt-2 flex items-center space-x-2 bg-gray-950 p-2 rounded-lg border border-gray-800">
                   <img src={editingProduct.image} alt="Prévia" className="w-10 h-10 rounded-md object-cover border border-gray-700" onError={(e) => e.target.style.display = 'none'} />
@@ -1068,8 +1070,8 @@ export default function AdminTenant() {
             </div>
 
             <div className="flex space-x-2 pt-2">
-              <button type="button" onClick={() => setEditingProduct(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-lg text-xs font-bold text-gray-300">Cancelar</button>
-              <button type="submit" className="w-1/2 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-lg text-xs font-bold text-white">Atualizar</button>
+              <button type="button" onClick={() => setEditingProduct(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs font-bold text-gray-300">Cancelar</button>
+              <button type="submit" className="w-1/2 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-xl text-xs font-bold text-white">Atualizar</button>
             </div>
           </form>
         </div>
