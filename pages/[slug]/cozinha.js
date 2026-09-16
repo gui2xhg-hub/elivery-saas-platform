@@ -729,44 +729,107 @@ export default function PdvKdsTenant() {
     <div className="min-h-screen bg-gray-950 text-white p-4 sm:p-6 font-sans max-w-7xl mx-auto pb-12">
       <style jsx global>{`
         @media print {
-          body * { visibility: hidden !important; }
-          #print-area, #print-area * { visibility: visible !important; }
-          #print-area { position: absolute !important; left: 0 !important; top: 0 !important; width: 80mm !important; padding: 5px !important; color: #000 !important; background: #fff !important; font-family: monospace !important; font-size: 11px !important; }
-          .no-print { display: none !important; }
+          @page {
+            size: 80mm auto;
+            margin: 0;
+          }
+          html, body {
+            width: 80mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+            color: #000 !important;
+          }
+          body * { 
+            visibility: hidden !important; 
+          }
+          #print-area, #print-area * { 
+            visibility: visible !important; 
+          }
+          #print-area { 
+            position: absolute !important; 
+            left: 0 !important; 
+            top: 0 !important; 
+            width: 78mm !important; 
+            padding: 4px !important; 
+            color: #000 !important; 
+            background: #fff !important; 
+            font-family: 'Courier New', Courier, monospace !important; 
+            font-size: 11px !important;
+            line-height: 1.3 !important;
+          }
+          .no-print { 
+            display: none !important; 
+          }
         }
       `}</style>
 
-      {/* ÁREA DE IMPRESSÃO */}
+      {/* ÁREA DE IMPRESSÃO - FORMATO CUPOM TÉRMICO */}
       {printConfig?.order && (
         <div id="print-area" className="hidden print:block text-black font-mono">
-          <div className="text-center border-b border-black pb-2 mb-2">
-            <h2 className="font-bold text-sm uppercase">{tenant.name}</h2>
-            <p className="text-[10px]">{printConfig.mode === 'kitchen' ? 'VIA DE PRODUÇÃO' : 'RECIBO DO CLIENTE'} — PEDIDO {getOrderDisplayNumber(printConfig.order)}</p>
+          <div className="text-center border-b border-dashed border-black pb-2 mb-2">
+            <h2 className="font-extrabold text-sm uppercase">{tenant.name}</h2>
+            <p className="text-[10px] font-bold mt-0.5">
+              *** {printConfig.mode === 'kitchen' ? 'VIA DE PRODUÇÃO' : 'RECIBO DO CLIENTE'} ***
+            </p>
+            <p className="text-[12px] font-black mt-1">
+              PEDIDO {getOrderDisplayNumber(printConfig.order)}
+            </p>
+            <p className="text-[9px] mt-0.5">
+              {new Date(printConfig.order.created_at || Date.now()).toLocaleString('pt-BR')}
+            </p>
           </div>
-          <div className="border-b border-black pb-2 mb-2 text-[10px]">
+
+          <div className="border-b border-dashed border-black pb-2 mb-2 text-[10px] space-y-0.5">
             <p><b>CLIENTE:</b> {printConfig.order.customer_name}</p>
             <p><b>LOCAL:</b> {printConfig.order.customer_address}</p>
             {printConfig.order.waiter_name && <p><b>GARÇOM:</b> {printConfig.order.waiter_name}</p>}
+            {printConfig.order.customer_phone && <p><b>TEL:</b> {printConfig.order.customer_phone}</p>}
+            {printConfig.order.payment_method && <p><b>PAGAMENTO:</b> {printConfig.order.payment_method}</p>}
           </div>
-          <div className="border-b border-black pb-2 mb-2 text-[10px]">
-            <p className="font-bold">ITENS:</p>
+
+          <div className="border-b border-dashed border-black pb-2 mb-2 text-[10px]">
+            <p className="font-bold border-b border-black pb-1 mb-1">ITENS DO PEDIDO:</p>
             {printConfig.order.items?.map((it, idx) => (
-              <div key={idx} className="mb-1">
-                <p><b>{it.quantity}x {it.name}</b> - R$ {(it.price * it.quantity).toFixed(2)}</p>
+              <div key={idx} className="mb-1.5">
+                <div className="flex justify-between font-bold">
+                  <span>{it.quantity}x {it.name}</span>
+                  <span>R$ {(it.price * it.quantity).toFixed(2)}</span>
+                </div>
                 {it.is_combo && it.comboSteps && it.comboSteps.length > 0 ? (
                   it.comboSteps.map((step, sIdx) => (
                     <p key={sIdx} className="pl-2 text-[9px]">↳ {step.title}: {step.items?.map(i => i.name).join(', ')}</p>
                   ))
                 ) : (
-                  it.selectedAddons && it.selectedAddons.length > 0 && <p className="pl-2 text-[9px]">↳ {it.selectedAddons.map(a => a.name).join(', ')}</p>
+                  it.selectedAddons && it.selectedAddons.length > 0 && (
+                    <p className="pl-2 text-[9px]">↳ {it.selectedAddons.map(a => a.name).join(', ')}</p>
+                  )
                 )}
-                {it.selectedBorder && it.selectedBorder.name && it.selectedBorder.name !== 'Sem Borda' && <p className="pl-2 text-[9px]">↳ Borda: {it.selectedBorder.name}</p>}
-                {it.observation && <p className="pl-2 text-[9px]">↳ OBS: {it.observation}</p>}
+                {it.selectedBorder && it.selectedBorder.name && it.selectedBorder.name !== 'Sem Borda' && (
+                  <p className="pl-2 text-[9px]">↳ Borda: {it.selectedBorder.name}</p>
+                )}
+                {it.observation && (
+                  <p className="pl-2 text-[9px] font-bold">↳ OBS: {it.observation}</p>
+                )}
               </div>
             ))}
           </div>
-          <div className="text-right text-[11px] font-bold">
-            <p>TOTAL: R$ {Number(printConfig.order.total).toFixed(2)}</p>
+
+          {printConfig.order.notes && (
+            <div className="border-b border-dashed border-black pb-2 mb-2 text-[10px]">
+              <p><b>OBS. PEDIDO:</b> {printConfig.order.notes}</p>
+            </div>
+          )}
+
+          <div className="text-right text-[11px] font-bold space-y-0.5 pt-1">
+            {Number(printConfig.order.delivery_fee) > 0 && (
+              <p className="text-[10px] font-normal">TAXA ENTREGA: R$ {Number(printConfig.order.delivery_fee).toFixed(2)}</p>
+            )}
+            <p className="text-xs font-black">TOTAL: R$ {Number(printConfig.order.total).toFixed(2)}</p>
+          </div>
+
+          <div className="text-center text-[9px] mt-3 border-t border-dashed border-black pt-2">
+            <p>Obrigado pela preferência!</p>
           </div>
         </div>
       )}
