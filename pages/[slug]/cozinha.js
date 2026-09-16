@@ -60,11 +60,12 @@ export default function PdvKdsTenant() {
   const [selectedBorderForProd, setSelectedBorderForProd] = useState('');
   const [prodObservation, setProdObservation] = useState('');
   const [prodQuantity, setProdQuantity] = useState(1);
-  const [addonSearch, setAddonSearch] = useState(''); // BUSCA DE SABORES/ADICIONAIS
+  const [addonSearch, setAddonSearch] = useState('');
 
-  // MODAL FECHAMENTO DE CAIXA / DIVISÃO POR ITENS / TROCO
+  // MODAL FECHAMENTO DE CAIXA / DIVISÃO POR ITENS & PESSOAS / TROCO
   const [closingOrder, setClosingOrder] = useState(null);
   const [selectedItemIndexesToPay, setSelectedItemIndexesToPay] = useState([]);
+  const [splitPeopleCount, setSplitPeopleCount] = useState(1); // CAMPO DE DIVISÃO POR PESSOAS
   const [cashGiven, setCashGiven] = useState('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('Dinheiro');
 
@@ -224,7 +225,7 @@ export default function PdvKdsTenant() {
     window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // MONTAGEM DO ITEM NO PDV (SEM DUPLICAR DETALHES E SABORES)
+  // MONTAGEM DO ITEM NO PDV
   const handleOpenProdModal = (prod) => {
     setSelectedProdForPdv(prod);
     setSelectedAddonsForProd([]);
@@ -244,8 +245,6 @@ export default function PdvKdsTenant() {
     }
 
     const unitPrice = parsePrice(selectedProdForPdv.price) + addonsTotal + borderPrice;
-
-    // Apenas a borda vai em details para não duplicar com selectedAddons
     const borderLabel = selectedBorderForProd ? `Borda: ${selectedBorderForProd.split(':')[0]}` : '';
 
     const cartItem = {
@@ -313,10 +312,10 @@ export default function PdvKdsTenant() {
     setActiveTab('kds');
   };
 
-  // FECHAMENTO PARCIAL DE CAIXA E DIVISÃO POR ITENS SELECIONADOS
+  // FECHAMENTO PARCIAL DE CAIXA
   const handleOpenClosingModal = (order) => {
     setClosingOrder(order);
-    // Por padrão, seleciona todos os itens para pagamento
+    setSplitPeopleCount(1); // Reseta a quantidade de pessoas para 1
     if (order.items && Array.isArray(order.items)) {
       setSelectedItemIndexesToPay(order.items.map((_, idx) => idx));
     } else {
@@ -342,7 +341,6 @@ export default function PdvKdsTenant() {
     const isPayingAll = selectedItemIndexesToPay.length === allItems.length;
 
     if (isPayingAll) {
-      // PAGAMENTO COMPLETO
       await supabase.from('orders').update({
         is_paid: true,
         payment_method: selectedPaymentMethod,
@@ -352,7 +350,6 @@ export default function PdvKdsTenant() {
 
       alert("Pedido totalmente quitado e encerrado!");
     } else {
-      // PAGAMENTO PARCIAL DE ITENS
       const remainingItems = allItems.filter((_, idx) => !selectedItemIndexesToPay.includes(idx));
       const paidItems = allItems.filter((_, idx) => selectedItemIndexesToPay.includes(idx));
 
@@ -417,7 +414,6 @@ export default function PdvKdsTenant() {
   const tableOrders = orders.filter(o => getOrderCategory(o) === 'MESA' && !o.archived);
   const archivedOrders = orders.filter(o => o.archived === true || o.status === 'arquivado' || o.status === 'concluido');
 
-  // SABORES/ADICIONAIS FILTRADOS PELA BUSCA DENTRO DO MODAL
   const filteredGlobalAddons = globalAddons.filter(a => 
     a.name.toLowerCase().includes(addonSearch.toLowerCase())
   );
@@ -444,7 +440,6 @@ export default function PdvKdsTenant() {
         isDelayed ? 'border-red-500 animate-pulse' : 'border-gray-800'
       } p-4 rounded-2xl space-y-3 shadow-2xl relative`}>
 
-        {/* CABEÇALHO DO CARD */}
         <div className="flex justify-between items-start border-b border-gray-800 pb-2.5">
           <div>
             <div className="flex items-center space-x-2">
@@ -495,7 +490,6 @@ export default function PdvKdsTenant() {
           </div>
         </div>
 
-        {/* ENDEREÇO & MAPS */}
         {isDelivery && (
           <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 text-xs space-y-1">
             <div className="flex justify-between items-start">
@@ -512,7 +506,6 @@ export default function PdvKdsTenant() {
           </div>
         )}
 
-        {/* PAGAMENTO */}
         <div className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs">
           <div className="flex justify-between items-center">
             <span className="text-gray-400 font-bold text-[11px]">Pagamento:</span>
@@ -528,12 +521,10 @@ export default function PdvKdsTenant() {
           </div>
         </div>
 
-        {/* ITENS DO PEDIDO LIMPOS E SEM REPETIÇÕES (PRINT 2 CORRIGIDO) */}
         <div className="space-y-2 border-t border-b border-gray-800 py-2.5">
           <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider block">Itens para Preparo:</span>
 
           {order.items && Array.isArray(order.items) && order.items.map((it, idx) => {
-            // EVITA EXIBIR OS MESMOS SABORES DUAS VEZES
             const hasAddons = it.selectedAddons && it.selectedAddons.length > 0;
             const addonNamesStr = hasAddons ? it.selectedAddons.map(a => a.name).join(', ') : '';
             const detailsIsDuplicate = it.details && addonNamesStr && it.details.includes(addonNamesStr);
@@ -548,14 +539,12 @@ export default function PdvKdsTenant() {
                   <span className="text-xs font-bold text-green-400">R$ {(parsePrice(it.price) * it.quantity).toFixed(2)}</span>
                 </div>
 
-                {/* Mostra Detalhes/Borda se não for duplicata dos Sabores */}
                 {it.details && !detailsIsDuplicate && (
                   <div className="bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 font-bold text-xs p-1.5 rounded-lg mt-1">
                     🍕 {it.details}
                   </div>
                 )}
 
-                {/* Exibe Sabores/Adicionais de forma clara */}
                 {hasAddons && (
                   <p className="text-xs text-purple-300 font-bold pl-1 mt-0.5">
                     ➕ {addonNamesStr}
@@ -572,13 +561,11 @@ export default function PdvKdsTenant() {
           })}
         </div>
 
-        {/* TOTAL */}
         <div className="flex justify-between items-center font-black text-sm pt-1">
           <span className="text-gray-400">TOTAL PENDENTE:</span>
           <span className="text-green-400 text-base">R$ {Number(order.total || 0).toFixed(2)}</span>
         </div>
 
-        {/* AÇÕES E IMPRESSÕES */}
         <div className="space-y-2 pt-1">
           <div className="flex space-x-1.5 text-xs font-bold">
             {(!order.status || order.status === 'recebido' || order.status === 'pendente' || order.status === 'novo') && (
@@ -860,7 +847,7 @@ export default function PdvKdsTenant() {
         </div>
       )}
 
-      {/* MODAL DE ADIÇÃO DE ITEM AO PDV COM BARRA DE BUSCA (PRINT 1 CORRIGIDO) */}
+      {/* MODAL DE ADIÇÃO DE ITEM AO PDV COM BARRA DE BUSCA */}
       {selectedProdForPdv && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-gray-900 w-full max-w-lg rounded-2xl p-5 border border-orange-500/40 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -869,7 +856,6 @@ export default function PdvKdsTenant() {
               <button onClick={() => setSelectedProdForPdv(null)} className="text-xs bg-gray-800 px-3 py-1 rounded-lg">Fechar</button>
             </div>
 
-            {/* SELEÇÃO DE BORDA */}
             {selectedProdForPdv.borders_list && (
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-gray-300 block">Escolha a Borda:</label>
@@ -882,14 +868,12 @@ export default function PdvKdsTenant() {
               </div>
             )}
 
-            {/* BUSCA RÁPIDA DE SABORES / ADICIONAIS */}
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <label className="text-xs font-bold text-gray-300">Escolha os Sabores / Adicionais:</label>
                 <span className="text-[10px] text-orange-400 font-bold">{selectedAddonsForProd.length} selecionado(s)</span>
               </div>
 
-              {/* BARRA DE PESQUISA EM TEMPO REAL */}
               <input
                 type="text"
                 placeholder="🔍 Digite para filtrar os sabores (Ex: Calabresa, Frango...)"
@@ -898,7 +882,6 @@ export default function PdvKdsTenant() {
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500"
               />
 
-              {/* LISTA COMPACTA DE SABORES */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 border border-gray-800 rounded-xl bg-gray-950">
                 {filteredGlobalAddons.length === 0 ? (
                   <p className="text-xs text-gray-500 col-span-2 text-center py-4">Nenhum sabor encontrado.</p>
@@ -926,7 +909,6 @@ export default function PdvKdsTenant() {
               </div>
             </div>
 
-            {/* OBSERVAÇÃO E QUANTIDADE */}
             <input type="text" placeholder="Observações do item (Ex: Sem cebola)" value={prodObservation} onChange={(e) => setProdObservation(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
 
             <div className="flex items-center justify-between border-t border-gray-800 pt-3">
@@ -944,7 +926,7 @@ export default function PdvKdsTenant() {
         </div>
       )}
 
-      {/* MODAL FECHAMENTO DE CAIXA / DIVISÃO POR ITENS SELECIONADOS */}
+      {/* MODAL FECHAMENTO DE CAIXA / DIVISÃO POR ITENS & PESSOAS */}
       {closingOrder && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-gray-900 w-full max-w-md rounded-2xl p-5 border border-green-500/40 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -985,24 +967,45 @@ export default function PdvKdsTenant() {
               </div>
             </div>
 
-            {/* SUBTOTAL DOS ITENS SELECIONADOS */}
+            {/* CÁLCULOS DOS ITENS SELECIONADOS */}
             {(() => {
               const selectedItems = closingOrder.items?.filter((_, idx) => selectedItemIndexesToPay.includes(idx)) || [];
               const selectedSum = selectedItems.reduce((acc, it) => acc + (parsePrice(it.price) * it.quantity), 0);
               const remainingSum = Number(closingOrder.total || 0) - selectedSum;
+              const perPersonValue = selectedSum / splitPeopleCount;
 
               return (
-                <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-1 text-xs">
-                  <div className="flex justify-between text-gray-300 font-bold">
-                    <span>Valor a Cobrar Agora:</span>
-                    <span className="text-green-400 text-sm">R$ {selectedSum.toFixed(2)}</span>
-                  </div>
-                  {remainingSum > 0 && (
-                    <div className="flex justify-between text-orange-400 text-[11px] font-bold">
-                      <span>Restante que ficará em aberto:</span>
-                      <span>R$ {remainingSum.toFixed(2)}</span>
+                <div className="space-y-3">
+                  {/* CAMPO DE DIVISÃO POR QUANTIDADE DE PESSOAS */}
+                  <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
+                    <label className="text-xs font-bold text-gray-300 block">Dividir valor selecionado por quantas pessoas?</label>
+                    <div className="flex items-center space-x-3">
+                      <input
+                        type="number"
+                        min="1"
+                        max="50"
+                        value={splitPeopleCount}
+                        onChange={(e) => setSplitPeopleCount(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-20 bg-gray-800 border border-gray-700 p-2 rounded-xl text-xs font-bold text-center text-white focus:outline-none focus:border-orange-500"
+                      />
+                      <span className="text-xs text-orange-400 font-extrabold">
+                        ↳ R$ {perPersonValue.toFixed(2)} / pessoa
+                      </span>
                     </div>
-                  )}
+                  </div>
+
+                  <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-1 text-xs">
+                    <div className="flex justify-between text-gray-300 font-bold">
+                      <span>Valor Total a Cobrar Agora:</span>
+                      <span className="text-green-400 text-sm">R$ {selectedSum.toFixed(2)}</span>
+                    </div>
+                    {remainingSum > 0 && (
+                      <div className="flex justify-between text-orange-400 text-[11px] font-bold">
+                        <span>Restante que ficará em aberto:</span>
+                        <span>R$ {remainingSum.toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })()}
