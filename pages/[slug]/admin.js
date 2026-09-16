@@ -29,7 +29,7 @@ export default function AdminTenant() {
 
   // GARÇONS
   const [waitersList, setWaitersList] = useState([]);
-  const [newWaiter, setNewWaiter] = useState({ name: '', pin: '' });
+  const [newWaiter, setNewWaiter] = useState({ name: '', pin: '', phone: '' });
   const [editingWaiter, setEditingWaiter] = useState(null);
 
   // MODAL DE PROMOÇÃO DE CLIENTE
@@ -40,7 +40,7 @@ export default function AdminTenant() {
   const [tableCount, setTableCount] = useState(10);
   const [baseUrl, setBaseUrl] = useState('');
 
-  // ESTADOS DO PDV / LANÇAMENTO MANUAL (CAIXA / GARÇOM)
+  // ESTADOS DO PDV / LANÇAMENTO MANUAL
   const [pdvOrderType, setPdvOrderType] = useState('balcao');
   const [pdvCustomer, setPdvCustomer] = useState({ name: '', phone: '', address: '' });
   const [pdvTableNum, setPdvTableNum] = useState('');
@@ -156,6 +156,36 @@ export default function AdminTenant() {
     if (wData) setWaitersList(wData);
   };
 
+  // HELPER PARA FORMATAR NÚMERO DO PEDIDO DO DIA (#01, #02...)
+  const getOrderDisplayNumber = (order) => {
+    if (order.daily_number) {
+      return `#${String(order.daily_number).padStart(2, '0')}`;
+    }
+    const resetDate = tenant?.order_reset_at ? new Date(tenant.order_reset_at) : new Date(0);
+    const tenantOrdersAfterReset = allOrders
+      .filter(o => new Date(o.created_at) >= resetDate)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    
+    const index = tenantOrdersAfterReset.findIndex(o => o.id === order.id);
+    if (index !== -1) {
+      return `#${String(index + 1).padStart(2, '0')}`;
+    }
+    return `#${order.id}`;
+  };
+
+  const handleResetOrderCounter = async () => {
+    if (confirm("⚠️ Deseja zerar o contador do expediente?\n\nOs novos pedidos começarão novamente a partir do número #01. Os dados dos relatórios e históricos anteriores continuarão salvos.")) {
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase.from('tenants').update({ order_reset_at: nowIso }).eq('id', tenant.id);
+      if (error) {
+        alert("Erro ao zerar contador: " + error.message);
+      } else {
+        alert("Sequência de pedidos zerada com sucesso! O próximo pedido será o #01.");
+        fetchData();
+      }
+    }
+  };
+
   const toggleDaySelection = (currentDays, dayId) => {
     const arr = [...(currentDays || [])];
     if (arr.includes(dayId)) {
@@ -208,6 +238,11 @@ export default function AdminTenant() {
       customerAddr = `Mesa ${pdvTableNum}`;
     }
 
+    // Calcula o próximo número de pedido para o expediente atual
+    const resetDate = tenant?.order_reset_at ? new Date(tenant.order_reset_at) : new Date(0);
+    const activeShiftOrders = allOrders.filter(o => new Date(o.created_at) >= resetDate);
+    const nextDailyNum = activeShiftOrders.length + 1;
+
     const payload = {
       tenant_id: tenant.id,
       customer_name: pdvCustomer.name || (pdvOrderType === 'mesa' ? `Mesa ${pdvTableNum}` : 'Cliente Balcão'),
@@ -221,7 +256,8 @@ export default function AdminTenant() {
       notes: pdvNotes,
       status: 'pendente',
       order_type: pdvOrderType,
-      waiter_name: pdvWaiterName || null
+      waiter_name: pdvWaiterName || null,
+      daily_number: nextDailyNum
     };
 
     const { data: insertedOrder, error } = await supabase.from('orders').insert([payload]).select().single();
@@ -231,7 +267,7 @@ export default function AdminTenant() {
       return;
     }
 
-    alert('Pedido lançado com sucesso!');
+    alert(`Pedido #${String(nextDailyNum).padStart(2, '0')} lançado com sucesso!`);
     setPdvCart([]);
     setPdvCustomer({ name: '', phone: '', address: '' });
     setPdvTableNum('');
@@ -248,26 +284,49 @@ export default function AdminTenant() {
     e.preventDefault();
     if (!newWaiter.name || !newWaiter.pin) return alert("Preencha nome e PIN do garçom!");
 
+    const cleanPhone = newWaiter.phone ? newWaiter.phone.replace(/\D/g, '') : '';
+
     const { error } = await supabase.from('waiters').insert([{
       tenant_id: tenant.id,
       name: newWaiter.name.trim(),
       pin: newWaiter.pin.trim(),
+      phone: cleanPhone,
       active: true
     }]);
 
     if (error) return alert("Erro ao cadastrar garçom: " + error.message);
 
-    setNewWaiter({ name: '', pin: '' });
+    alert("Garçom cadastrado com sucesso!");
+    setNewWaiter({ name: '', pin: '', phone: '' });
     fetchData();
+  };
+
+  const handleSendWaiterAccessWhatsApp = (waiter) => {
+    let targetPhone = waiter.phone;
+    if (!targetPhone) {
+      const inputPhone = prompt(`Digite o WhatsApp do garçom ${waiter.name} (com DDD, ex: 11999998888):`);
+      if (!inputPhone) return;
+      targetPhone = inputPhone.replace(/\D/g, '');
+    }
+
+    if (!targetPhone) return alert("Telefone inválido!");
+
+    const waiterAccessUrl = `${baseUrl}/${tenant.slug}/garcom`;
+    const message = `Olá ${waiter.name}! 👋\n\nAqui está seu link de acesso ao painel do garçom no *${tenant.name}*:\n\n🔗 *Acesso:* ${waiterAccessUrl}\n🔑 *Seu PIN:* ${waiter.pin}\n\nBom trabalho! 🚀`;
+
+    window.open(`https://wa.me/55${targetPhone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
   const handleUpdateWaiter = async (e) => {
     e.preventDefault();
     if (!editingWaiter.name || !editingWaiter.pin) return alert("Preencha nome e PIN!");
 
+    const cleanPhone = editingWaiter.phone ? editingWaiter.phone.replace(/\D/g, '') : '';
+
     const { error } = await supabase.from('waiters').update({
       name: editingWaiter.name.trim(),
-      pin: editingWaiter.pin.trim()
+      pin: editingWaiter.pin.trim(),
+      phone: cleanPhone
     }).eq('id', editingWaiter.id);
 
     if (error) return alert("Erro ao atualizar garçom: " + error.message);
@@ -1043,6 +1102,13 @@ export default function AdminTenant() {
                 onChange={(e) => setNewWaiter({ ...newWaiter, pin: e.target.value })}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold"
               />
+              <input
+                type="text"
+                placeholder="WhatsApp do Garçom (Ex: 11999998888)"
+                value={newWaiter.phone}
+                onChange={(e) => setNewWaiter({ ...newWaiter, phone: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+              />
               <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-xl text-xs hover:bg-green-700 transition">
                 Cadastrar Garçom 🚀
               </button>
@@ -1053,16 +1119,26 @@ export default function AdminTenant() {
             <h3 className="font-bold text-sm text-gray-300">👥 Equipe de Garçons Cadastrados ({waitersList.length})</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {waitersList.map((w) => (
-                <div key={w.id} className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center text-xs">
-                  <div>
-                    <span className={`font-bold block ${!w.active ? 'line-through text-gray-500' : 'text-white'}`}>👤 {w.name}</span>
-                    <span className="text-[10px] text-gray-400">PIN de Acesso: <b className="text-orange-400 font-mono">{w.pin}</b></span>
+                <div key={w.id} className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 space-y-3">
+                  <div className="flex justify-between items-start text-xs">
+                    <div>
+                      <span className={`font-bold block ${!w.active ? 'line-through text-gray-500' : 'text-white'}`}>👤 {w.name}</span>
+                      <span className="text-[10px] text-gray-400 block mt-0.5">PIN: <b className="text-orange-400 font-mono">{w.pin}</b></span>
+                      {w.phone && <span className="text-[10px] text-blue-400 block">📱 {w.phone}</span>}
+                    </div>
+
+                    <div className="flex space-x-1.5">
+                      <button onClick={() => setEditingWaiter(w)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30 hover:bg-blue-600/30 transition">✏️</button>
+                      <button onClick={async () => { await supabase.from('waiters').update({ active: !w.active }).eq('id', w.id); fetchData(); }} className={`text-[10px] font-bold px-2.5 py-2 rounded-xl ${w.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{w.active ? 'Ativo' : 'Pausado'}</button>
+                      <button onClick={async () => { if (confirm("Excluir garçom?")) { await supabase.from('waiters').delete().eq('id', w.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold hover:bg-red-500/30 transition">🗑</button>
+                    </div>
                   </div>
-                  <div className="flex space-x-1.5">
-                    <button onClick={() => setEditingWaiter(w)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30 hover:bg-blue-600/30 transition">✏️</button>
-                    <button onClick={async () => { await supabase.from('waiters').update({ active: !w.active }).eq('id', w.id); fetchData(); }} className={`text-[10px] font-bold px-2.5 py-2 rounded-xl ${w.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{w.active ? 'Ativo' : 'Pausado'}</button>
-                    <button onClick={async () => { if (confirm("Excluir garçom?")) { await supabase.from('waiters').delete().eq('id', w.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold hover:bg-red-500/30 transition">🗑</button>
-                  </div>
+
+                  <button
+                    onClick={() => handleSendWaiterAccessWhatsApp(w)}
+                    className="w-full bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-500/30 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1">
+                    <span>📱 Enviar Acesso WhatsApp</span>
+                  </button>
                 </div>
               ))}
             </div>
@@ -1139,9 +1215,14 @@ export default function AdminTenant() {
               </div>
             </div>
 
-            <button onClick={() => window.print()} className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-2 rounded-xl text-xs transition shadow w-full sm:w-auto">
-              🖨️ Imprimir Relatório
-            </button>
+            <div className="flex space-x-2 w-full sm:w-auto">
+              <button onClick={handleResetOrderCounter} className="bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/40 font-bold px-3 py-2 rounded-xl text-xs transition">
+                🔄 Zerar Nº de Pedidos (#01)
+              </button>
+              <button onClick={() => window.print()} className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-2 rounded-xl text-xs transition shadow">
+                🖨️ Imprimir
+              </button>
+            </div>
           </div>
 
           <div className="print-area space-y-6">
@@ -1176,7 +1257,7 @@ export default function AdminTenant() {
                 {filteredOrders.map(o => (
                   <div key={o.id} className="bg-gray-950 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
                     <div>
-                      <span className="font-bold text-white block">#{o.id} - {o.customer_name} ({o.order_type || 'delivery'})</span>
+                      <span className="font-bold text-white block">{getOrderDisplayNumber(o)} - {o.customer_name} ({o.order_type || 'delivery'})</span>
                       <span className="text-[10px] text-gray-400">{new Date(o.created_at).toLocaleString('pt-BR')} • {o.payment_method}</span>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -1472,7 +1553,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* MODAL DE RECIBO NÃO-FISCAL PARA IMPRESSÃO */}
+      {/* MODAL DE RECIBO NÃO-FISCAL */}
       {selectedReceiptOrder && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-orange-500/40 space-y-4">
@@ -1486,6 +1567,7 @@ export default function AdminTenant() {
               </div>
 
               <div className="border-b pb-2 text-[10px] space-y-0.5">
+                <div><b>Pedido:</b> {getOrderDisplayNumber(selectedReceiptOrder)}</div>
                 <div><b>Cliente:</b> {selectedReceiptOrder.customer_name}</div>
                 {selectedReceiptOrder.customer_phone && <div><b>Tel:</b> {selectedReceiptOrder.customer_phone}</div>}
                 <div><b>Tipo:</b> {selectedReceiptOrder.order_type || 'Delivery'}</div>
@@ -1529,6 +1611,7 @@ export default function AdminTenant() {
             --------------------------------
           </div>
           <div style={{ padding: '5px 0', borderBottom: '1px dashed #000' }}>
+            PEDIDO: {getOrderDisplayNumber(selectedReceiptOrder)}<br />
             CLIENTE: {selectedReceiptOrder.customer_name}<br />
             TIPO: {selectedReceiptOrder.order_type || 'Delivery'}<br />
             {selectedReceiptOrder.waiter_name && <span>GARÇOM: {selectedReceiptOrder.waiter_name}<br /></span>}
@@ -1606,7 +1689,7 @@ export default function AdminTenant() {
               {(selectedClientHistory.ordersList || []).map((o, idx) => (
                 <div key={idx} className="bg-gray-950 p-3 rounded-xl border border-gray-800 text-xs space-y-1">
                   <div className="flex justify-between font-bold text-orange-400">
-                    <span>Pedido #{o.id}</span>
+                    <span>Pedido {getOrderDisplayNumber(o)}</span>
                     <span>R$ {Number(o.total).toFixed(2)}</span>
                   </div>
                   <div className="text-[10px] text-gray-400">
@@ -1651,6 +1734,7 @@ export default function AdminTenant() {
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Garçom</h3>
             <input type="text" value={editingWaiter.name} onChange={(e) => setEditingWaiter({ ...editingWaiter, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             <input type="text" maxLength={6} value={editingWaiter.pin} onChange={(e) => setEditingWaiter({ ...editingWaiter, pin: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold" />
+            <input type="text" placeholder="WhatsApp do Garçom" value={editingWaiter.phone || ''} onChange={(e) => setEditingWaiter({ ...editingWaiter, phone: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             <div className="flex space-x-2">
               <button type="button" onClick={() => setEditingWaiter(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Cancelar</button>
               <button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-xl text-xs font-bold text-white">Salvar</button>
