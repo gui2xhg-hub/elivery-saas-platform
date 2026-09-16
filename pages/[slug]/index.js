@@ -259,6 +259,7 @@ export default function DeliveryCliente() {
       cartItemId: `${selectedProduct.id}-${Date.now()}`,
       id: selectedProduct.id,
       name: selectedProduct.name,
+      price: unitPrice, // Preço unitário total (base + adicionais)
       basePrice: Number(selectedProduct.price),
       unitPrice: unitPrice,
       quantity: productQuantity,
@@ -389,6 +390,9 @@ export default function DeliveryCliente() {
       customer_name: customerName,
       customer_phone: cleanPhone || '00000000000',
       customer_address: fullAddress,
+      order_type: (deliveryType === 'ENTREGA' ? 'delivery' : deliveryType === 'MESA' ? 'mesa' : 'balcao'),
+      table_number: tableNumber || null,
+      neighborhood: selectedNeighName || '',
       items: cart,
       subtotal: subtotal,
       delivery_fee: currentDeliveryFee,
