@@ -45,7 +45,7 @@ export default function PdvKdsTenant() {
   const [editCartItems, setEditCartItems] = useState([]);
   const [selectedProdForEdit, setSelectedProdForEdit] = useState(null);
 
-  // ESTADOS DO PDV (INTERFACE ESTILO GARÇOM)
+  // ESTADOS DO PDV
   const [pdvOrderType, setPdvOrderType] = useState('balcao');
   const [pdvTableNum, setPdvTableNum] = useState('');
   const [pdvCustomerName, setPdvCustomerName] = useState('');
@@ -185,19 +185,30 @@ export default function PdvKdsTenant() {
     return index !== -1 ? `#${String(index + 1).padStart(2, '0')}` : `#${order.id}`;
   };
 
+  // ATUALIZAÇÃO OTIMISTA DE STATUS
   const updateOrderStatus = async (orderId, newStatus) => {
-    await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
-    if (tenant) fetchOrders(tenant.id);
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+    const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
+    if (error) {
+      alert("Erro ao atualizar status no banco: " + error.message);
+      if (tenant) fetchOrders(tenant.id);
+    }
   };
 
+  // ATUALIZAÇÃO OTIMISTA DE ARQUIVAMENTO
   const archiveOrder = async (orderId) => {
-    await supabase.from('orders').update({ archived: true, status: 'concluido' }).eq('id', orderId);
-    if (tenant) fetchOrders(tenant.id);
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, archived: true, status: 'concluido' } : o));
+    const { error } = await supabase.from('orders').update({ archived: true, status: 'concluido' }).eq('id', orderId);
+    if (error) {
+      alert("Erro ao arquivar pedido: " + error.message);
+      if (tenant) fetchOrders(tenant.id);
+    }
   };
 
   const clearAllArchived = async () => {
     if (confirm("Deseja apagar definitivamente todos os pedidos arquivados da tela?")) {
-      await supabase.from('orders').delete().eq('tenant_id', tenant.id).eq('archived', true);
+      const { error } = await supabase.from('orders').delete().eq('tenant_id', tenant.id).eq('archived', true);
+      if (error) alert("Erro ao limpar arquivados: " + error.message);
       if (tenant) fetchOrders(tenant.id);
     }
   };
@@ -222,7 +233,7 @@ export default function PdvKdsTenant() {
     window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // AUTENTICAÇÃO E LÓGICA DE EDIÇÃO ADMIN
+  // EDIÇÃO ADMIN
   const handleStartEditOrder = (order) => {
     if (isAdminEditAuth) {
       openEditModal(order);
@@ -290,15 +301,21 @@ export default function PdvKdsTenant() {
       is_paid: isFullyPaid
     };
 
+    setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...payload } : o));
+
     const { error } = await supabase.from('orders').update(payload).eq('id', editingOrder.id);
-    if (error) return alert("Erro ao atualizar pedido: " + error.message);
+    if (error) {
+      alert("Erro ao atualizar pedido: " + error.message);
+      if (tenant) fetchOrders(tenant.id);
+      return;
+    }
 
     alert(openBalance > 0
       ? `Pedido atualizado! Novo valor total R$ ${newTotal.toFixed(2)}. Valor em aberto a cobrar: R$ ${openBalance.toFixed(2)}.`
       : "Pedido atualizado com sucesso!");
 
     setEditingOrder(null);
-    fetchOrders();
+    if (tenant) fetchOrders(tenant.id);
   };
 
   // MONTAGEM DO ITEM NO PDV
@@ -385,11 +402,11 @@ export default function PdvKdsTenant() {
     setPdvCustomerPhone('');
     setPdvAddress('');
     setPdvTableNum('');
-    fetchOrders();
+    if (tenant) fetchOrders(tenant.id);
     setActiveTab('kds');
   };
 
-  // FECHAMENTO PARCIAL DE CAIXA
+  // FECHAMENTO E QUITAÇÃO DO PEDIDO (COM ATUALIZAÇÃO OTIMISTA)
   const handleOpenClosingModal = (order) => {
     setClosingOrder(order);
     setSplitPeopleCount(1);
@@ -416,17 +433,27 @@ export default function PdvKdsTenant() {
 
     const allItems = closingOrder.items || [];
     const isPayingAll = selectedItemIndexesToPay.length === allItems.length;
-
     const currentPaid = Number(closingOrder.paid_amount || 0);
 
     if (isPayingAll) {
-      await supabase.from('orders').update({
+      const payload = {
         is_paid: true,
         paid_amount: Number(closingOrder.total || 0),
         payment_method: selectedPaymentMethod,
         archived: true,
         status: 'concluido'
-      }).eq('id', closingOrder.id);
+      };
+
+      // Atualiza o estado local imediatamente (Muda para concluído e vai para Arquivados)
+      setOrders(prev => prev.map(o => o.id === closingOrder.id ? { ...o, ...payload } : o));
+
+      const { error } = await supabase.from('orders').update(payload).eq('id', closingOrder.id);
+
+      if (error) {
+        alert("Erro ao encerrar pedido no banco: " + error.message);
+        if (tenant) fetchOrders(tenant.id);
+        return;
+      }
 
       alert("Pedido totalmente quitado e encerrado!");
     } else {
@@ -438,7 +465,7 @@ export default function PdvKdsTenant() {
       const deliveryFee = Number(closingOrder.delivery_fee || 0);
       const newTotal = newSubtotal + deliveryFee;
 
-      await supabase.from('orders').update({
+      const payload = {
         items: remainingItems,
         subtotal: newSubtotal,
         total: newTotal,
@@ -446,13 +473,23 @@ export default function PdvKdsTenant() {
         notes: closingOrder.notes 
           ? `${closingOrder.notes} (Pago parcial R$ ${paidTotalNow.toFixed(2)})` 
           : `Pago parcial R$ ${paidTotalNow.toFixed(2)}`
-      }).eq('id', closingOrder.id);
+      };
+
+      setOrders(prev => prev.map(o => o.id === closingOrder.id ? { ...o, ...payload } : o));
+
+      const { error } = await supabase.from('orders').update(payload).eq('id', closingOrder.id);
+
+      if (error) {
+        alert("Erro ao aplicar pagamento parcial: " + error.message);
+        if (tenant) fetchOrders(tenant.id);
+        return;
+      }
 
       alert(`Recebido R$ ${paidTotalNow.toFixed(2)}! O pedido/mesa continua ABERTO com o saldo restante de R$ ${newTotal.toFixed(2)}.`);
     }
 
     setClosingOrder(null);
-    fetchOrders();
+    if (tenant) fetchOrders(tenant.id);
   };
 
   const handlePrintOrder = (order, mode) => {
@@ -492,7 +529,7 @@ export default function PdvKdsTenant() {
     return true;
   });
 
-  const tableOrders = orders.filter(o => getOrderCategory(o) === 'MESA' && !o.archived);
+  const tableOrders = orders.filter(o => getOrderCategory(o) === 'MESA' && !o.archived && o.status !== 'concluido');
   const archivedOrders = orders.filter(o => o.archived === true || o.status === 'arquivado' || o.status === 'concluido');
 
   const filteredGlobalAddons = globalAddons.filter(a => 
@@ -515,7 +552,6 @@ export default function PdvKdsTenant() {
     const mapsQuery = encodeURIComponent(`${fullAddr}, ${order.neighborhood || ''}`);
     const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
 
-    // CÁLCULO FINANCEIRO DE VALOR EM ABERTO PARA EXIBIÇÃO CLARA NO CARD
     const paidAmount = Number(order.paid_amount || (order.is_paid ? order.total : 0));
     const totalAmount = Number(order.total || 0);
     const openBalance = Math.max(0, totalAmount - paidAmount);
@@ -592,7 +628,6 @@ export default function PdvKdsTenant() {
           </div>
         )}
 
-        {/* STATUS FINANCEIRO COM HIGHLIGHT DE VALOR EM ABERTO */}
         <div className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs space-y-1">
           <div className="flex justify-between items-center">
             <span className="text-gray-400 font-bold text-[11px]">Pagamento:</span>
@@ -702,7 +737,6 @@ export default function PdvKdsTenant() {
               💰 Cobrar
             </button>
 
-            {/* BOTÃO DE EDITAR COM SENHA DE ADMIN */}
             <button onClick={() => handleStartEditOrder(order)} className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 border border-blue-500/30 px-3 py-2.5 rounded-xl font-bold" title="Editar Pedido (Admin)">
               ✏️
             </button>
@@ -764,7 +798,7 @@ export default function PdvKdsTenant() {
         }
       `}</style>
 
-      {/* ÁREA DE IMPRESSÃO - FORMATO CUPOM TÉRMICO */}
+      {/* ÁREA DE IMPRESSÃO - FORMATO CUPOM TÉRMICO (80MM) */}
       {printConfig?.order && (
         <div id="print-area" className="hidden print:block text-black font-mono">
           <div className="text-center border-b border-dashed border-black pb-2 mb-2">
@@ -894,11 +928,10 @@ export default function PdvKdsTenant() {
         </div>
       )}
 
-      {/* ABA 2: PDV COM INTERFACE ESTILO GARÇOM */}
+      {/* ABA 2: PDV */}
       {activeTab === 'pdv' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
-            {/* BARRA SUPERIOR DE CATEGORIAS ESTILO GARÇOM */}
             <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-none text-xs font-bold">
               <button 
                 onClick={() => setSelectedCategory('ALL')} 
@@ -921,7 +954,6 @@ export default function PdvKdsTenant() {
               ))}
             </div>
 
-            {/* GRADE DE PRODUTOS ESTILO GARÇOM */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {products.filter(p => selectedCategory === 'ALL' || p.category_id === selectedCategory).map(prod => (
                 <div 
@@ -950,7 +982,6 @@ export default function PdvKdsTenant() {
             </div>
           </div>
 
-          {/* PAINEL DE RESUMO DE CARRINHO E DADOS DO PEDIDO */}
           <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4 h-fit shadow-xl">
             <h3 className="font-bold text-sm text-orange-400 border-b border-gray-800 pb-2">🛒 Detalhes do Pedido PDV</h3>
 
@@ -1055,7 +1086,7 @@ export default function PdvKdsTenant() {
         <div className="space-y-4 no-print">
           <div className="flex justify-between items-center bg-gray-900 p-4 rounded-2xl border border-gray-800">
             <div>
-              <h3 className="font-bold text-sm text-gray-200">📦 Histórico de Pedidos Arquivados</h3>
+              <h3 className="font-bold text-sm text-gray-200">📦 Histórico de Pedidos Arquivados / Concluídos</h3>
               <p className="text-xs text-gray-400">Total: {archivedOrders.length} pedidos.</p>
             </div>
             {archivedOrders.length > 0 && (
@@ -1071,12 +1102,12 @@ export default function PdvKdsTenant() {
         </div>
       )}
 
-      {/* MODAL DE SENHA DE ADMIN PARA EDITAR PEDIDO */}
+      {/* MODAL SENHA ADMIN */}
       {showAdminAuthModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleAdminAuthSubmit} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-4">
             <h3 className="font-bold text-sm text-blue-400">🔑 Autenticação de Administrador</h3>
-            <p className="text-xs text-gray-300">Digite a senha administrativa para editar os itens deste pedido:</p>
+            <p className="text-xs text-gray-300">Digite a senha administrativa para editar este pedido:</p>
             <input 
               type="password" 
               placeholder="Senha de admin..." 
@@ -1092,7 +1123,7 @@ export default function PdvKdsTenant() {
         </div>
       )}
 
-      {/* MODAL DE EDIÇÃO DE PEDIDO COM CÁLCULO DE VALOR EM ABERTO */}
+      {/* MODAL EDIÇÃO */}
       {editingOrder && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-gray-900 w-full max-w-lg rounded-2xl p-5 border border-blue-500/40 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -1104,9 +1135,8 @@ export default function PdvKdsTenant() {
               <button onClick={() => setEditingOrder(null)} className="text-xs bg-gray-800 px-3 py-1 rounded-lg">Fechar</button>
             </div>
 
-            {/* SELEÇÃO DE NOVO PRODUTO PARA ADICIONAR AO PEDIDO */}
             <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-300 block">Adicionar mais um item ao pedido:</label>
+              <label className="text-xs font-bold text-gray-300 block">Adicionar item ao pedido:</label>
               <div className="flex space-x-2">
                 <select 
                   onChange={(e) => {
@@ -1130,7 +1160,6 @@ export default function PdvKdsTenant() {
               </div>
             </div>
 
-            {/* LISTA DE ITENS DO PEDIDO EM EDIÇÃO */}
             <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-800 rounded-xl p-2 bg-gray-950">
               {editCartItems.length === 0 ? (
                 <p className="text-xs text-gray-500 text-center py-4">Pedido sem itens.</p>
@@ -1147,7 +1176,6 @@ export default function PdvKdsTenant() {
               )}
             </div>
 
-            {/* RESUMO FINANCEIRO COM DESTAQUE DE VALOR EM ABERTO */}
             {(() => {
               const newSubtotal = editCartItems.reduce((acc, item) => acc + (parsePrice(item.price) * item.quantity), 0);
               const deliveryFee = Number(editingOrder.delivery_fee || 0);
@@ -1190,7 +1218,7 @@ export default function PdvKdsTenant() {
         </div>
       )}
 
-      {/* MODAL DE ADIÇÃO DE ITEM AO PDV COM BARRA DE BUSCA */}
+      {/* MODAL ITEM PDV */}
       {selectedProdForPdv && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-gray-900 w-full max-w-lg rounded-2xl p-5 border border-orange-500/40 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -1269,7 +1297,7 @@ export default function PdvKdsTenant() {
         </div>
       )}
 
-      {/* MODAL FECHAMENTO DE CAIXA / DIVISÃO POR ITENS & PESSOAS */}
+      {/* MODAL FECHAMENTO CAIXA */}
       {closingOrder && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-gray-900 w-full max-w-md rounded-2xl p-5 border border-green-500/40 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -1283,7 +1311,6 @@ export default function PdvKdsTenant() {
               <div className="flex justify-between"><span>Cliente/Mesa:</span><span className="font-bold">{closingOrder.customer_name}</span></div>
             </div>
 
-            {/* SELEÇÃO INDIVIDUAL DOS ITENS A PAGAR */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-gray-300 block">Selecione os itens que serão pagos AGORA:</label>
 
@@ -1310,7 +1337,6 @@ export default function PdvKdsTenant() {
               </div>
             </div>
 
-            {/* CÁLCULOS DOS ITENS SELECIONADOS */}
             {(() => {
               const selectedItems = closingOrder.items?.filter((_, idx) => selectedItemIndexesToPay.includes(idx)) || [];
               const selectedSum = selectedItems.reduce((acc, it) => acc + (parsePrice(it.price) * it.quantity), 0);
