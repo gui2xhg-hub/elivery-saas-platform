@@ -631,22 +631,41 @@ export default function PdvKdsTenant() {
             return (
               <div key={idx} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 space-y-1">
                 <div className="flex items-start justify-between">
-                  <span className="font-black text-sm text-white">
-                    <span className="text-orange-400 bg-orange-500/20 border border-orange-500/40 px-1.5 py-0.5 rounded-md mr-1.5">{it.quantity}x</span> 
+                  <span className="font-black text-sm text-white flex items-center flex-wrap gap-1">
+                    <span className="text-orange-400 bg-orange-500/20 border border-orange-500/40 px-1.5 py-0.5 rounded-md mr-1">{it.quantity}x</span> 
                     {it.name}
+                    {it.is_combo && <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-bold">COMBO</span>}
                   </span>
                   <span className="text-xs font-bold text-green-400">R$ {(parsePrice(it.price) * it.quantity).toFixed(2)}</span>
                 </div>
 
-                {it.details && !detailsIsDuplicate && (
-                  <div className="bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 font-bold text-xs p-1.5 rounded-lg mt-1">
-                    🍕 {it.details}
+                {it.is_combo && it.comboSteps && it.comboSteps.length > 0 ? (
+                  <div className="space-y-0.5 mt-1 border-l-2 border-purple-500/50 pl-2">
+                    {it.comboSteps.map((step, sIdx) => (
+                      <p key={sIdx} className="text-xs text-purple-300 font-bold">
+                        <span className="text-gray-400 font-normal">{step.title}:</span> {step.items?.map(i => i.name).join(', ')}
+                      </p>
+                    ))}
                   </div>
+                ) : (
+                  <>
+                    {it.details && !detailsIsDuplicate && (
+                      <div className="bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 font-bold text-xs p-1.5 rounded-lg mt-1">
+                        🍕 {it.details}
+                      </div>
+                    )}
+
+                    {hasAddons && (
+                      <p className="text-xs text-purple-300 font-bold pl-1 mt-0.5">
+                        ➕ {addonNamesStr}
+                      </p>
+                    )}
+                  </>
                 )}
 
-                {hasAddons && (
-                  <p className="text-xs text-purple-300 font-bold pl-1 mt-0.5">
-                    ➕ {addonNamesStr}
+                {it.selectedBorder && it.selectedBorder.name && it.selectedBorder.name !== 'Sem Borda' && (
+                  <p className="text-xs text-gray-300 font-semibold pl-1">
+                    🫓 Borda: {it.selectedBorder.name}
                   </p>
                 )}
 
@@ -727,13 +746,21 @@ export default function PdvKdsTenant() {
           <div className="border-b border-black pb-2 mb-2 text-[10px]">
             <p><b>CLIENTE:</b> {printConfig.order.customer_name}</p>
             <p><b>LOCAL:</b> {printConfig.order.customer_address}</p>
+            {printConfig.order.waiter_name && <p><b>GARÇOM:</b> {printConfig.order.waiter_name}</p>}
           </div>
           <div className="border-b border-black pb-2 mb-2 text-[10px]">
             <p className="font-bold">ITENS:</p>
             {printConfig.order.items?.map((it, idx) => (
               <div key={idx} className="mb-1">
                 <p><b>{it.quantity}x {it.name}</b> - R$ {(it.price * it.quantity).toFixed(2)}</p>
-                {it.selectedAddons && it.selectedAddons.length > 0 && <p className="pl-2 text-[9px]">↳ {it.selectedAddons.map(a => a.name).join(', ')}</p>}
+                {it.is_combo && it.comboSteps && it.comboSteps.length > 0 ? (
+                  it.comboSteps.map((step, sIdx) => (
+                    <p key={sIdx} className="pl-2 text-[9px]">↳ {step.title}: {step.items?.map(i => i.name).join(', ')}</p>
+                  ))
+                ) : (
+                  it.selectedAddons && it.selectedAddons.length > 0 && <p className="pl-2 text-[9px]">↳ {it.selectedAddons.map(a => a.name).join(', ')}</p>
+                )}
+                {it.selectedBorder && it.selectedBorder.name && it.selectedBorder.name !== 'Sem Borda' && <p className="pl-2 text-[9px]">↳ Borda: {it.selectedBorder.name}</p>}
                 {it.observation && <p className="pl-2 text-[9px]">↳ OBS: {it.observation}</p>}
               </div>
             ))}
