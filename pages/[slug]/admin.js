@@ -16,7 +16,7 @@ export default function AdminTenant() {
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
-  const [activeTab, setActiveTab] = useState('products');
+  const [activeTab, setActiveTab] = useState('pdv'); // Padrão no PDV
   const [loading, setLoading] = useState(true);
 
   const [tenant, setTenant] = useState(null);
@@ -34,6 +34,24 @@ export default function AdminTenant() {
   // CONFIGURAÇÃO DE MESAS E QR CODES
   const [tableCount, setTableCount] = useState(10);
   const [baseUrl, setBaseUrl] = useState('');
+
+  // ESTADOS DO PDV / LANÇAMENTO MANUAL (CAIXA / GARÇOM)
+  const [pdvOrderType, setPdvOrderType] = useState('balcao'); // 'balcao', 'delivery', 'mesa'
+  const [pdvCustomer, setPdvCustomer] = useState({ name: '', phone: '', address: '' });
+  const [pdvTableNum, setPdvTableNum] = useState('');
+  const [pdvWaiterName, setPdvWaiterName] = useState('');
+  const [pdvSelectedNeighborhood, setPdvSelectedNeighborhood] = useState(null);
+  const [pdvPaymentMethod, setPdvPaymentMethod] = useState('DINHEIRO');
+  const [pdvNotes, setPdvNotes] = useState('');
+  const [pdvCart, setPdvCart] = useState([]);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+
+  // MODAIS ADICIONAIS
+  const [selectedReceiptOrder, setSelectedReceiptOrder] = useState(null); // Recibo Não-Fiscal
+  const [selectedClientHistory, setSelectedClientHistory] = useState(null); // Histórico do Cliente
+  const [splitModalOrder, setSplitModalOrder] = useState(null); // Calculadora Divisão
+  const [splitPeopleCount, setSplitPeopleCount] = useState(2);
 
   // DIAS DA SEMANA
   const ALL_DAYS = [
@@ -141,6 +159,86 @@ export default function AdminTenant() {
     }
   };
 
+  // FUNÇÕES DO PDV / LANÇAMENTO MANUAL
+  const handlePdvAddToCart = (product) => {
+    const existingIndex = pdvCart.findIndex(item => item.id === product.id);
+    if (existingIndex > -1) {
+      const updated = [...pdvCart];
+      updated[existingIndex].quantity += 1;
+      setPdvCart(updated);
+    } else {
+      setPdvCart([...pdvCart, {
+        id: product.id,
+        name: product.name,
+        price: Number(product.price),
+        quantity: 1,
+        notes: ''
+      }]);
+    }
+  };
+
+  const handlePdvUpdateQty = (index, delta) => {
+    const updated = [...pdvCart];
+    updated[index].quantity += delta;
+    if (updated[index].quantity <= 0) {
+      updated.splice(index, 1);
+    }
+    setPdvCart(updated);
+  };
+
+  const pdvSubtotal = pdvCart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const pdvDeliveryFee = pdvOrderType === 'delivery' ? parsePrice(pdvSelectedNeighborhood?.fee || 0) : 0;
+  const pdvTotal = pdvSubtotal + pdvDeliveryFee;
+
+  const handlePdvSubmitOrder = async (e) => {
+    e.preventDefault();
+    if (pdvCart.length === 0) return alert('Adicione pelo menos um item ao pedido!');
+    if (pdvOrderType === 'delivery' && !pdvCustomer.name) return alert('Informe o nome do cliente!');
+    if (pdvOrderType === 'mesa' && !pdvTableNum) return alert('Informe o número da mesa!');
+
+    let customerAddr = 'Retirada no Balcão';
+    if (pdvOrderType === 'delivery') {
+      customerAddr = `${pdvCustomer.address || ''} - Bairro: ${pdvSelectedNeighborhood?.name || 'Não informado'}`;
+    } else if (pdvOrderType === 'mesa') {
+      customerAddr = `Mesa ${pdvTableNum}`;
+    }
+
+    const payload = {
+      tenant_id: tenant.id,
+      customer_name: pdvCustomer.name || (pdvOrderType === 'mesa' ? `Mesa ${pdvTableNum}` : 'Cliente Balcão'),
+      customer_phone: pdvCustomer.phone ? pdvCustomer.phone.replace(/\D/g, '') : '',
+      customer_address: customerAddr,
+      delivery_fee: pdvDeliveryFee,
+      subtotal: pdvSubtotal,
+      total: pdvTotal,
+      payment_method: pdvPaymentMethod,
+      items: pdvCart,
+      notes: pdvNotes,
+      status: 'pendente',
+      order_type: pdvOrderType,
+      waiter_name: pdvWaiterName || null
+    };
+
+    const { data: insertedOrder, error } = await supabase.from('orders').insert([payload]).select().single();
+
+    if (error) {
+      alert('Erro ao lançar pedido: ' + error.message);
+      return;
+    }
+
+    alert('Pedido lançado com sucesso!');
+    setPdvCart([]);
+    setPdvCustomer({ name: '', phone: '', address: '' });
+    setPdvTableNum('');
+    setPdvNotes('');
+    fetchData();
+
+    if (confirm('Deseja imprimir o recibo do pedido agora?')) {
+      setSelectedReceiptOrder(insertedOrder || payload);
+      setTimeout(() => window.print(), 300);
+    }
+  };
+
   // GERENCIAMENTO DE ETAPAS DE COMBO
   const addComboStep = (mode) => {
     const defaultStep = { title: '', category_type: ADDON_TYPES[0], max: 1 };
@@ -201,6 +299,8 @@ export default function AdminTenant() {
     const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
     const { error } = await supabase.from('tenants').update({
       name: tenant.name,
+      cnpj: tenant.cnpj || '',
+      address: tenant.address || '',
       whatsapp: cleanWhatsapp,
       logo_url: tenant.logo_url,
       banner_url: tenant.banner_url,
@@ -216,7 +316,11 @@ export default function AdminTenant() {
       admin_password: tenant.admin_password,
       pix_enabled: tenant.pix_enabled || false,
       pix_provider: tenant.pix_provider || 'mercadopago',
-      pix_access_token: tenant.pix_access_token || ''
+      pix_access_token: tenant.pix_access_token || '',
+      has_delivery: tenant.has_delivery ?? true,
+      has_balcao: tenant.has_balcao ?? true,
+      has_tables: tenant.has_tables ?? true,
+      has_waiters: tenant.has_waiters ?? false
     }).eq('id', tenant.id);
 
     if (error) alert("Erro ao salvar configurações: " + error.message);
@@ -430,12 +534,14 @@ export default function AdminTenant() {
           totalOrders: 0,
           totalSpent: 0,
           lastOrderDate: order.created_at,
-          address: order.customer_address || ''
+          address: order.customer_address || '',
+          ordersList: []
         };
       }
 
       customerMap[key].totalOrders += 1;
       customerMap[key].totalSpent += Number(order.total || 0);
+      customerMap[key].ordersList.push(order);
 
       if (new Date(order.created_at) > new Date(customerMap[key].lastOrderDate)) {
         customerMap[key].lastOrderDate = order.created_at;
@@ -482,7 +588,7 @@ export default function AdminTenant() {
         <form onSubmit={handleLogin} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 w-full max-w-sm space-y-4">
           <div className="text-center">
             <h2 className="text-xl font-bold text-orange-500">{tenant.name}</h2>
-            <p className="text-xs text-gray-400">Painel Administrativo</p>
+            <p className="text-xs text-gray-400">Painel Administrativo & PDV</p>
           </div>
           <input type="password" placeholder="Senha de acesso..." className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-sm text-white focus:outline-none" onChange={(e) => setPassword(e.target.value)} />
           <button type="submit" className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl text-sm hover:bg-orange-600 transition">Entrar no Painel</button>
@@ -503,11 +609,13 @@ export default function AdminTenant() {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            width: 100% !important;
+            width: 80mm !important;
             color: #000 !important;
             background: #fff !important;
             font-family: monospace !important;
-            padding: 10px !important;
+            padding: 5px !important;
+            font-size: 11px !important;
+            line-height: 1.2 !important;
           }
           .no-print { display: none !important; }
         }
@@ -517,13 +625,14 @@ export default function AdminTenant() {
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6 no-print">
         <div>
           <h1 className="font-bold text-xl sm:text-2xl text-orange-500">{tenant.name}</h1>
-          <p className="text-xs sm:text-sm text-gray-400">Painel de Gestão e Controle</p>
+          <p className="text-xs sm:text-sm text-gray-400">Painel ERP & Lançamento de Pedidos (PDV)</p>
         </div>
         <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-xl text-red-400 font-bold transition">Sair</button>
       </header>
 
       {/* ABAS DE NAVEGAÇÃO */}
       <div className="flex space-x-2 bg-gray-900 p-1.5 rounded-xl border border-gray-800 mb-6 text-xs font-bold overflow-x-auto no-print scrollbar-none">
+        <button onClick={() => setActiveTab('pdv')} className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'pdv' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'}`}>🛒 Lançamento PDV</button>
         <button onClick={() => setActiveTab('products')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🍔 Itens</button>
         <button onClick={() => setActiveTab('addons')} className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>➕ Adicionais/Sabores</button>
         <button onClick={() => setActiveTab('categories')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🏷️ Categorias</button>
@@ -533,6 +642,189 @@ export default function AdminTenant() {
         <button onClick={() => setActiveTab('neighborhoods')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'neighborhoods' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🛵 Bairros</button>
         <button onClick={() => setActiveTab('settings')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>⚙️ Config</button>
       </div>
+
+      {/* ABA PDV / LANÇAMENTO MANUAL DE PEDIDO */}
+      {activeTab === 'pdv' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
+          {/* CATÁLOGO DE SELEÇÃO RÁPIDA */}
+          <section className="lg:col-span-2 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4">
+            <h3 className="font-bold text-sm text-green-400 flex items-center justify-between">
+              <span>🛒 Selecione os Produtos</span>
+              <span className="text-xs text-gray-400 font-normal">Clique no item para adicionar à comanda</span>
+            </h3>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[600px] overflow-y-auto pr-1">
+              {products.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => handlePdvAddToCart(p)}
+                  className="bg-gray-950 p-3 rounded-xl border border-gray-800 hover:border-green-500 text-left transition flex flex-col justify-between group"
+                >
+                  <div>
+                    <span className="font-bold text-xs text-white group-hover:text-green-400 block truncate">{p.name}</span>
+                    <span className="text-[10px] text-gray-400 block line-clamp-1">{p.description}</span>
+                  </div>
+                  <span className="text-xs font-bold text-green-400 mt-2 block">R$ {Number(p.price).toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* PAINEL DE FECHAMENTO DO CAIXA / COMANDA */}
+          <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4">
+            <h3 className="font-bold text-sm text-orange-400">📝 Dados do Pedido</h3>
+
+            {/* SELEÇÃO TIPO DE PEDIDO */}
+            <div className="grid grid-cols-3 gap-1 bg-gray-950 p-1 rounded-xl border border-gray-800 text-xs font-bold">
+              <button onClick={() => setPdvOrderType('balcao')} className={`py-1.5 rounded-lg transition ${pdvOrderType === 'balcao' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🛍️ Balcão</button>
+              <button onClick={() => setPdvOrderType('delivery')} className={`py-1.5 rounded-lg transition ${pdvOrderType === 'delivery' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🛵 Delivery</button>
+              <button onClick={() => setPdvOrderType('mesa')} className={`py-1.5 rounded-lg transition ${pdvOrderType === 'mesa' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🪑 Mesa</button>
+            </div>
+
+            {/* DADOS MESA / GARÇOM */}
+            {pdvOrderType === 'mesa' && (
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  placeholder="Nº da Mesa Ex: 04"
+                  value={pdvTableNum}
+                  onChange={(e) => setPdvTableNum(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                />
+                <input
+                  type="text"
+                  placeholder="Nome do Garçom"
+                  value={pdvWaiterName}
+                  onChange={(e) => setPdvWaiterName(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                />
+              </div>
+            )}
+
+            {/* BUSCA / CADASTRO DE CLIENTE */}
+            <div className="space-y-2 relative">
+              <input
+                type="text"
+                placeholder="Nome do Cliente..."
+                value={pdvCustomer.name}
+                onChange={(e) => {
+                  setPdvCustomer({ ...pdvCustomer, name: e.target.value });
+                  setCustomerSearchQuery(e.target.value);
+                  setShowCustomerDropdown(true);
+                }}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+              />
+
+              {/* DROPDOWN FILTRO DE CLIENTES CADASTRADOS */}
+              {showCustomerDropdown && customerSearchQuery.length > 1 && (
+                <div className="absolute left-0 right-0 top-11 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-20 max-h-40 overflow-y-auto">
+                  {customerList.filter(c => c.name.toLowerCase().includes(customerSearchQuery.toLowerCase()) || c.phone.includes(customerSearchQuery)).map((c, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        setPdvCustomer({ name: c.name, phone: c.phone, address: c.address });
+                        setShowCustomerDropdown(false);
+                      }}
+                      className="w-full text-left p-2.5 text-xs hover:bg-gray-800 border-b border-gray-800 text-gray-200"
+                    >
+                      <span className="font-bold block">{c.name}</span>
+                      <span className="text-[10px] text-gray-400">{c.phone} - {c.address}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {pdvOrderType === 'delivery' && (
+                <>
+                  <input
+                    type="text"
+                    placeholder="WhatsApp do Cliente"
+                    value={pdvCustomer.phone}
+                    onChange={(e) => setPdvCustomer({ ...pdvCustomer, phone: e.target.value })}
+                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Endereço de Entrega (Rua, Nº, Bairro)"
+                    value={pdvCustomer.address}
+                    onChange={(e) => setPdvCustomer({ ...pdvCustomer, address: e.target.value })}
+                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                  />
+                  <select
+                    onChange={(e) => setPdvSelectedNeighborhood(neighborhoods.find(n => n.id === parseInt(e.target.value)))}
+                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                  >
+                    <option value="">Selecione o Bairro (Taxa de Entrega)...</option>
+                    {neighborhoods.map(n => <option key={n.id} value={n.id}>{n.name} (+R$ {Number(n.fee).toFixed(2)})</option>)}
+                  </select>
+                </>
+              )}
+            </div>
+
+            {/* CARRINHO DE ITENS DO PDV */}
+            <div className="space-y-2 border-t border-gray-800 pt-3">
+              <span className="text-xs font-bold text-gray-400 block">Itens do Pedido ({pdvCart.length})</span>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {pdvCart.length === 0 ? (
+                  <p className="text-[11px] text-gray-500 italic py-2 text-center">Nenhum item adicionado ainda.</p>
+                ) : (
+                  pdvCart.map((item, index) => (
+                    <div key={index} className="flex justify-between items-center bg-gray-950 p-2 rounded-xl text-xs border border-gray-800">
+                      <div>
+                        <span className="font-bold text-white block">{item.name}</span>
+                        <span className="text-[10px] text-green-400">R$ {(item.price * item.quantity).toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <button onClick={() => handlePdvUpdateQty(index, -1)} className="w-6 h-6 bg-gray-800 rounded-lg text-red-400 font-bold">-</button>
+                        <span className="font-bold">{item.quantity}</span>
+                        <button onClick={() => handlePdvUpdateQty(index, 1)} className="w-6 h-6 bg-gray-800 rounded-lg text-green-400 font-bold">+</button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* FORMA DE PAGAMENTO & TOTAL */}
+            <div className="border-t border-gray-800 pt-3 space-y-2">
+              <label className="text-[11px] text-gray-400 block">Forma de Pagamento:</label>
+              <select
+                value={pdvPaymentMethod}
+                onChange={(e) => setPdvPaymentMethod(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+              >
+                <option value="DINHEIRO">💵 Dinheiro</option>
+                <option value="PIX">⚡ PIX</option>
+                <option value="CARTAO_MAQUININHA">💳 Cartão Maquininha</option>
+                <option value="PAGAR_NO_BALCAO">🏪 Pagar no Balcão</option>
+              </select>
+
+              <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-1">
+                <div className="flex justify-between text-xs text-gray-400"><span>Subtotal:</span><span>R$ {pdvSubtotal.toFixed(2)}</span></div>
+                {pdvOrderType === 'delivery' && <div className="flex justify-between text-xs text-gray-400"><span>Taxa Entrega:</span><span>R$ {pdvDeliveryFee.toFixed(2)}</span></div>}
+                <div className="flex justify-between text-sm font-extrabold text-green-400 pt-1 border-t border-gray-800"><span>Total:</span><span>R$ {pdvTotal.toFixed(2)}</span></div>
+              </div>
+
+              {pdvCart.length > 0 && (
+                <button
+                  onClick={() => setSplitModalOrder({ total: pdvTotal, items: pdvCart })}
+                  className="w-full bg-blue-600/20 text-blue-400 border border-blue-500/30 py-2 rounded-xl text-xs font-bold hover:bg-blue-600/30 transition"
+                >
+                  🧮 Simular Divisão de Comanda (Split)
+                </button>
+              )}
+
+              <button
+                onClick={handlePdvSubmitOrder}
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-extrabold py-3 rounded-xl text-xs transition shadow-lg"
+              >
+                🚀 Finalizar e Lançar Pedido
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* ABA ITENS / PRODUTOS */}
       {activeTab === 'products' && (
@@ -828,8 +1120,8 @@ export default function AdminTenant() {
       {activeTab === 'clients' && (
         <div className="space-y-6 no-print">
           <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-1">
-            <h3 className="font-bold text-sm text-orange-400">👥 Registro & Ranking de Clientes</h3>
-            <p className="text-xs text-gray-400">Clientes identificados automaticamente pelo histórico de compras.</p>
+            <h3 className="font-bold text-sm text-orange-400">👥 Registro & Ranking de Clientes (CRM)</h3>
+            <p className="text-xs text-gray-400">Clientes identificados automaticamente com histórico completo de compras e endereço.</p>
           </section>
 
           <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -861,13 +1153,22 @@ export default function AdminTenant() {
                     </div>
                   </div>
 
-                  {client.phone && (
+                  <div className="space-y-1.5">
                     <button
-                      onClick={() => handleOpenPromoModal(client)}
-                      className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center space-x-1 transition shadow">
-                      <span>📢 Enviar Promoção WhatsApp</span>
+                      onClick={() => setSelectedClientHistory(client)}
+                      className="w-full bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-500/30 py-2 rounded-xl text-xs font-bold transition"
+                    >
+                      📜 Ver Histórico de Pedidos
                     </button>
-                  )}
+
+                    {client.phone && (
+                      <button
+                        onClick={() => handleOpenPromoModal(client)}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center space-x-1 transition shadow">
+                        <span>📢 Enviar Promoção WhatsApp</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))
             )}
@@ -920,49 +1221,29 @@ export default function AdminTenant() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 text-xs print:border-black print:bg-white print:text-black">
-                <h3 className="font-bold text-xs text-orange-400 uppercase border-b border-gray-800 pb-2 print:text-black print:border-black">💳 Faturamento por Pagamento</h3>
-                <div className="flex justify-between py-2 border-b border-gray-800/60 print:border-black">
-                  <span className="text-gray-400 print:text-black">⚡ PIX Dinâmico / Manual:</span>
-                  <span className="font-bold">R$ {paymentBreakdown.pix.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-gray-800/60 print:border-black">
-                  <span className="text-gray-400 print:text-black">🌐 Cartão Pago Online (Site):</span>
-                  <span className="font-bold">R$ {paymentBreakdown.cardOnline.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-gray-800/60 print:border-black">
-                  <span className="text-gray-400 print:text-black">🛵 Cartão na Maquininha:</span>
-                  <span className="font-bold">R$ {paymentBreakdown.cardMachine.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-gray-800/60 print:border-black">
-                  <span className="text-gray-400 print:text-black">💵 Dinheiro Espécie:</span>
-                  <span className="font-bold">R$ {paymentBreakdown.dinheiro.toFixed(2)}</span>
-                </div>
-                {paymentBreakdown.other > 0 && (
-                  <div className="flex justify-between py-2">
-                    <span className="text-gray-400 print:text-black">📌 Pagar no Balcão / Outros:</span>
-                    <span className="font-bold">R$ {paymentBreakdown.other.toFixed(2)}</span>
+            {/* AUDITORIA DETALHADA DE PEDIDOS */}
+            <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 no-print">
+              <h3 className="font-bold text-xs text-orange-400 uppercase">📋 Histórico Auditado de Pedidos</h3>
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {filteredOrders.map(o => (
+                  <div key={o.id} className="bg-gray-950 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
+                    <div>
+                      <span className="font-bold text-white block">#{o.id} - {o.customer_name} ({o.order_type || 'delivery'})</span>
+                      <span className="text-[10px] text-gray-400">{new Date(o.created_at).toLocaleString('pt-BR')} • {o.payment_method}</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-green-400">R$ {Number(o.total).toFixed(2)}</span>
+                      <button
+                        onClick={() => setSelectedReceiptOrder(o)}
+                        className="bg-gray-800 hover:bg-gray-700 text-gray-200 px-2.5 py-1 rounded-lg text-[10px] font-bold"
+                      >
+                        📄 Recibo
+                      </button>
+                    </div>
                   </div>
-                )}
-              </section>
-
-              <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 print:border-black print:bg-white print:text-black">
-                <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider print:text-black">🏆 ITENS MAIS VENDIDOS</h3>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {topProducts.length === 0 ? (
-                    <p className="text-xs text-gray-400">Nenhum pedido registrado ainda.</p>
-                  ) : (
-                    topProducts.map((p, idx) => (
-                      <div key={idx} className="flex justify-between items-center bg-gray-800 p-3 rounded-xl text-xs print:bg-white print:border-b print:border-black">
-                        <span className="font-bold text-white print:text-black">{idx + 1}. {p.name}</span>
-                        <span className="bg-orange-500/20 text-orange-400 px-3 py-1 rounded-lg font-bold print:text-black">{p.qty} un.</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </section>
-            </div>
+                ))}
+              </div>
+            </section>
           </div>
 
           <section className="bg-gray-900 p-5 rounded-2xl border border-red-500/30 flex justify-between items-center no-print">
@@ -1063,151 +1344,58 @@ export default function AdminTenant() {
       {activeTab === 'settings' && (
         <div className="no-print">
           <section className="bg-gray-900 p-6 rounded-2xl border border-gray-800 space-y-4 max-w-4xl mx-auto">
-            <h3 className="font-bold text-base text-orange-400">⚙️ Configurações Gerais da Loja</h3>
+            <h3 className="font-bold text-base text-orange-400">⚙️ Configurações Gerais da Loja & Recibos</h3>
             <form onSubmit={handleSaveTenantSettings} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Nome da Loja:</label>
+                  <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
                   <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
                 </div>
 
                 <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">CNPJ (Impresso no Recibo):</label>
+                  <input type="text" placeholder="00.000.000/0001-00" value={tenant.cnpj || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, cnpj: e.target.value })} />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Endereço Completo (Impresso no Recibo):</label>
+                <input type="text" placeholder="Rua, Número, Bairro, Cidade - UF" value={tenant.address || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, address: e.target.value })} />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
                   <label className="text-[11px] text-gray-400 block mb-1">WhatsApp de Vendas:</label>
                   <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
                 </div>
-              </div>
-
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Link do Instagram:</label>
-                <input
-                  type="text"
-                  placeholder="Ex: https://instagram.com/pizzaria_top"
-                  value={tenant.instagram_url || ''}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
-                  onChange={(e) => setTenant({ ...tenant, instagram_url: e.target.value })}
-                />
-              </div>
-
-              {/* HORÁRIOS E DIAS DE FUNCIONAMENTO */}
-              <div className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-3">
-                <div className="flex justify-between items-center flex-wrap gap-2">
-                  <label className="text-xs font-bold text-orange-400 block">🛵 Dias de Funcionamento do Delivery:</label>
-                  <div className="flex space-x-1 text-[10px]">
-                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [1, 2, 3, 4, 5] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2.5 py-1 rounded-lg font-bold">Seg-Sex</button>
-                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [1, 2, 3, 4, 5, 6] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2.5 py-1 rounded-lg font-bold">Seg-Sáb</button>
-                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [0, 1, 2, 3, 4, 5, 6] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2.5 py-1 rounded-lg font-bold">Todos</button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-7 gap-1.5">
-                  {ALL_DAYS.map(day => {
-                    const isSelected = (tenant.work_days || []).includes(day.id);
-                    return (
-                      <button
-                        key={day.id}
-                        type="button"
-                        onClick={() => setTenant({ ...tenant, work_days: toggleDaySelection(tenant.work_days, day.id) })}
-                        className={`py-2 rounded-xl text-xs font-bold border transition ${isSelected ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-900 text-gray-500 border-gray-800'}`}>
-                        {day.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-800/80">
-                  <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Horário Abertura:</label>
-                    <input type="time" value={tenant.opening_time || '18:00'} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, opening_time: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Horário Fechamento:</label>
-                    <input type="time" value={tenant.closing_time || '23:30'} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, closing_time: e.target.value })} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">ID do Pixel do Meta (Facebook/Instagram):</label>
-                  <input type="text" placeholder="Ex: 123456789012345" value={tenant.pixel_id || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-mono" onChange={(e) => setTenant({ ...tenant, pixel_id: e.target.value })} />
-                </div>
 
                 <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Aviso/Instrução no Pedido:</label>
-                  <input type="text" placeholder="Ex: Chave PIX: CNPJ 00.000..." value={tenant.custom_message || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, custom_message: e.target.value })} />
+                  <label className="text-[11px] text-gray-400 block mb-1">Link do Instagram:</label>
+                  <input type="text" value={tenant.instagram_url || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, instagram_url: e.target.value })} />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">URL da Logo (Perfil):</label>
-                  <input type="text" value={tenant.logo_url || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, logo_url: e.target.value })} />
+              {/* MÓDULOS HABILITADOS */}
+              <div className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-2">
+                <label className="text-xs font-bold text-orange-400 block mb-2">🧩 Módulos Ativos no Sistema:</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" checked={tenant.has_delivery ?? true} onChange={(e) => setTenant({ ...tenant, has_delivery: e.target.checked })} className="accent-orange-500" />
+                    <span>Delivery</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" checked={tenant.has_balcao ?? true} onChange={(e) => setTenant({ ...tenant, has_balcao: e.target.checked })} className="accent-orange-500" />
+                    <span>Balcão / Retirada</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" checked={tenant.has_tables ?? true} onChange={(e) => setTenant({ ...tenant, has_tables: e.target.checked })} className="accent-orange-500" />
+                    <span>Mesas / Salão</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" checked={tenant.has_waiters ?? false} onChange={(e) => setTenant({ ...tenant, has_waiters: e.target.checked })} className="accent-orange-500" />
+                    <span>Garçons</span>
+                  </label>
                 </div>
-
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">URL do Banner (Capa):</label>
-                  <input type="text" value={tenant.banner_url || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, banner_url: e.target.value })} />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Banners de Promoção (URLs separadas por vírgula):</label>
-                <input type="text" placeholder="https://link1.com, https://link2.com" value={tenant.promo_banners || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, promo_banners: e.target.value })} />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Cor Principal:</label>
-                  <input type="color" value={tenant.primary_color || '#FF8C00'} onChange={(e) => setTenant({ ...tenant, primary_color: e.target.value })} className="h-10 w-full bg-gray-800 rounded-xl cursor-pointer" />
-                </div>
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Cor Secundária:</label>
-                  <input type="color" value={tenant.secondary_color || '#111827'} onChange={(e) => setTenant({ ...tenant, secondary_color: e.target.value })} className="h-10 w-full bg-gray-800 rounded-xl cursor-pointer" />
-                </div>
-              </div>
-
-              {/* PIX DINÂMICO E PAGAMENTOS AUTOMÁTICOS */}
-              <div className="pt-4 border-t border-gray-800 space-y-3">
-                <div className="flex justify-between items-center bg-gray-950 p-4 rounded-2xl border border-gray-800">
-                  <div>
-                    <h4 className="font-bold text-xs text-green-400">⚡ PIX Dinâmico com Baixa Automática</h4>
-                    <p className="text-[10px] text-gray-400">Confirma o pagamento sozinho no banco.</p>
-                  </div>
-
-                  <input
-                    type="checkbox"
-                    checked={tenant.pix_enabled || false}
-                    onChange={(e) => setTenant({ ...tenant, pix_enabled: e.target.checked })}
-                    className="w-5 h-5 accent-green-500 cursor-pointer"
-                  />
-                </div>
-
-                {tenant.pix_enabled && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-800/60 p-4 rounded-2xl border border-gray-700">
-                    <div>
-                      <label className="text-[11px] text-gray-400 block mb-1">Gateway de Pagamento:</label>
-                      <select
-                        value={tenant.pix_provider || 'mercadopago'}
-                        onChange={(e) => setTenant({ ...tenant, pix_provider: e.target.value })}
-                        className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none">
-                        <option value="mercadopago">Mercado Pago</option>
-                        <option value="efi">Efí (Gerencianet)</option>
-                        <option value="asaas">Asaas</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] text-gray-400 block mb-1">Token de Acesso / API:</label>
-                      <input
-                        type="password"
-                        placeholder="Ex: APP_USR-xxxx-xxxx..."
-                        value={tenant.pix_access_token || ''}
-                        className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
-                        onChange={(e) => setTenant({ ...tenant, pix_access_token: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
 
               <button type="submit" className="w-full bg-green-600 font-bold py-3.5 rounded-xl text-xs transition hover:bg-green-700 shadow-lg">
@@ -1215,6 +1403,156 @@ export default function AdminTenant() {
               </button>
             </form>
           </section>
+        </div>
+      )}
+
+      {/* MODAL DE RECIBO NÃO-FISCAL PARA IMPRESSÃO */}
+      {selectedReceiptOrder && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
+          <div className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-orange-500/40 space-y-4">
+            <h3 className="font-bold text-sm text-orange-400">📄 Comprovante Recibo do Cliente</h3>
+
+            <div className="bg-white text-black p-4 rounded-xl font-mono text-xs space-y-2 border border-gray-300">
+              <div className="text-center border-b pb-2">
+                <span className="font-extrabold text-sm block">{tenant.name}</span>
+                {tenant.cnpj && <span className="text-[10px] block">CNPJ: {tenant.cnpj}</span>}
+                {tenant.address && <span className="text-[10px] block">{tenant.address}</span>}
+              </div>
+
+              <div className="border-b pb-2 text-[10px] space-y-0.5">
+                <div><b>Cliente:</b> {selectedReceiptOrder.customer_name}</div>
+                {selectedReceiptOrder.customer_phone && <div><b>Tel:</b> {selectedReceiptOrder.customer_phone}</div>}
+                <div><b>Tipo:</b> {selectedReceiptOrder.order_type || 'Delivery'}</div>
+                {selectedReceiptOrder.waiter_name && <div><b>Garçom:</b> {selectedReceiptOrder.waiter_name}</div>}
+                <div><b>Data:</b> {new Date().toLocaleString('pt-BR')}</div>
+              </div>
+
+              <div className="border-b pb-2 space-y-1">
+                <div className="font-bold text-[11px]">ITENS DO PEDIDO:</div>
+                {(selectedReceiptOrder.items || []).map((it, idx) => (
+                  <div key={idx} className="flex justify-between text-[10px]">
+                    <span>{it.quantity}x {it.name}</span>
+                    <span>R$ {(it.price * it.quantity).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="text-[11px] space-y-0.5 pt-1">
+                <div className="flex justify-between"><span>Subtotal:</span><span>R$ {Number(selectedReceiptOrder.subtotal || selectedReceiptOrder.total).toFixed(2)}</span></div>
+                {Number(selectedReceiptOrder.delivery_fee || 0) > 0 && <div className="flex justify-between"><span>Taxa Entrega:</span><span>R$ {Number(selectedReceiptOrder.delivery_fee).toFixed(2)}</span></div>}
+                <div className="flex justify-between font-extrabold text-sm pt-1 border-t"><span>TOTAL:</span><span>R$ {Number(selectedReceiptOrder.total).toFixed(2)}</span></div>
+                <div className="text-[10px] pt-1"><b>Pagamento:</b> {selectedReceiptOrder.payment_method}</div>
+              </div>
+            </div>
+
+            <div className="flex space-x-2">
+              <button onClick={() => setSelectedReceiptOrder(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Fechar</button>
+              <button onClick={() => window.print()} className="w-1/2 bg-orange-500 hover:bg-orange-600 py-2.5 rounded-xl text-xs font-bold text-white">🖨️ Imprimir</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ÁREA INVISÍVEL APENAS PARA IMPRESSORA TÉRMICA */}
+      {selectedReceiptOrder && (
+        <div className="print-area hidden print:block">
+          <div style={{ textAlign: 'center', borderBottom: '1px dashed #000', paddingBottom: '5px' }}>
+            <strong style={{ fontSize: '13px' }}>{tenant.name}</strong><br />
+            {tenant.cnpj && <span>CNPJ: {tenant.cnpj}<br /></span>}
+            {tenant.address && <span>{tenant.address}<br /></span>}
+            --------------------------------
+          </div>
+          <div style={{ padding: '5px 0', borderBottom: '1px dashed #000' }}>
+            CLIENTE: {selectedReceiptOrder.customer_name}<br />
+            TIPO: {selectedReceiptOrder.order_type || 'Delivery'}<br />
+            {selectedReceiptOrder.waiter_name && <span>GARÇOM: {selectedReceiptOrder.waiter_name}<br /></span>}
+            DATA: {new Date().toLocaleString('pt-BR')}<br />
+            --------------------------------
+          </div>
+          <div style={{ padding: '5px 0', borderBottom: '1px dashed #000' }}>
+            {(selectedReceiptOrder.items || []).map((it, idx) => (
+              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>{it.quantity}x {it.name}</span>
+                <span>R$ {(it.price * it.quantity).toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ paddingTop: '5px' }}>
+            TOTAL: R$ {Number(selectedReceiptOrder.total).toFixed(2)}<br />
+            PAGAMENTO: {selectedReceiptOrder.payment_method}<br />
+            <br />
+            <center>Obrigado pela preferência!</center>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL SIMULADOR / CALCULADORA DE DIVISÃO DE COMANDA (SPLIT) */}
+      {splitModalOrder && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
+          <div className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-4">
+            <h3 className="font-bold text-sm text-blue-400">🧮 Calculadora de Divisão de Comanda</h3>
+
+            <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-3">
+              <div className="flex justify-between items-center text-xs">
+                <span>Valor Total do Pedido:</span>
+                <span className="font-bold text-green-400 text-sm">R$ {Number(splitModalOrder.total).toFixed(2)}</span>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Dividir igualmente entre quantas pessoas?</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={splitPeopleCount}
+                  onChange={(e) => setSplitPeopleCount(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white text-center font-extrabold"
+                />
+              </div>
+
+              <div className="bg-blue-600/10 border border-blue-500/30 p-3 rounded-xl text-center space-y-1">
+                <span className="text-[10px] text-blue-300 block">Valor individual por pessoa:</span>
+                <span className="text-xl font-extrabold text-blue-400">
+                  R$ {(Number(splitModalOrder.total) / splitPeopleCount).toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            <button onClick={() => setSplitModalOrder(null)} className="w-full bg-gray-800 py-2.5 rounded-xl text-xs font-bold">Concluído</button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL HISTÓRICO COMPLETO DO CLIENTE */}
+      {selectedClientHistory && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
+          <div className="bg-gray-900 w-full max-w-md rounded-2xl p-5 border border-blue-500/40 space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <div>
+                <h3 className="font-bold text-sm text-blue-400">{selectedClientHistory.name}</h3>
+                <p className="text-[10px] text-gray-400">📱 {selectedClientHistory.phone || 'Sem Telefone'}</p>
+              </div>
+              <button onClick={() => setSelectedClientHistory(null)} className="text-xs bg-gray-800 px-3 py-1 rounded-lg">Fechar</button>
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-xs font-bold text-gray-300">Histórico de {selectedClientHistory.ordersList?.length || 0} pedido(s):</span>
+              {(selectedClientHistory.ordersList || []).map((o, idx) => (
+                <div key={idx} className="bg-gray-950 p-3 rounded-xl border border-gray-800 text-xs space-y-1">
+                  <div className="flex justify-between font-bold text-orange-400">
+                    <span>Pedido #{o.id}</span>
+                    <span>R$ {Number(o.total).toFixed(2)}</span>
+                  </div>
+                  <div className="text-[10px] text-gray-400">
+                    Data: {new Date(o.created_at).toLocaleString('pt-BR')} • {o.payment_method}
+                  </div>
+                  <div className="text-[10px] text-gray-300">
+                    Itens: {(o.items || []).map(i => `${i.quantity}x ${i.name}`).join(', ')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
