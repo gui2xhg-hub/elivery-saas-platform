@@ -27,6 +27,11 @@ export default function AdminTenant() {
   const [allOrders, setAllOrders] = useState([]);
   const [reportFilter, setReportFilter] = useState('all');
 
+  // GARÇONS
+  const [waitersList, setWaitersList] = useState([]);
+  const [newWaiter, setNewWaiter] = useState({ name: '', pin: '' });
+  const [editingWaiter, setEditingWaiter] = useState(null);
+
   // MODAL DE PROMOÇÃO DE CLIENTE
   const [selectedPromoClient, setSelectedPromoClient] = useState(null);
   const [promoMessageText, setPromoMessageText] = useState('');
@@ -132,6 +137,7 @@ export default function AdminTenant() {
     const { data: aData } = await supabase.from('global_addons').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
     const { data: nData } = await supabase.from('neighborhoods').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
     const { data: oData } = await supabase.from('orders').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
+    const { data: wData } = await supabase.from('waiters').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
 
     if (tData) {
       setTenant({
@@ -147,6 +153,7 @@ export default function AdminTenant() {
     if (aData) setGlobalAddons(aData);
     if (nData) setNeighborhoods(nData);
     if (oData) setAllOrders(oData);
+    if (wData) setWaitersList(wData);
   };
 
   const toggleDaySelection = (currentDays, dayId) => {
@@ -235,6 +242,38 @@ export default function AdminTenant() {
       setSelectedReceiptOrder(insertedOrder || payload);
       setTimeout(() => window.print(), 300);
     }
+  };
+
+  const handleAddWaiter = async (e) => {
+    e.preventDefault();
+    if (!newWaiter.name || !newWaiter.pin) return alert("Preencha nome e PIN do garçom!");
+
+    const { error } = await supabase.from('waiters').insert([{
+      tenant_id: tenant.id,
+      name: newWaiter.name.trim(),
+      pin: newWaiter.pin.trim(),
+      active: true
+    }]);
+
+    if (error) return alert("Erro ao cadastrar garçom: " + error.message);
+
+    setNewWaiter({ name: '', pin: '' });
+    fetchData();
+  };
+
+  const handleUpdateWaiter = async (e) => {
+    e.preventDefault();
+    if (!editingWaiter.name || !editingWaiter.pin) return alert("Preencha nome e PIN!");
+
+    const { error } = await supabase.from('waiters').update({
+      name: editingWaiter.name.trim(),
+      pin: editingWaiter.pin.trim()
+    }).eq('id', editingWaiter.id);
+
+    if (error) return alert("Erro ao atualizar garçom: " + error.message);
+
+    setEditingWaiter(null);
+    fetchData();
   };
 
   const addComboStep = (mode) => {
@@ -486,31 +525,6 @@ export default function AdminTenant() {
   const totalSubtotal = filteredOrders.reduce((sum, o) => sum + Number(o.subtotal || o.total || 0), 0);
   const totalDeliveryFees = filteredOrders.reduce((sum, o) => sum + Number(o.delivery_fee || 0), 0);
 
-  const paymentBreakdown = {
-    pix: filteredOrders.filter(o => (o.payment_method || '').toUpperCase().includes('PIX')).reduce((sum, o) => sum + Number(o.total || 0), 0),
-    dinheiro: filteredOrders.filter(o => (o.payment_method || '').toUpperCase().includes('DINHEIRO')).reduce((sum, o) => sum + Number(o.total || 0), 0),
-    cardOnline: filteredOrders.filter(o => (o.payment_method || '').toUpperCase().includes('ONLINE')).reduce((sum, o) => sum + Number(o.total || 0), 0),
-    cardMachine: filteredOrders.filter(o => (o.payment_method || '').toUpperCase().includes('MAQUININHA')).reduce((sum, o) => sum + Number(o.total || 0), 0),
-    other: filteredOrders.filter(o => {
-      const pm = (o.payment_method || '').toUpperCase();
-      return !pm.includes('PIX') && !pm.includes('DINHEIRO') && !pm.includes('ONLINE') && !pm.includes('MAQUININHA');
-    }).reduce((sum, o) => sum + Number(o.total || 0), 0)
-  };
-
-  const productSalesMap = {};
-  filteredOrders.forEach(o => {
-    if (o.items && Array.isArray(o.items)) {
-      o.items.forEach(it => {
-        const q = it.quantity || 1;
-        productSalesMap[it.name] = (productSalesMap[it.name] || 0) + q;
-      });
-    }
-  });
-
-  const topProducts = Object.entries(productSalesMap)
-    .map(([name, qty]) => ({ name, qty }))
-    .sort((a, b) => b.qty - a.qty);
-
   const getCustomerList = () => {
     const customerMap = {};
     allOrders.forEach(order => {
@@ -625,6 +639,7 @@ export default function AdminTenant() {
         <button onClick={() => setActiveTab('products')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🍔 Itens</button>
         <button onClick={() => setActiveTab('addons')} className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>➕ Adicionais/Sabores</button>
         <button onClick={() => setActiveTab('categories')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🏷️ Categorias</button>
+        <button onClick={() => setActiveTab('waiters')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'waiters' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>👤 Garçons</button>
         <button onClick={() => setActiveTab('clients')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'clients' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>👥 Clientes</button>
         <button onClick={() => setActiveTab('reports')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>📊 Financeiro</button>
         <button onClick={() => setActiveTab('tables')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'tables' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🪑 Mesas QR</button>
@@ -670,7 +685,10 @@ export default function AdminTenant() {
             {pdvOrderType === 'mesa' && (
               <div className="grid grid-cols-2 gap-2">
                 <input type="text" placeholder="Nº da Mesa Ex: 04" value={pdvTableNum} onChange={(e) => setPdvTableNum(e.target.value)} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
-                <input type="text" placeholder="Nome do Garçom" value={pdvWaiterName} onChange={(e) => setPdvWaiterName(e.target.value)} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
+                <select value={pdvWaiterName} onChange={(e) => setPdvWaiterName(e.target.value)} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none">
+                  <option value="">Selecione o Garçom...</option>
+                  {waitersList.filter(w => w.active).map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                </select>
               </div>
             )}
 
@@ -850,7 +868,6 @@ export default function AdminTenant() {
                 )}
               </div>
 
-              {/* RESTAURADO: LISTA DE VÍNCULO DE ADICIONAIS / SABORES */}
               {globalAddons.length > 0 && (
                 <div className="border-t border-gray-800 pt-3 space-y-3">
                   <label className="text-[11px] text-gray-300 font-bold block">Vincular Adicionais / Sabores Habilitados:</label>
@@ -1005,6 +1022,54 @@ export default function AdminTenant() {
         </div>
       )}
 
+      {/* ABA GARÇONS */}
+      {activeTab === 'waiters' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
+          <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
+            <h3 className="font-bold text-sm text-orange-400">👤 Cadastrar Garçom</h3>
+            <form onSubmit={handleAddWaiter} className="space-y-3">
+              <input
+                type="text"
+                placeholder="Nome do Garçom (Ex: Carlos)"
+                value={newWaiter.name}
+                onChange={(e) => setNewWaiter({ ...newWaiter, name: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+              />
+              <input
+                type="text"
+                maxLength={6}
+                placeholder="PIN Numérico (Ex: 1234)"
+                value={newWaiter.pin}
+                onChange={(e) => setNewWaiter({ ...newWaiter, pin: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold"
+              />
+              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-xl text-xs hover:bg-green-700 transition">
+                Cadastrar Garçom 🚀
+              </button>
+            </form>
+          </section>
+
+          <section className="lg:col-span-2 space-y-3">
+            <h3 className="font-bold text-sm text-gray-300">👥 Equipe de Garçons Cadastrados ({waitersList.length})</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {waitersList.map((w) => (
+                <div key={w.id} className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center text-xs">
+                  <div>
+                    <span className={`font-bold block ${!w.active ? 'line-through text-gray-500' : 'text-white'}`}>👤 {w.name}</span>
+                    <span className="text-[10px] text-gray-400">PIN de Acesso: <b className="text-orange-400 font-mono">{w.pin}</b></span>
+                  </div>
+                  <div className="flex space-x-1.5">
+                    <button onClick={() => setEditingWaiter(w)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30 hover:bg-blue-600/30 transition">✏️</button>
+                    <button onClick={async () => { await supabase.from('waiters').update({ active: !w.active }).eq('id', w.id); fetchData(); }} className={`text-[10px] font-bold px-2.5 py-2 rounded-xl ${w.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{w.active ? 'Ativo' : 'Pausado'}</button>
+                    <button onClick={async () => { if (confirm("Excluir garçom?")) { await supabase.from('waiters').delete().eq('id', w.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold hover:bg-red-500/30 transition">🗑</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+
       {/* ABA CLIENTES */}
       {activeTab === 'clients' && (
         <div className="space-y-6 no-print">
@@ -1105,7 +1170,6 @@ export default function AdminTenant() {
               </div>
             </div>
 
-            {/* AUDITORIA DETALHADA DE PEDIDOS */}
             <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 no-print">
               <h3 className="font-bold text-xs text-orange-400 uppercase">📋 Histórico Auditado de Pedidos</h3>
               <div className="space-y-2 max-h-80 overflow-y-auto">
@@ -1209,15 +1273,13 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA CONFIGURAÇÕES DA LOJA (TOTALMENTE RESTAURADA) */}
+      {/* ABA CONFIGURAÇÕES DA LOJA */}
       {activeTab === 'settings' && (
         <div className="no-print space-y-6 max-w-4xl mx-auto">
           <form onSubmit={handleSaveTenantSettings} className="space-y-6">
-            
-            {/* INFORMAÇÕES BÁSICAS E CORPORATIVAS */}
             <section className="bg-gray-900 p-6 rounded-2xl border border-gray-800 space-y-4">
               <h3 className="font-bold text-base text-orange-400 border-b border-gray-800 pb-2">🏢 Dados da Empresa & Recibos</h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
@@ -1248,18 +1310,17 @@ export default function AdminTenant() {
               </div>
             </section>
 
-            {/* MÓDULO DE PAGAMENTO DINÂMICO VIA PIX / MERCADO PAGO */}
             <section className="bg-gray-900 p-6 rounded-2xl border border-green-500/30 space-y-4">
               <div className="flex items-center justify-between border-b border-gray-800 pb-2">
                 <h3 className="font-bold text-base text-green-400 flex items-center space-x-2">
                   <span>⚡ Pagamento Dinâmico (PIX Automático)</span>
                 </h3>
                 <label className="flex items-center space-x-2 cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={tenant.pix_enabled || false} 
-                    onChange={(e) => setTenant({ ...tenant, pix_enabled: e.target.checked })} 
-                    className="w-4 h-4 accent-green-500 rounded cursor-pointer" 
+                  <input
+                    type="checkbox"
+                    checked={tenant.pix_enabled || false}
+                    onChange={(e) => setTenant({ ...tenant, pix_enabled: e.target.checked })}
+                    className="w-4 h-4 accent-green-500 rounded cursor-pointer"
                   />
                   <span className="text-xs font-bold text-green-400">Ativar PIX Automático</span>
                 </label>
@@ -1293,7 +1354,6 @@ export default function AdminTenant() {
               )}
             </section>
 
-            {/* HORÁRIOS E DIAS DE FUNCIONAMENTO */}
             <section className="bg-gray-900 p-6 rounded-2xl border border-gray-800 space-y-4">
               <h3 className="font-bold text-base text-orange-400 border-b border-gray-800 pb-2">⏰ Horários de Funcionamento</h3>
 
@@ -1330,7 +1390,6 @@ export default function AdminTenant() {
               </div>
             </section>
 
-            {/* APARÊNCIA, BANNERS E IMAGENS */}
             <section className="bg-gray-900 p-6 rounded-2xl border border-gray-800 space-y-4">
               <h3 className="font-bold text-base text-orange-400 border-b border-gray-800 pb-2">🎨 Aparência e Banners Promocionais</h3>
 
@@ -1362,7 +1421,6 @@ export default function AdminTenant() {
               </div>
             </section>
 
-            {/* SEGURANÇA E MARKETING */}
             <section className="bg-gray-900 p-6 rounded-2xl border border-gray-800 space-y-4">
               <h3 className="font-bold text-base text-orange-400 border-b border-gray-800 pb-2">🔑 Segurança & Recursos de Marketing</h3>
 
@@ -1384,10 +1442,9 @@ export default function AdminTenant() {
               </div>
             </section>
 
-            {/* MÓDULOS HABILITADOS */}
             <section className="bg-gray-900 p-6 rounded-2xl border border-gray-800 space-y-3">
               <h3 className="font-bold text-base text-orange-400 border-b border-gray-800 pb-2">🧩 Módulos Ativos no Sistema</h3>
-              
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
                 <label className="flex items-center space-x-2 cursor-pointer bg-gray-950 p-3 rounded-xl border border-gray-800">
                   <input type="checkbox" checked={tenant.has_delivery ?? true} onChange={(e) => setTenant({ ...tenant, has_delivery: e.target.checked })} className="accent-orange-500 w-4 h-4" />
@@ -1462,7 +1519,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* RESTAURADO: ÁREA INVISÍVEL PARA IMPRESSORA TÉRMICA 80MM */}
+      {/* ÁREA INVISÍVEL PARA IMPRESSORA TÉRMICA 80MM */}
       {selectedReceiptOrder && (
         <div className="print-area hidden print:block">
           <div style={{ textAlign: 'center', borderBottom: '1px dashed #000', paddingBottom: '5px' }}>
@@ -1587,7 +1644,22 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* MODAIS DE EDIÇÃO */}
+      {/* MODAL EDITAR GARÇOM */}
+      {editingWaiter && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
+          <form onSubmit={handleUpdateWaiter} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
+            <h3 className="font-bold text-sm text-blue-400">✏️ Editar Garçom</h3>
+            <input type="text" value={editingWaiter.name} onChange={(e) => setEditingWaiter({ ...editingWaiter, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
+            <input type="text" maxLength={6} value={editingWaiter.pin} onChange={(e) => setEditingWaiter({ ...editingWaiter, pin: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold" />
+            <div className="flex space-x-2">
+              <button type="button" onClick={() => setEditingWaiter(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Cancelar</button>
+              <button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-xl text-xs font-bold text-white">Salvar</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAIS DE EDIÇÃO EXISTENTES */}
       {editingAddon && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateAddon} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
@@ -1630,7 +1702,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* MODAL DE EDIÇÃO DE PRODUTO / COMBO COM RESTAURAÇÃO DE ADICIONAIS */}
+      {/* MODAL DE EDIÇÃO DE PRODUTO / COMBO */}
       {editingProduct && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateProduct} className="bg-gray-900 w-full max-w-md rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
@@ -1714,7 +1786,6 @@ export default function AdminTenant() {
               )}
             </div>
 
-            {/* RESTAURADO: VÍNCULO DE ADICIONAIS NA EDIÇÃO DE PRODUTO */}
             {globalAddons.length > 0 && (
               <div className="border-t border-gray-800 pt-3 space-y-3">
                 <label className="text-[11px] text-gray-300 font-bold block">Adicionais / Sabores Vinculados:</label>
