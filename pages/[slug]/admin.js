@@ -16,7 +16,7 @@ export default function AdminTenant() {
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
-  const [activeTab, setActiveTab] = useState('pdv');
+  const [activeTab, setActiveTab] = useState('products');
   const [loading, setLoading] = useState(true);
 
   const [tenant, setTenant] = useState(null);
@@ -40,23 +40,9 @@ export default function AdminTenant() {
   const [tableCount, setTableCount] = useState(10);
   const [baseUrl, setBaseUrl] = useState('');
 
-  // ESTADOS DO PDV / LANÇAMENTO MANUAL
-  const [pdvOrderType, setPdvOrderType] = useState('balcao');
-  const [pdvCustomer, setPdvCustomer] = useState({ name: '', phone: '', address: '' });
-  const [pdvTableNum, setPdvTableNum] = useState('');
-  const [pdvWaiterName, setPdvWaiterName] = useState('');
-  const [pdvSelectedNeighborhood, setPdvSelectedNeighborhood] = useState(null);
-  const [pdvPaymentMethod, setPdvPaymentMethod] = useState('DINHEIRO');
-  const [pdvNotes, setPdvNotes] = useState('');
-  const [pdvCart, setPdvCart] = useState([]);
-  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
-
   // MODAIS ADICIONAIS
   const [selectedReceiptOrder, setSelectedReceiptOrder] = useState(null);
   const [selectedClientHistory, setSelectedClientHistory] = useState(null);
-  const [splitModalOrder, setSplitModalOrder] = useState(null);
-  const [splitPeopleCount, setSplitPeopleCount] = useState(2);
 
   // DIAS DA SEMANA
   const ALL_DAYS = [
@@ -192,91 +178,6 @@ export default function AdminTenant() {
       return arr.filter(d => d !== dayId);
     } else {
       return [...arr, dayId].sort();
-    }
-  };
-
-  const handlePdvAddToCart = (product) => {
-    const existingIndex = pdvCart.findIndex(item => item.id === product.id);
-    if (existingIndex > -1) {
-      const updated = [...pdvCart];
-      updated[existingIndex].quantity += 1;
-      setPdvCart(updated);
-    } else {
-      setPdvCart([...pdvCart, {
-        id: product.id,
-        name: product.name,
-        price: Number(product.price),
-        quantity: 1,
-        notes: ''
-      }]);
-    }
-  };
-
-  const handlePdvUpdateQty = (index, delta) => {
-    const updated = [...pdvCart];
-    updated[index].quantity += delta;
-    if (updated[index].quantity <= 0) {
-      updated.splice(index, 1);
-    }
-    setPdvCart(updated);
-  };
-
-  const pdvSubtotal = pdvCart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const pdvDeliveryFee = pdvOrderType === 'delivery' ? parsePrice(pdvSelectedNeighborhood?.fee || 0) : 0;
-  const pdvTotal = pdvSubtotal + pdvDeliveryFee;
-
-  const handlePdvSubmitOrder = async (e) => {
-    e.preventDefault();
-    if (pdvCart.length === 0) return alert('Adicione pelo menos um item ao pedido!');
-    if (pdvOrderType === 'delivery' && !pdvCustomer.name) return alert('Informe o nome do cliente!');
-    if (pdvOrderType === 'mesa' && !pdvTableNum) return alert('Informe o número da mesa!');
-
-    let customerAddr = 'Retirada no Balcão';
-    if (pdvOrderType === 'delivery') {
-      customerAddr = `${pdvCustomer.address || ''} - Bairro: ${pdvSelectedNeighborhood?.name || 'Não informado'}`;
-    } else if (pdvOrderType === 'mesa') {
-      customerAddr = `Mesa ${pdvTableNum}`;
-    }
-
-    // Calcula o próximo número de pedido para o expediente atual
-    const resetDate = tenant?.order_reset_at ? new Date(tenant.order_reset_at) : new Date(0);
-    const activeShiftOrders = allOrders.filter(o => new Date(o.created_at) >= resetDate);
-    const nextDailyNum = activeShiftOrders.length + 1;
-
-    const payload = {
-      tenant_id: tenant.id,
-      customer_name: pdvCustomer.name || (pdvOrderType === 'mesa' ? `Mesa ${pdvTableNum}` : 'Cliente Balcão'),
-      customer_phone: pdvCustomer.phone ? pdvCustomer.phone.replace(/\D/g, '') : '',
-      customer_address: customerAddr,
-      delivery_fee: pdvDeliveryFee,
-      subtotal: pdvSubtotal,
-      total: pdvTotal,
-      payment_method: pdvPaymentMethod,
-      items: pdvCart,
-      notes: pdvNotes,
-      status: 'pendente',
-      order_type: pdvOrderType,
-      waiter_name: pdvWaiterName || null,
-      daily_number: nextDailyNum
-    };
-
-    const { data: insertedOrder, error } = await supabase.from('orders').insert([payload]).select().single();
-
-    if (error) {
-      alert('Erro ao lançar pedido: ' + error.message);
-      return;
-    }
-
-    alert(`Pedido #${String(nextDailyNum).padStart(2, '0')} lançado com sucesso!`);
-    setPdvCart([]);
-    setPdvCustomer({ name: '', phone: '', address: '' });
-    setPdvTableNum('');
-    setPdvNotes('');
-    fetchData();
-
-    if (confirm('Deseja imprimir o recibo do pedido agora?')) {
-      setSelectedReceiptOrder(insertedOrder || payload);
-      setTimeout(() => window.print(), 300);
     }
   };
 
@@ -650,7 +551,7 @@ export default function AdminTenant() {
         <form onSubmit={handleLogin} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 w-full max-w-sm space-y-4">
           <div className="text-center">
             <h2 className="text-xl font-bold text-orange-500">{tenant.name}</h2>
-            <p className="text-xs text-gray-400">Painel Administrativo & PDV</p>
+            <p className="text-xs text-gray-400">Painel Administrativo ERP</p>
           </div>
           <input type="password" placeholder="Senha de acesso..." className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-sm text-white focus:outline-none" onChange={(e) => setPassword(e.target.value)} />
           <button type="submit" className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl text-sm hover:bg-orange-600 transition">Entrar no Painel</button>
@@ -687,14 +588,13 @@ export default function AdminTenant() {
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6 no-print">
         <div>
           <h1 className="font-bold text-xl sm:text-2xl text-orange-500">{tenant.name}</h1>
-          <p className="text-xs sm:text-sm text-gray-400">Painel ERP & Lançamento de Pedidos (PDV)</p>
+          <p className="text-xs sm:text-sm text-gray-400">Painel ERP & Gestão do Restaurante</p>
         </div>
         <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-xl text-red-400 font-bold transition">Sair</button>
       </header>
 
       {/* ABAS DE NAVEGAÇÃO */}
       <div className="flex space-x-2 bg-gray-900 p-1.5 rounded-xl border border-gray-800 mb-6 text-xs font-bold overflow-x-auto no-print scrollbar-none">
-        <button onClick={() => setActiveTab('pdv')} className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'pdv' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'}`}>🛒 Lançamento PDV</button>
         <button onClick={() => setActiveTab('products')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🍔 Itens</button>
         <button onClick={() => setActiveTab('addons')} className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>➕ Adicionais/Sabores</button>
         <button onClick={() => setActiveTab('categories')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🏷️ Categorias</button>
@@ -705,147 +605,6 @@ export default function AdminTenant() {
         <button onClick={() => setActiveTab('neighborhoods')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'neighborhoods' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🛵 Bairros</button>
         <button onClick={() => setActiveTab('settings')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>⚙️ Config</button>
       </div>
-
-      {/* ABA PDV */}
-      {activeTab === 'pdv' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
-          <section className="lg:col-span-2 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4">
-            <h3 className="font-bold text-sm text-green-400 flex items-center justify-between">
-              <span>🛒 Selecione os Produtos</span>
-              <span className="text-xs text-gray-400 font-normal">Clique no item para adicionar à comanda</span>
-            </h3>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[600px] overflow-y-auto pr-1">
-              {products.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => handlePdvAddToCart(p)}
-                  className="bg-gray-950 p-3 rounded-xl border border-gray-800 hover:border-green-500 text-left transition flex flex-col justify-between group"
-                >
-                  <div>
-                    <span className="font-bold text-xs text-white group-hover:text-green-400 block truncate">{p.name}</span>
-                    <span className="text-[10px] text-gray-400 block line-clamp-1">{p.description}</span>
-                  </div>
-                  <span className="text-xs font-bold text-green-400 mt-2 block">R$ {Number(p.price).toFixed(2)}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4">
-            <h3 className="font-bold text-sm text-orange-400">📝 Dados do Pedido</h3>
-
-            <div className="grid grid-cols-3 gap-1 bg-gray-950 p-1 rounded-xl border border-gray-800 text-xs font-bold">
-              <button onClick={() => setPdvOrderType('balcao')} className={`py-1.5 rounded-lg transition ${pdvOrderType === 'balcao' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🛍️ Balcão</button>
-              <button onClick={() => setPdvOrderType('delivery')} className={`py-1.5 rounded-lg transition ${pdvOrderType === 'delivery' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🛵 Delivery</button>
-              <button onClick={() => setPdvOrderType('mesa')} className={`py-1.5 rounded-lg transition ${pdvOrderType === 'mesa' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🪑 Mesa</button>
-            </div>
-
-            {pdvOrderType === 'mesa' && (
-              <div className="grid grid-cols-2 gap-2">
-                <input type="text" placeholder="Nº da Mesa Ex: 04" value={pdvTableNum} onChange={(e) => setPdvTableNum(e.target.value)} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
-                <select value={pdvWaiterName} onChange={(e) => setPdvWaiterName(e.target.value)} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none">
-                  <option value="">Selecione o Garçom...</option>
-                  {waitersList.filter(w => w.active).map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
-                </select>
-              </div>
-            )}
-
-            <div className="space-y-2 relative">
-              <input
-                type="text"
-                placeholder="Nome do Cliente..."
-                value={pdvCustomer.name}
-                onChange={(e) => {
-                  setPdvCustomer({ ...pdvCustomer, name: e.target.value });
-                  setCustomerSearchQuery(e.target.value);
-                  setShowCustomerDropdown(true);
-                }}
-                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
-              />
-
-              {showCustomerDropdown && customerSearchQuery.length > 1 && (
-                <div className="absolute left-0 right-0 top-11 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-20 max-h-40 overflow-y-auto">
-                  {customerList.filter(c => c.name.toLowerCase().includes(customerSearchQuery.toLowerCase()) || c.phone.includes(customerSearchQuery)).map((c, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => {
-                        setPdvCustomer({ name: c.name, phone: c.phone, address: c.address });
-                        setShowCustomerDropdown(false);
-                      }}
-                      className="w-full text-left p-2.5 text-xs hover:bg-gray-800 border-b border-gray-800 text-gray-200"
-                    >
-                      <span className="font-bold block">{c.name}</span>
-                      <span className="text-[10px] text-gray-400">{c.phone} - {c.address}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {pdvOrderType === 'delivery' && (
-                <>
-                  <input type="text" placeholder="WhatsApp do Cliente" value={pdvCustomer.phone} onChange={(e) => setPdvCustomer({ ...pdvCustomer, phone: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
-                  <input type="text" placeholder="Endereço de Entrega (Rua, Nº, Bairro)" value={pdvCustomer.address} onChange={(e) => setPdvCustomer({ ...pdvCustomer, address: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
-                  <select onChange={(e) => setPdvSelectedNeighborhood(neighborhoods.find(n => n.id === parseInt(e.target.value)))} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none">
-                    <option value="">Selecione o Bairro (Taxa de Entrega)...</option>
-                    {neighborhoods.map(n => <option key={n.id} value={n.id}>{n.name} (+R$ {Number(n.fee).toFixed(2)})</option>)}
-                  </select>
-                </>
-              )}
-            </div>
-
-            <div className="space-y-2 border-t border-gray-800 pt-3">
-              <span className="text-xs font-bold text-gray-400 block">Itens do Pedido ({pdvCart.length})</span>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {pdvCart.length === 0 ? (
-                  <p className="text-[11px] text-gray-500 italic py-2 text-center">Nenhum item adicionado ainda.</p>
-                ) : (
-                  pdvCart.map((item, index) => (
-                    <div key={index} className="flex justify-between items-center bg-gray-950 p-2 rounded-xl text-xs border border-gray-800">
-                      <div>
-                        <span className="font-bold text-white block">{item.name}</span>
-                        <span className="text-[10px] text-green-400">R$ {(item.price * item.quantity).toFixed(2)}</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <button onClick={() => handlePdvUpdateQty(index, -1)} className="w-6 h-6 bg-gray-800 rounded-lg text-red-400 font-bold">-</button>
-                        <span className="font-bold">{item.quantity}</span>
-                        <button onClick={() => handlePdvUpdateQty(index, 1)} className="w-6 h-6 bg-gray-800 rounded-lg text-green-400 font-bold">+</button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="border-t border-gray-800 pt-3 space-y-2">
-              <label className="text-[11px] text-gray-400 block">Forma de Pagamento:</label>
-              <select value={pdvPaymentMethod} onChange={(e) => setPdvPaymentMethod(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none">
-                <option value="DINHEIRO">💵 Dinheiro</option>
-                <option value="PIX">⚡ PIX</option>
-                <option value="CARTAO_MAQUININHA">💳 Cartão Maquininha</option>
-                <option value="PAGAR_NO_BALCAO">🏪 Pagar no Balcão</option>
-              </select>
-
-              <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-1">
-                <div className="flex justify-between text-xs text-gray-400"><span>Subtotal:</span><span>R$ {pdvSubtotal.toFixed(2)}</span></div>
-                {pdvOrderType === 'delivery' && <div className="flex justify-between text-xs text-gray-400"><span>Taxa Entrega:</span><span>R$ {pdvDeliveryFee.toFixed(2)}</span></div>}
-                <div className="flex justify-between text-sm font-extrabold text-green-400 pt-1 border-t border-gray-800"><span>Total:</span><span>R$ {pdvTotal.toFixed(2)}</span></div>
-              </div>
-
-              {pdvCart.length > 0 && (
-                <button onClick={() => setSplitModalOrder({ total: pdvTotal, items: pdvCart })} className="w-full bg-blue-600/20 text-blue-400 border border-blue-500/30 py-2 rounded-xl text-xs font-bold hover:bg-blue-600/30 transition">
-                  🧮 Simular Divisão de Comanda (Split)
-                </button>
-              )}
-
-              <button onClick={handlePdvSubmitOrder} className="w-full bg-green-600 hover:bg-green-700 text-white font-extrabold py-3 rounded-xl text-xs transition shadow-lg">
-                🚀 Finalizar e Lançar Pedido
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
 
       {/* ABA PRODUTOS */}
       {activeTab === 'products' && (
@@ -1631,43 +1390,6 @@ export default function AdminTenant() {
             PAGAMENTO: {selectedReceiptOrder.payment_method}<br />
             <br />
             <center>Obrigado pela preferência!</center>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL SIMULADOR DE DIVISÃO DE COMANDA (SPLIT) */}
-      {splitModalOrder && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
-          <div className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-4">
-            <h3 className="font-bold text-sm text-blue-400">🧮 Calculadora de Divisão de Comanda</h3>
-
-            <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-3">
-              <div className="flex justify-between items-center text-xs">
-                <span>Valor Total do Pedido:</span>
-                <span className="font-bold text-green-400 text-sm">R$ {Number(splitModalOrder.total).toFixed(2)}</span>
-              </div>
-
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Dividir igualmente entre quantas pessoas?</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="50"
-                  value={splitPeopleCount}
-                  onChange={(e) => setSplitPeopleCount(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white text-center font-extrabold"
-                />
-              </div>
-
-              <div className="bg-blue-600/10 border border-blue-500/30 p-3 rounded-xl text-center space-y-1">
-                <span className="text-[10px] text-blue-300 block">Valor individual por pessoa:</span>
-                <span className="text-xl font-extrabold text-blue-400">
-                  R$ {(Number(splitModalOrder.total) / splitPeopleCount).toFixed(2)}
-                </span>
-              </div>
-            </div>
-
-            <button onClick={() => setSplitModalOrder(null)} className="w-full bg-gray-800 py-2.5 rounded-xl text-xs font-bold">Concluído</button>
           </div>
         </div>
       )}
