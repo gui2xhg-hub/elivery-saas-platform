@@ -178,6 +178,24 @@ export default function CozinhaTenant() {
     setLoading(false);
   };
 
+  // HELPER PARA EXIBIR NÚMERO SEQUENCIAL DO EXPEDIENTE (#01, #02...)
+  const getOrderDisplayNumber = (order) => {
+    if (!order) return '';
+    if (order.daily_number) {
+      return `#${String(order.daily_number).padStart(2, '0')}`;
+    }
+    const resetDate = tenant?.order_reset_at ? new Date(tenant.order_reset_at) : new Date(0);
+    const tenantOrdersAfterReset = orders
+      .filter(o => new Date(o.created_at) >= resetDate)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+    const index = tenantOrdersAfterReset.findIndex(o => o.id === order.id);
+    if (index !== -1) {
+      return `#${String(index + 1).padStart(2, '0')}`;
+    }
+    return `#${order.id}`;
+  };
+
   const updateOrderStatus = async (orderId, newStatus) => {
     await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
     if (tenant) fetchOrders(tenant.id);
@@ -271,7 +289,7 @@ export default function CozinhaTenant() {
     }
 
     if (difference > 0) {
-      alert(`Pedido atualizado! Houve um acréscimo de R$ ${difference.toFixed(2)}. O status de pagamento foi ajustado para PENDENTE para cobrar a diferença.`);
+      alert(`Pedido atualizado! Houve um acréscimo de R$ ${difference.toFixed(2)}. O status de pagamento foi adjusted para PENDENTE para cobrar a diferença.`);
     } else {
       alert("Pedido atualizado com sucesso!");
     }
@@ -299,13 +317,14 @@ export default function CozinhaTenant() {
 
     let msg = '';
     const isDelivery = order.order_type === 'delivery' || (!order.customer_address?.includes('MESA') && !order.customer_address?.includes('Balcão'));
+    const orderNum = getOrderDisplayNumber(order);
 
     if (msgType === 'producao') {
-      msg = `Olá ${order.customer_name}! 👨‍🍳 Seu pedido #${order.id} no *${tenant.name}* já está em preparo!`;
+      msg = `Olá ${order.customer_name}! 👨‍🍳 Seu pedido ${orderNum} no *${tenant.name}* já está em preparo!`;
     } else if (msgType === 'entrega') {
       msg = isDelivery
-        ? `Olá ${order.customer_name}! 🛵 Seu pedido #${order.id} no *${tenant.name}* saiu para entrega!`
-        : `Olá ${order.customer_name}! 🛍️ Seu pedido #${order.id} no *${tenant.name}* está PRONTO para retirada!`;
+        ? `Olá ${order.customer_name}! 🛵 Seu pedido ${orderNum} no *${tenant.name}* saiu para entrega!`
+        : `Olá ${order.customer_name}! 🛍️ Seu pedido ${orderNum} no *${tenant.name}* está PRONTO para retirada!`;
     }
 
     window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -373,7 +392,7 @@ export default function CozinhaTenant() {
         <div className="flex justify-between items-start border-b border-gray-800 pb-2.5">
           <div>
             <div className="flex items-center space-x-2">
-              <span className="font-black text-sm text-orange-400">#PEDIDO {order.id}</span>
+              <span className="font-black text-sm text-orange-400">PEDIDO {getOrderDisplayNumber(order)}</span>
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
                 isDelayed ? 'bg-red-600 text-white' : 'bg-gray-800 text-gray-300'
               }`}>
@@ -589,7 +608,7 @@ export default function CozinhaTenant() {
             <div>
               <div className="text-center border-b border-black pb-2 mb-2">
                 <h2 className="font-bold text-sm uppercase">{tenant.name}</h2>
-                <p className="text-[10px]">VIA DE PRODUÇÃO — PEDIDO #{printConfig.order.id}</p>
+                <p className="text-[10px]">VIA DE PRODUÇÃO — PEDIDO {getOrderDisplayNumber(printConfig.order)}</p>
                 <p className="text-[9px]">{new Date(printConfig.order.created_at || Date.now()).toLocaleString('pt-BR')}</p>
               </div>
 
@@ -621,7 +640,7 @@ export default function CozinhaTenant() {
                 <h2 className="font-bold text-sm uppercase">{tenant.name}</h2>
                 {tenant.cnpj && <p className="text-[9px]">CNPJ: {tenant.cnpj}</p>}
                 {tenant.address && <p className="text-[9px]">{tenant.address}</p>}
-                <p className="text-[10px] font-bold mt-1">RECIBO DO CLIENTE — PEDIDO #{printConfig.order.id}</p>
+                <p className="text-[10px] font-bold mt-1">RECIBO DO CLIENTE — PEDIDO {getOrderDisplayNumber(printConfig.order)}</p>
                 <p className="text-[9px]">{new Date(printConfig.order.created_at || Date.now()).toLocaleString('pt-BR')}</p>
               </div>
 
@@ -715,7 +734,7 @@ export default function CozinhaTenant() {
               <button 
                 onClick={clearAllArchived}
                 className="bg-red-600/20 hover:bg-red-600/30 text-red-400 font-bold px-4 py-2 rounded-xl text-xs border border-red-500/30 transition">
-                🧹 Limpar Todos os Arquivados
+                扫 Limpar Todos os Arquivados
               </button>
             )}
           </div>
@@ -754,7 +773,7 @@ export default function CozinhaTenant() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-gray-900 w-full max-w-lg rounded-2xl p-5 border border-yellow-500/40 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-              <h3 className="font-bold text-sm text-yellow-400">✏️ Editar Pedido #{editingOrder.id}</h3>
+              <h3 className="font-bold text-sm text-yellow-400">✏️ Editar Pedido {getOrderDisplayNumber(editingOrder)}</h3>
               <button onClick={() => setEditingOrder(null)} className="text-xs bg-gray-800 px-3 py-1 rounded-lg">Fechar</button>
             </div>
 
