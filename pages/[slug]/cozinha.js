@@ -94,7 +94,7 @@ export default function PdvKdsTenant() {
   const [pdvCart, setPdvCart] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('ALL');
 
-  // MODAL DE ADIÇÃO DE ITEM AO PDV COM BUSCA
+  // MODAL DE ADIÇÃO DE ITEM AO PDV COM BUSCA & REGRAS DE CARDÁPIO
   const [selectedProdForPdv, setSelectedProdForPdv] = useState(null);
   const [selectedAddonsForProd, setSelectedAddonsForProd] = useState([]);
   const [selectedBorderForProd, setSelectedBorderForProd] = useState('');
@@ -353,6 +353,26 @@ export default function PdvKdsTenant() {
     if (tenant) fetchOrders(tenant.id);
   };
 
+  // REGRAS DO CARDÁPIO DE PIZZAS / PRODUTOS
+  const getMaxFlavorsForProduct = (prod) => {
+    if (!prod) return 1;
+    if (prod.max_flavors) return Number(prod.max_flavors);
+    if (prod.flavor_limit) return Number(prod.flavor_limit);
+
+    const desc = (prod.description || '' ) + ' ' + (prod.name || '');
+    const match = desc.match(/(?:sabores|quantidade de sabores):\s*0*(\d+)/i);
+    if (match && match[1]) return parseInt(match[1], 10);
+
+    return 99; // Se não for pizza com limite, permite múltiplos adicionais livres
+  };
+
+  const isPizzaProduct = (prod) => {
+    if (!prod) return false;
+    const catName = categories.find(c => c.id === prod.category_id)?.name || '';
+    const text = (prod.name + ' ' + (prod.description || '') + ' ' + catName).toLowerCase();
+    return text.includes('pizza') || prod.max_flavors > 0 || prod.flavor_limit > 0;
+  };
+
   const handleOpenProdModal = (prod) => {
     setSelectedProdForPdv(prod);
     setSelectedAddonsForProd([]);
@@ -362,8 +382,32 @@ export default function PdvKdsTenant() {
     setAddonSearch('');
   };
 
+  const handleToggleAddon = (addon) => {
+    if (!selectedProdForPdv) return;
+    const isSelected = selectedAddonsForProd.some(a => a.id === addon.id);
+    const isPizza = isPizzaProduct(selectedProdForPdv);
+    const maxFlavors = getMaxFlavorsForProduct(selectedProdForPdv);
+
+    if (isSelected) {
+      setSelectedAddonsForProd(selectedAddonsForProd.filter(a => a.id !== addon.id));
+    } else {
+      if (isPizza && maxFlavors < 99 && selectedAddonsForProd.length >= maxFlavors) {
+        alert(`Este tamanho (${selectedProdForPdv.name}) permite no máximo ${maxFlavors} sabor(es)!`);
+        return;
+      }
+      setSelectedAddonsForProd([...selectedAddonsForProd, addon]);
+    }
+  };
+
   const handleAddProdToCart = () => {
     if (!selectedProdForPdv) return;
+
+    const isPizza = isPizzaProduct(selectedProdForPdv);
+    const maxFlavors = getMaxFlavorsForProduct(selectedProdForPdv);
+
+    if (isPizza && maxFlavors < 99 && selectedAddonsForProd.length === 0) {
+      return alert("Por favor, selecione pelo menos 1 sabor para a pizza!");
+    }
 
     const addonsTotal = selectedAddonsForProd.reduce((acc, a) => acc + parsePrice(a.price), 0);
     let borderPrice = 0;
@@ -372,14 +416,29 @@ export default function PdvKdsTenant() {
     }
 
     const unitPrice = parsePrice(selectedProdForPdv.price) + addonsTotal + borderPrice;
-    const borderLabel = selectedBorderForProd ? `Borda: ${selectedBorderForProd.split(':')[0]}` : '';
+    
+    // FORMATAÇÃO IGUAL AO CARDÁPIO (1/2, 1/3, 1/4)
+    let detailsFormatted = '';
+    const addonCount = selectedAddonsForProd.length;
+
+    if (isPizza && addonCount > 0 && maxFlavors < 99) {
+      const fractionStr = addonCount > 1 ? `1/${addonCount} ` : '';
+      detailsFormatted = selectedAddonsForProd.map(a => `${fractionStr}${a.name}`).join(', ');
+    } else if (addonCount > 0) {
+      detailsFormatted = selectedAddonsForProd.map(a => a.name).join(', ');
+    }
+
+    if (selectedBorderForProd) {
+      const borderName = selectedBorderForProd.split(':')[0];
+      detailsFormatted += detailsFormatted ? ` | Borda: ${borderName}` : `Borda: ${borderName}`;
+    }
 
     const cartItem = {
       id: selectedProdForPdv.id,
       name: selectedProdForPdv.name,
       price: unitPrice,
       quantity: prodQuantity,
-      details: borderLabel,
+      details: detailsFormatted,
       selectedAddons: selectedAddonsForProd,
       observation: prodObservation
     };
@@ -722,7 +781,7 @@ export default function PdvKdsTenant() {
                       </div>
                     )}
 
-                    {hasAddons && (
+                    {hasAddons && !it.details && (
                       <p className="text-xs text-purple-300 font-bold pl-1 mt-0.5">
                         ➕ {addonNamesStr}
                       </p>
@@ -830,11 +889,10 @@ export default function PdvKdsTenant() {
         }
       `}</style>
 
-      {/* ÁREA DE IMPRESSÃO - SUPORTA DUPLO FORMATO (TICKET COZINHA E RECIBO OFICIAL TRADICIONAL) */}
+      {/* ÁREA DE IMPRESSÃO */}
       {printConfig?.order && (
         <div id="print-area" className="hidden print:block text-black">
           {printConfig.mode === 'kitchen' ? (
-            /* COMANDA DE PRODUÇÃO DA COZINHA (TICKET) */
             <div className="font-mono">
               <div className="text-center border-b border-dashed border-black pb-2 mb-2">
                 <h2 className="font-extrabold text-sm uppercase">{tenant.name}</h2>
@@ -857,21 +915,8 @@ export default function PdvKdsTenant() {
                     <div className="flex justify-between font-bold">
                       <span>{it.quantity}x {it.name}</span>
                     </div>
-                    {it.is_combo && it.comboSteps && it.comboSteps.length > 0 ? (
-                      it.comboSteps.map((step, sIdx) => (
-                        <p key={sIdx} className="pl-2 text-[9px]">↳ {step.title}: {step.items?.map(i => i.name).join(', ')}</p>
-                      ))
-                    ) : (
-                      it.selectedAddons && it.selectedAddons.length > 0 && (
-                        <p className="pl-2 text-[9px]">↳ {it.selectedAddons.map(a => a.name).join(', ')}</p>
-                      )
-                    )}
-                    {it.selectedBorder && it.selectedBorder.name && it.selectedBorder.name !== 'Sem Borda' && (
-                      <p className="pl-2 text-[9px]">↳ Borda: {it.selectedBorder.name}</p>
-                    )}
-                    {it.observation && (
-                      <p className="pl-2 text-[9px] font-bold">↳ OBS: {it.observation}</p>
-                    )}
+                    {it.details && <p className="pl-2 text-[9px]">↳ {it.details}</p>}
+                    {it.observation && <p className="pl-2 text-[9px] font-bold">↳ OBS: {it.observation}</p>}
                   </div>
                 ))}
               </div>
@@ -883,9 +928,7 @@ export default function PdvKdsTenant() {
               )}
             </div>
           ) : (
-            /* RECIBO DE PAGAMENTO E CONSUMO (ESTILO MODELO OFICIAL LANCHONETE) */
             <div className="border-2 border-black p-2 font-sans text-black">
-              {/* CABEÇALHO DO RECIBO */}
               <div className="flex justify-between items-start border-b-2 border-black pb-2 mb-2">
                 <div>
                   <h2 className="font-black text-sm uppercase tracking-wide">{tenant.name}</h2>
@@ -898,7 +941,6 @@ export default function PdvKdsTenant() {
                 </div>
               </div>
 
-              {/* CORPO PREENCHIDO AUTOMATICAMENTE */}
               <div className="text-[10px] space-y-1.5 leading-snug">
                 <p className="border-b border-dotted border-gray-600 pb-0.5">
                   <b>Recebi(emos) de:</b> {printConfig.order.customer_name || 'Cliente Balcão'}
@@ -919,7 +961,7 @@ export default function PdvKdsTenant() {
                   <ul className="pl-2 mt-0.5 space-y-0.5 text-[9px]">
                     {printConfig.order.items?.map((it, idx) => (
                       <li key={idx}>
-                        • {it.quantity}x {it.name} - R$ {(it.price * it.quantity).toFixed(2)}
+                        • {it.quantity}x {it.name} {it.details ? `(${it.details})` : ''} - R$ {(it.price * it.quantity).toFixed(2)}
                       </li>
                     ))}
                     {Number(printConfig.order.delivery_fee) > 0 && (
@@ -933,7 +975,6 @@ export default function PdvKdsTenant() {
                 </p>
               </div>
 
-              {/* DATA E ASSINATURA */}
               <div className="mt-4 pt-2 text-center text-[9px] space-y-3">
                 <p>Data: {new Date(printConfig.order.created_at || Date.now()).toLocaleDateString('pt-BR')}</p>
 
@@ -1099,9 +1140,7 @@ export default function PdvKdsTenant() {
                 <div key={idx} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
                   <div>
                     <span className="font-extrabold text-white">{item.quantity}x {item.name}</span>
-                    {item.selectedAddons && item.selectedAddons.length > 0 && (
-                      <p className="text-[10px] text-purple-300 font-bold">➕ {item.selectedAddons.map(a => a.name).join(', ')}</p>
-                    )}
+                    {item.details && <p className="text-[10px] text-orange-300 font-bold">{item.details}</p>}
                     <span className="text-green-400 font-bold block">R$ {(item.price * item.quantity).toFixed(2)}</span>
                   </div>
                   <button onClick={() => handleRemovePdvCartItem(idx)} className="text-red-400 text-xs font-bold bg-red-500/10 hover:bg-red-500/20 p-2 rounded-lg transition">🗑</button>
@@ -1297,78 +1336,118 @@ export default function PdvKdsTenant() {
         </div>
       )}
 
-      {/* MODAL ITEM PDV */}
+      {/* MODAL DE ADIÇÃO DE ITEM PDV IGUAL AO CARDÁPIO */}
       {selectedProdForPdv && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
-          <div className="bg-gray-900 w-full max-w-lg rounded-2xl p-5 border border-orange-500/40 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-gray-900 w-full max-w-lg rounded-2xl p-5 border border-orange-500/40 space-y-4 max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-              <h3 className="font-bold text-sm text-orange-400">{selectedProdForPdv.name}</h3>
-              <button onClick={() => setSelectedProdForPdv(null)} className="text-xs bg-gray-800 px-3 py-1 rounded-lg">Fechar</button>
+              <div>
+                <h3 className="font-extrabold text-base text-orange-400">{selectedProdForPdv.name}</h3>
+                {selectedProdForPdv.description && (
+                  <p className="text-[11px] text-gray-400 font-medium">{selectedProdForPdv.description}</p>
+                )}
+              </div>
+              <button onClick={() => setSelectedProdForPdv(null)} className="text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded-lg text-gray-300 font-bold">Fechar</button>
             </div>
 
+            {/* SELEÇÃO DE BORDA RECHEADA */}
             {selectedProdForPdv.borders_list && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-gray-300 block">Escolha a Borda:</label>
-                <select value={selectedBorderForProd} onChange={(e) => setSelectedBorderForProd(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none">
+              <div className="space-y-1.5 bg-gray-950 p-3 rounded-xl border border-gray-800">
+                <label className="text-xs font-bold text-gray-200 block">🫓 Escolha a Borda:</label>
+                <select value={selectedBorderForProd} onChange={(e) => setSelectedBorderForProd(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500 font-bold">
                   <option value="">Sem borda especial</option>
                   {selectedProdForPdv.borders_list.split(',').map((b, idx) => (
-                    <option key={idx} value={b}>{b}</option>
+                    <option key={idx} value={b.trim()}>{b.trim()}</option>
                   ))}
                 </select>
               </div>
             )}
 
+            {/* SELEÇÃO DE SABORES / ADICIONAIS COM LIMITE DO CARDÁPIO */}
             <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <label className="text-xs font-bold text-gray-300">Escolha os Sabores / Adicionais:</label>
-                <span className="text-[10px] text-orange-400 font-bold">{selectedAddonsForProd.length} selecionado(s)</span>
-              </div>
+              {(() => {
+                const maxF = getMaxFlavorsForProduct(selectedProdForPdv);
+                const isPizza = isPizzaProduct(selectedProdForPdv);
+
+                return (
+                  <div className="flex justify-between items-center bg-gray-950 p-2.5 rounded-xl border border-gray-800">
+                    <label className="text-xs font-bold text-gray-200">
+                      {isPizza ? '🍕 Escolha os Sabores:' : '➕ Escolha os Adicionais:'}
+                    </label>
+                    <span className={`text-[11px] font-black px-2 py-0.5 rounded-lg ${
+                      selectedAddonsForProd.length === maxF && maxF < 99 ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                    }`}>
+                      {maxF < 99 ? `${selectedAddonsForProd.length} / ${maxF} selecionado(s)` : `${selectedAddonsForProd.length} selecionado(s)`}
+                    </span>
+                  </div>
+                );
+              })()}
 
               <input
                 type="text"
-                placeholder="🔍 Digite para filtrar os sabores (Ex: Calabresa, Frango...)"
+                placeholder="🔍 Pesquisar sabor ou adicional (Ex: Calabresa, Frango...)"
                 value={addonSearch}
                 onChange={(e) => setAddonSearch(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500"
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500 font-medium"
               />
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 border border-gray-800 rounded-xl bg-gray-950">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto p-1.5 border border-gray-800 rounded-xl bg-gray-950">
                 {filteredGlobalAddons.length === 0 ? (
-                  <p className="text-xs text-gray-500 col-span-2 text-center py-4">Nenhum sabor encontrado.</p>
+                  <p className="text-xs text-gray-500 col-span-2 text-center py-6">Nenhum sabor ou adicional encontrado.</p>
                 ) : (
                   filteredGlobalAddons.map(a => {
                     const isChecked = selectedAddonsForProd.some(item => item.id === a.id);
+                    const addonPrice = parsePrice(a.price);
+
                     return (
-                      <label key={a.id} className={`flex items-center space-x-2 p-2 rounded-xl border text-xs cursor-pointer transition ${
-                        isChecked ? 'bg-orange-500/20 border-orange-500 text-orange-300' : 'bg-gray-900 border-gray-800 text-gray-300'
-                      }`}>
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) setSelectedAddonsForProd([...selectedAddonsForProd, a]);
-                            else setSelectedAddonsForProd(selectedAddonsForProd.filter(item => item.id !== a.id));
-                          }}
-                          className="accent-orange-500"
-                        />
-                        <span className="truncate font-bold">{a.name} (+R${Number(a.price).toFixed(2)})</span>
-                      </label>
+                      <div
+                        key={a.id}
+                        onClick={() => handleToggleAddon(a)}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition ${
+                          isChecked 
+                            ? 'bg-orange-500/20 border-orange-500 text-orange-300 font-extrabold shadow-sm' 
+                            : 'bg-gray-900 border-gray-800 text-gray-300 hover:border-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2 min-w-0 flex-1">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}}
+                            className="accent-orange-500 pointer-events-none"
+                          />
+                          <span className="truncate">{a.name}</span>
+                        </div>
+                        {addonPrice > 0 && (
+                          <span className="text-[10px] text-green-400 font-bold shrink-0 ml-1">
+                            +R${addonPrice.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
                     );
                   })
                 )}
               </div>
             </div>
 
-            <input type="text" placeholder="Observações do item (Ex: Sem cebola)" value={prodObservation} onChange={(e) => setProdObservation(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
+            {/* OBSERVAÇÃO DO ITEM */}
+            <input 
+              type="text" 
+              placeholder="📝 Observações do item (Ex: Tirar cebola, maionese à parte)" 
+              value={prodObservation} 
+              onChange={(e) => setProdObservation(e.target.value)} 
+              className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" 
+            />
 
+            {/* VALOR CALCULADO & QUANTIDADE */}
             <div className="flex items-center justify-between border-t border-gray-800 pt-3">
               <div className="flex items-center space-x-2">
-                <button onClick={() => setProdQuantity(Math.max(1, prodQuantity - 1))} className="w-8 h-8 bg-gray-800 rounded-lg font-bold text-red-400">-</button>
-                <span className="font-bold text-sm">{prodQuantity}</span>
-                <button onClick={() => setProdQuantity(prodQuantity + 1)} className="w-8 h-8 bg-gray-800 rounded-lg font-bold text-green-400">+</button>
+                <button onClick={() => setProdQuantity(Math.max(1, prodQuantity - 1))} className="w-8 h-8 bg-gray-800 hover:bg-gray-700 rounded-lg font-black text-red-400 border border-gray-700">-</button>
+                <span className="font-extrabold text-sm text-white px-1">{prodQuantity}</span>
+                <button onClick={() => setProdQuantity(prodQuantity + 1)} className="w-8 h-8 bg-gray-800 hover:bg-gray-700 rounded-lg font-black text-green-400 border border-gray-700">+</button>
               </div>
 
-              <button onClick={handleAddProdToCart} className="bg-green-600 hover:bg-green-700 px-4 py-2.5 rounded-xl text-xs font-bold text-white">
+              <button onClick={handleAddProdToCart} className="bg-green-600 hover:bg-green-700 px-5 py-2.5 rounded-xl text-xs font-extrabold text-white shadow-lg transition">
                 Adicionar ao Pedido 🚀
               </button>
             </div>
