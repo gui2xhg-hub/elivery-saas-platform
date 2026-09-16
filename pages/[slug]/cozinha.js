@@ -249,7 +249,7 @@ export default function PdvKdsTenant() {
     }
   };
 
-  // ENVIO DE NOTIFICAÇÕES VIA WHATSAPP (POP-UP NO PC / APP NO MOBILE)
+  // ENVIO DE NOTIFICAÇÕES VIA WHATSAPP (REAPROVEITA A MESMA JANELA NO PC)
   const sendWhatsAppStatus = (order, msgType) => {
     if (!order.customer_phone) return alert("Telefone não cadastrado.");
     const cleanPhone = order.customer_phone.replace(/\D/g, '');
@@ -268,23 +268,31 @@ export default function PdvKdsTenant() {
     }
 
     const encodedMsg = encodeURIComponent(msg);
+    const webUrl = `https://web.whatsapp.com/send?phone=55${cleanPhone}&text=${encodedMsg}`;
     const isMobile = typeof window !== 'undefined' && (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768);
 
     if (isMobile) {
       // 📱 DISPOSITIVO MÓVEL: Abre direto o app do WhatsApp
       window.open(`https://wa.me/55${cleanPhone}?text=${encodedMsg}`, '_blank');
     } else {
-      // 💻 COMPUTADOR: Abre Mini-Janela Flutuante no canto superior direito
+      // 💻 COMPUTADOR: Reaproveita a MESMA janela flutuante se ela já estiver aberta
       const width = 450;
       const height = 750;
       const left = window.screen.width - width - 20;
       const top = 50;
 
-      window.open(
-        `https://web.whatsapp.com/send?phone=55${cleanPhone}&text=${encodedMsg}`,
-        'WhatsAppPopUp',
-        `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes,status=no`
-      );
+      if (window.waPopUpWindow && !window.waPopUpWindow.closed) {
+        // Altera o endereço da janela existente e traz ela para a frente
+        window.waPopUpWindow.location.href = webUrl;
+        window.waPopUpWindow.focus();
+      } else {
+        // Cria a janela flutuante única pela primeira vez
+        window.waPopUpWindow = window.open(
+          webUrl,
+          'WhatsAppPopUpWindow',
+          `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes,status=no`
+        );
+      }
     }
   };
 
