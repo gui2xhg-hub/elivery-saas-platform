@@ -10,6 +10,15 @@ const parsePrice = (val) => {
   return isNaN(num) ? 0 : num;
 };
 
+const DEFAULT_ADDON_TYPES = [
+  '🍕 Pizza Salgada',
+  '🍫 Pizza Doce',
+  '🫓 Tipo / Sabor de Borda',
+  '🍔 Adicional de Lanche',
+  '🥤 Molhos & Acompanhamentos',
+  '📌 Outros'
+];
+
 export default function AdminTenant() {
   const router = useRouter();
   const { slug } = router.query;
@@ -44,6 +53,12 @@ export default function AdminTenant() {
   const [selectedReceiptOrder, setSelectedReceiptOrder] = useState(null);
   const [selectedClientHistory, setSelectedClientHistory] = useState(null);
 
+  // ESTADOS PARA CATEGORIA PERSONALIZADA DE ADICIONAIS
+  const [isCustomCategoryNew, setIsCustomCategoryNew] = useState(false);
+  const [customCategoryInputNew, setCustomCategoryInputNew] = useState('');
+  const [isCustomCategoryEdit, setIsCustomCategoryEdit] = useState(false);
+  const [customCategoryInputEdit, setCustomCategoryInputEdit] = useState('');
+
   // DIAS DA SEMANA
   const ALL_DAYS = [
     { id: 1, label: 'Seg' },
@@ -55,14 +70,12 @@ export default function AdminTenant() {
     { id: 0, label: 'Dom' }
   ];
 
-  const ADDON_TYPES = [
-    '🍕 Pizza Salgada',
-    '🍫 Pizza Doce',
-    '🫓 Tipo / Sabor de Borda',
-    '🍔 Adicional de Lanche',
-    '🥤 Molhos & Acompanhamentos',
-    '📌 Outros'
-  ];
+  // MONTA A LISTA DE TIPOS DE ADICIONAIS INCLUINDO AS CATEGORIAS PERSONALIZADAS
+  const customTypesInAddons = Array.from(
+    new Set((globalAddons || []).map(a => a.category_type).filter(Boolean))
+  ).filter(t => !DEFAULT_ADDON_TYPES.includes(t));
+
+  const ADDON_TYPES = [...DEFAULT_ADDON_TYPES, ...customTypesInAddons];
 
   const INITIAL_PROD_STATE = {
     name: '',
@@ -142,7 +155,6 @@ export default function AdminTenant() {
     if (wData) setWaitersList(wData);
   };
 
-  // HELPER PARA FORMATAR NÚMERO DO PEDIDO DO DIA (#01, #02...)
   const getOrderDisplayNumber = (order) => {
     if (order.daily_number) {
       return `#${String(order.daily_number).padStart(2, '0')}`;
@@ -389,12 +401,16 @@ export default function AdminTenant() {
     if (!newAddon.name) return alert("Preencha o nome do adicional/sabor!");
     const formattedPrice = parsePrice(newAddon.price);
 
+    const finalCategoryType = isCustomCategoryNew
+      ? (customCategoryInputNew.trim() || '📌 Outros')
+      : (newAddon.category_type || '🍕 Pizza Salgada');
+
     const payload = {
       tenant_id: tenant.id,
       name: newAddon.name.trim(),
       price: formattedPrice,
       description: newAddon.description ? newAddon.description.trim() : '',
-      category_type: newAddon.category_type || '🍕 Pizza Salgada'
+      category_type: finalCategoryType
     };
 
     const { error } = await supabase.from('global_addons').insert([payload]);
@@ -402,6 +418,8 @@ export default function AdminTenant() {
     if (error) return alert("Erro ao salvar adicional: " + error.message);
 
     setNewAddon({ name: '', price: '', description: '', category_type: '🍕 Pizza Salgada' });
+    setIsCustomCategoryNew(false);
+    setCustomCategoryInputNew('');
     fetchData();
   };
 
@@ -409,16 +427,22 @@ export default function AdminTenant() {
     e.preventDefault();
     const formattedPrice = parsePrice(editingAddon.price);
 
+    const finalCategoryType = isCustomCategoryEdit
+      ? (customCategoryInputEdit.trim() || '📌 Outros')
+      : (editingAddon.category_type || '🍕 Pizza Salgada');
+
     const { error } = await supabase.from('global_addons').update({
       name: editingAddon.name.trim(),
       price: formattedPrice,
       description: editingAddon.description || '',
-      category_type: editingAddon.category_type || '🍕 Pizza Salgada'
+      category_type: finalCategoryType
     }).eq('id', editingAddon.id);
 
     if (error) return alert("Erro ao editar adicional: " + error.message);
 
     setEditingAddon(null);
+    setIsCustomCategoryEdit(false);
+    setCustomCategoryInputEdit('');
     fetchData();
   };
 
@@ -485,15 +509,26 @@ export default function AdminTenant() {
   const totalSubtotal = filteredOrders.reduce((sum, o) => sum + Number(o.subtotal || o.total || 0), 0);
   const totalDeliveryFees = filteredOrders.reduce((sum, o) => sum + Number(o.delivery_fee || 0), 0);
 
+  // FILTRO E IDENTIFICAÇÃO APENAS DE CLIENTES REAIS (COM NOME E WHATSAPP, SEM MESAS/BALCÃO ANÔNIMOS)
   const getCustomerList = () => {
     const customerMap = {};
     allOrders.forEach(order => {
       const rawPhone = order.customer_phone ? order.customer_phone.replace(/\D/g, '') : '';
-      const key = rawPhone || order.customer_name?.toLowerCase().trim() || 'anonimo';
+      const rawName = order.customer_name?.trim() || '';
+      const orderType = (order.order_type || '').toLowerCase();
+      const addr = (order.customer_address || '').toLowerCase();
+
+      // Exclui mesas, clientes sem telefone ou cadastros genéricos de mesa/balcão
+      const isTable = orderType === 'mesa' || addr.includes('mesa') || order.table_number;
+      const isGenericName = !rawName || rawName.toLowerCase().includes('mesa') || rawName.toLowerCase().includes('balcão') || rawName.toLowerCase().includes('balcao');
+
+      if (isTable || !rawPhone || isGenericName) return;
+
+      const key = rawPhone;
 
       if (!customerMap[key]) {
         customerMap[key] = {
-          name: order.customer_name || 'Cliente Sem Nome',
+          name: rawName,
           phone: rawPhone,
           totalOrders: 0,
           totalSpent: 0,
@@ -593,16 +628,27 @@ export default function AdminTenant() {
         <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-xl text-red-400 font-bold transition">Sair</button>
       </header>
 
-      {/* ABAS DE NAVEGAÇÃO */}
+      {/* ABAS DE NAVEGAÇÃO COMPATÍVEIS COM MÓDULOS ATIVOS */}
       <div className="flex space-x-2 bg-gray-900 p-1.5 rounded-xl border border-gray-800 mb-6 text-xs font-bold overflow-x-auto no-print scrollbar-none">
         <button onClick={() => setActiveTab('products')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🍔 Itens</button>
         <button onClick={() => setActiveTab('addons')} className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>➕ Adicionais/Sabores</button>
         <button onClick={() => setActiveTab('categories')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🏷️ Categorias</button>
-        <button onClick={() => setActiveTab('waiters')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'waiters' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>👤 Garçons</button>
+        
+        {(tenant.has_waiters ?? false) && (
+          <button onClick={() => setActiveTab('waiters')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'waiters' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>👤 Garçons</button>
+        )}
+        
         <button onClick={() => setActiveTab('clients')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'clients' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>👥 Clientes</button>
         <button onClick={() => setActiveTab('reports')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>📊 Financeiro</button>
-        <button onClick={() => setActiveTab('tables')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'tables' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🪑 Mesas QR</button>
-        <button onClick={() => setActiveTab('neighborhoods')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'neighborhoods' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🛵 Bairros</button>
+        
+        {(tenant.has_tables ?? true) && (
+          <button onClick={() => setActiveTab('tables')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'tables' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🪑 Mesas QR</button>
+        )}
+        
+        {(tenant.has_delivery ?? true) && (
+          <button onClick={() => setActiveTab('neighborhoods')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'neighborhoods' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🛵 Bairros</button>
+        )}
+        
         <button onClick={() => setActiveTab('settings')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>⚙️ Config</button>
       </div>
 
@@ -765,7 +811,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA ADICIONAIS / SABORES */}
+      {/* ABA ADICIONAIS / SABORES COM OPÇÃO DE CATEGORIA PERSONALIZADA */}
       {activeTab === 'addons' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
           <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
@@ -773,10 +819,35 @@ export default function AdminTenant() {
             <form onSubmit={handleAddGlobalAddon} className="space-y-3">
               <div>
                 <label className="text-[11px] text-gray-400 block mb-1">Categoria / Tipo:</label>
-                <select value={newAddon.category_type} onChange={(e) => setNewAddon({ ...newAddon, category_type: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold">
+                <select 
+                  value={isCustomCategoryNew ? 'CUSTOM' : newAddon.category_type} 
+                  onChange={(e) => {
+                    if (e.target.value === 'CUSTOM') {
+                      setIsCustomCategoryNew(true);
+                    } else {
+                      setIsCustomCategoryNew(false);
+                      setNewAddon({ ...newAddon, category_type: e.target.value });
+                    }
+                  }} 
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold"
+                >
                   {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  <option value="CUSTOM">✨ + Categoria Personalizada...</option>
                 </select>
               </div>
+
+              {isCustomCategoryNew && (
+                <div>
+                  <label className="text-[11px] text-orange-400 block mb-1 font-bold">Nome da Nova Categoria:</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: 🍨 Sobremesas Especiais" 
+                    value={customCategoryInputNew} 
+                    onChange={(e) => setCustomCategoryInputNew(e.target.value)} 
+                    className="w-full bg-gray-800 border border-orange-500/60 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold" 
+                  />
+                </div>
+              )}
 
               <input type="text" placeholder="Nome Ex: Bacon Extra ou Calabresa" value={newAddon.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, name: e.target.value })} />
               <input type="text" placeholder="Ingredientes / Descrição Ex: Fatias crocantes de bacon" value={newAddon.description} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewAddon({ ...newAddon, description: e.target.value })} />
@@ -802,7 +873,7 @@ export default function AdminTenant() {
                           <span className="text-orange-400 font-bold">+ R$ {Number(a.price).toFixed(2)}</span>
                         </div>
                         <div className="flex space-x-1.5">
-                          <button onClick={() => setEditingAddon(a)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
+                          <button onClick={() => { setEditingAddon(a); setIsCustomCategoryEdit(false); }} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
                           <button onClick={async () => { if (confirm("Excluir?")) { const { error } = await supabase.from('global_addons').delete().eq('id', a.id); if (error) alert(error.message); else fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
                         </div>
                       </div>
@@ -841,7 +912,7 @@ export default function AdminTenant() {
       )}
 
       {/* ABA GARÇONS */}
-      {activeTab === 'waiters' && (
+      {activeTab === 'waiters' && (tenant.has_waiters ?? false) && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
           <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
             <h3 className="font-bold text-sm text-orange-400">👤 Cadastrar Garçom</h3>
@@ -905,17 +976,17 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA CLIENTES */}
+      {/* ABA CLIENTES (CRM) - SOMENTE CLIENTES REAIS */}
       {activeTab === 'clients' && (
         <div className="space-y-6 no-print">
           <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-1">
             <h3 className="font-bold text-sm text-orange-400">👥 Registro & Ranking de Clientes (CRM)</h3>
-            <p className="text-xs text-gray-400">Clientes identificados automaticamente com histórico completo de compras e endereço.</p>
+            <p className="text-xs text-gray-400">Clientes identificados com nome e telefone (excluindo mesas e pedidos anônimos).</p>
           </section>
 
           <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {customerList.length === 0 ? (
-              <p className="text-xs text-gray-500 text-center py-4 col-span-full">Nenhum cliente cadastrado ainda.</p>
+              <p className="text-xs text-gray-500 text-center py-4 col-span-full">Nenhum cliente com cadastro e telefone identificado ainda.</p>
             ) : (
               customerList.map((client, idx) => (
                 <div key={idx} className="bg-gray-900 p-4 rounded-2xl border border-gray-800 space-y-3 flex flex-col justify-between">
@@ -1044,7 +1115,7 @@ export default function AdminTenant() {
       )}
 
       {/* ABA MESAS QR CODE */}
-      {activeTab === 'tables' && (
+      {activeTab === 'tables' && (tenant.has_tables ?? true) && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 no-print">
             <h3 className="font-bold text-sm text-orange-400">🪑 Gerador de QR Code por Mesa</h3>
@@ -1085,7 +1156,7 @@ export default function AdminTenant() {
       )}
 
       {/* ABA BAIRROS */}
-      {activeTab === 'neighborhoods' && (
+      {activeTab === 'neighborhoods' && (tenant.has_delivery ?? true) && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
           <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
             <h3 className="font-bold text-sm text-orange-400">🛵 Novo Bairro</h3>
@@ -1183,7 +1254,7 @@ export default function AdminTenant() {
                     <label className="text-[11px] text-gray-400 block mb-1">Mercado Pago Access Token (APP_USR-...):</label>
                     <input
                       type="password"
-                      placeholder="APP_USR-xxxxxxxxxxxxxxxxxxxxxxxx font..."
+                      placeholder="APP_USR-xxxxxxxxxxxxxxxxxxxxxxxx..."
                       value={tenant.pix_access_token || ''}
                       onChange={(e) => setTenant({ ...tenant, pix_access_token: e.target.value })}
                       className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-mono"
@@ -1465,7 +1536,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* MODAIS DE EDIÇÃO EXISTENTES */}
+      {/* MODAL EDITAR ADICIONAL OU SABOR */}
       {editingAddon && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateAddon} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
@@ -1473,12 +1544,35 @@ export default function AdminTenant() {
             <div>
               <label className="text-[11px] text-gray-400 block mb-1">Categoria / Tipo:</label>
               <select
-                value={editingAddon.category_type || '🍕 Pizza Salgada'}
-                onChange={(e) => setEditingAddon({ ...editingAddon, category_type: e.target.value })}
-                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold">
+                value={isCustomCategoryEdit ? 'CUSTOM' : (editingAddon.category_type || '🍕 Pizza Salgada')}
+                onChange={(e) => {
+                  if (e.target.value === 'CUSTOM') {
+                    setIsCustomCategoryEdit(true);
+                  } else {
+                    setIsCustomCategoryEdit(false);
+                    setEditingAddon({ ...editingAddon, category_type: e.target.value });
+                  }
+                }}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold"
+              >
                 {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                <option value="CUSTOM">✨ + Categoria Personalizada...</option>
               </select>
             </div>
+
+            {isCustomCategoryEdit && (
+              <div>
+                <label className="text-[11px] text-orange-400 block mb-1 font-bold">Nome da Nova Categoria:</label>
+                <input 
+                  type="text" 
+                  placeholder="Ex: 🍨 Sobremesas Especiais" 
+                  value={customCategoryInputEdit} 
+                  onChange={(e) => setCustomCategoryInputEdit(e.target.value)} 
+                  className="w-full bg-gray-800 border border-orange-500/60 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold" 
+                />
+              </div>
+            )}
+
             <input type="text" value={editingAddon.name} onChange={(e) => setEditingAddon({ ...editingAddon, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             <input type="text" placeholder="Ingredientes / Descrição" value={editingAddon.description || ''} onChange={(e) => setEditingAddon({ ...editingAddon, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             <input type="text" value={editingAddon.price} onChange={(e) => setEditingAddon({ ...editingAddon, price: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
