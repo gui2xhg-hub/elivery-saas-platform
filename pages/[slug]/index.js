@@ -34,6 +34,9 @@ export default function DeliveryCliente() {
   const [comboSelections, setComboSelections] = useState({}); // { [stepIndex]: [addonObj1, addonObj2] }
   const [selectedBorder, setSelectedBorder] = useState(null);
   const [itemObservation, setItemObservation] = useState('');
+  
+  // BUSCA INTERNA DE SABORES NO MODAL
+  const [modalAddonSearch, setModalAddonSearch] = useState('');
 
   // CARRINHO DE COMPRAS E CHECKOUT
   const [cart, setCart] = useState([]);
@@ -174,6 +177,7 @@ export default function DeliveryCliente() {
     setSelectedAddons([]);
     setComboSelections({});
     setItemObservation('');
+    setModalAddonSearch('');
 
     const borders = getBordersArray(product.borders_list);
     if (borders.length > 0) {
@@ -259,7 +263,7 @@ export default function DeliveryCliente() {
       cartItemId: `${selectedProduct.id}-${Date.now()}`,
       id: selectedProduct.id,
       name: selectedProduct.name,
-      price: unitPrice, // Preço unitário total (base + adicionais)
+      price: unitPrice,
       basePrice: Number(selectedProduct.price),
       unitPrice: unitPrice,
       quantity: productQuantity,
@@ -483,7 +487,7 @@ export default function DeliveryCliente() {
     alert(`Pedido #${createdOrder.id} enviado com sucesso!`);
   };
 
-  // PARSER DE SABORES COM INGREDIENTES E TIPO DE CATEGORIA
+  // PARSER DE SABORES COM INGREDIENTES E CATEGORIA AGRUPADA
   const getProductAddonsArray = (addonsStr) => {
     if (!addonsStr) return [];
 
@@ -509,7 +513,7 @@ export default function DeliveryCliente() {
       return {
         ...item,
         description: item.description || matched?.description || '',
-        category_type: matched?.category_type || '🍕 Sabor de Pizza'
+        category_type: matched?.category_type || '🍕 Sabores Tradicionais'
       };
     });
   };
@@ -523,6 +527,25 @@ export default function DeliveryCliente() {
       const price = parts[1] ? parseFloat(parts[1].replace(',', '.')) : 0;
       return { name, price: isNaN(price) ? 0 : price };
     });
+  };
+
+  // HELPER PARA AGRUPAR ADICIONAIS/SABORES POR CATEGORIA E FILTRAR POR BUSCA
+  const getGroupedAddons = (addonsStr) => {
+    const allAddons = getProductAddonsArray(addonsStr);
+    
+    const filtered = allAddons.filter(a => 
+      a.name.toLowerCase().includes(modalAddonSearch.toLowerCase()) ||
+      (a.description && a.description.toLowerCase().includes(modalAddonSearch.toLowerCase()))
+    );
+
+    const groups = {};
+    filtered.forEach(item => {
+      const cat = item.category_type || '🍕 Sabores / Opcionais';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(item);
+    });
+
+    return groups;
   };
 
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando cardápio...</p></div>;
@@ -560,32 +583,33 @@ export default function DeliveryCliente() {
   }
 
   return (
-    <div className="min-h-screen font-sans pb-28 max-w-md mx-auto transition-colors duration-300 relative" style={{ backgroundColor: bgColor, color: textColor }}>
+    <div className="min-h-screen font-sans pb-28 max-w-6xl mx-auto transition-colors duration-300 relative px-3 sm:px-6 lg:px-8" style={{ backgroundColor: bgColor, color: textColor }}>
       
       {tenant.custom_message && (
-        <div className="bg-orange-600 text-white text-[11px] font-bold py-2.5 px-4 text-center shadow flex items-center justify-center space-x-2">
+        <div className="bg-orange-600 text-white text-[11px] sm:text-xs font-bold py-2.5 px-4 text-center shadow rounded-b-xl flex items-center justify-center space-x-2">
           <span>📢 {tenant.custom_message}</span>
         </div>
       )}
 
-      <div className="relative h-36 bg-gray-900 border-b border-white/10">
-        <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop&q=80'} alt="Banner" className="w-full h-full object-cover opacity-50" />
+      {/* BANNER E PERFIL RESPONSIVO */}
+      <div className="relative h-40 sm:h-52 md:h-64 bg-gray-900 border-b border-white/10 rounded-2xl overflow-hidden mt-3 shadow-2xl">
+        <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1200&auto=format&fit=crop&q=80'} alt="Banner" className="w-full h-full object-cover opacity-50" />
         
         {tenant.instagram_url && (
           <a
             href={tenant.instagram_url.startsWith('http') ? tenant.instagram_url : `https://${tenant.instagram_url}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="absolute top-3 right-3 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition flex items-center space-x-1 hover:opacity-90 z-10">
+            className="absolute top-4 right-4 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white font-bold text-xs px-4 py-2 rounded-full shadow-lg transition flex items-center space-x-1.5 hover:scale-105 z-10">
             <span>📸 Instagram</span>
           </a>
         )}
 
-        <div className="absolute -bottom-5 left-4 flex items-center space-x-3">
-          <img src={tenant.logo_url || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'} alt="Logo" className="w-16 h-16 rounded-full border-2 border-black/40 object-cover bg-gray-800 shadow-lg" />
-          <div className="pt-4">
-            <h1 className="font-bold text-lg leading-tight" style={{ color: textColor }}>{tenant.name}</h1>
-            <p className="text-[11px] opacity-70">
+        <div className="absolute -bottom-2 left-4 sm:left-8 flex items-end space-x-4 pb-4">
+          <img src={tenant.logo_url || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=200&auto=format&fit=crop&q=80'} alt="Logo" className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-4 border-gray-950 object-cover bg-gray-800 shadow-xl" />
+          <div className="pb-1">
+            <h1 className="font-extrabold text-xl sm:text-2xl md:text-3xl leading-tight" style={{ color: textColor }}>{tenant.name}</h1>
+            <p className="text-xs sm:text-sm opacity-80 font-medium">
               {tableNumber ? `🪑 Autoatendimento • Mesa ${tableNumber}` : '🛵 Cardápio Digital & Delivery'}
             </p>
           </div>
@@ -593,21 +617,21 @@ export default function DeliveryCliente() {
       </div>
 
       {!isOpen && (
-        <div className="mt-7 px-4">
-          <div className="bg-red-500/20 border border-red-500/40 text-red-400 p-3 rounded-2xl text-xs text-center font-bold">
+        <div className="mt-6">
+          <div className="bg-red-500/20 border border-red-500/40 text-red-400 p-3.5 rounded-2xl text-xs sm:text-sm text-center font-bold">
             🔴 Loja Fechada no Momento. (Horário: {tenant.opening_time || '18:00'} às {tenant.closing_time || '23:30'})
           </div>
         </div>
       )}
 
       {tableNumber && (
-        <div className={`${!isOpen ? 'mt-3' : 'mt-7'} px-4`}>
-          <div className="bg-gradient-to-r from-orange-500 to-amber-600 text-white p-3 rounded-2xl shadow-lg flex justify-between items-center text-xs font-bold">
+        <div className="mt-4">
+          <div className="bg-gradient-to-r from-orange-500 to-amber-600 text-white p-3.5 rounded-2xl shadow-lg flex justify-between items-center text-xs sm:text-sm font-bold">
             <div className="flex items-center space-x-2">
-              <span className="text-base">📍</span>
+              <span className="text-lg">📍</span>
               <div>
-                <p className="font-extrabold uppercase text-[11px] leading-tight">Você está na MESA {tableNumber}</p>
-                <p className="text-[10px] opacity-90 font-normal">Seus pedidos serão entregues direto na sua mesa.</p>
+                <p className="font-extrabold uppercase leading-tight">Você está na MESA {tableNumber}</p>
+                <p className="text-xs opacity-90 font-normal">Seus pedidos serão entregues direto na sua mesa.</p>
               </div>
             </div>
           </div>
@@ -615,16 +639,17 @@ export default function DeliveryCliente() {
       )}
 
       {promoBannerList.length > 0 && (
-        <div className={`${(tableNumber || !isOpen) ? 'mt-4' : 'mt-8'} px-4`}>
-          <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none">
+        <div className="mt-6">
+          <div className="flex space-x-4 overflow-x-auto pb-2 scrollbar-none">
             {promoBannerList.map((bannerUrl, idx) => (
-              <img key={idx} src={bannerUrl} alt={`Promoção ${idx + 1}`} className="w-72 h-32 rounded-2xl object-cover border border-white/10 shrink-0 shadow-md" />
+              <img key={idx} src={bannerUrl} alt={`Promoção ${idx + 1}`} className="w-80 h-36 sm:w-96 sm:h-44 rounded-2xl object-cover border border-white/10 shrink-0 shadow-md hover:scale-105 transition" />
             ))}
           </div>
         </div>
       )}
 
-      <div className={`${(promoBannerList.length > 0 || tableNumber || !isOpen) ? 'mt-4' : 'mt-8'} px-4`}>
+      {/* SELETOR DE CATEGORIAS */}
+      <div className="mt-6">
         <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-none">
           <button
             onClick={() => setSelectedCat('ALL')}
@@ -632,8 +657,8 @@ export default function DeliveryCliente() {
               backgroundColor: selectedCat === 'ALL' ? primaryColor : cardColor,
               color: selectedCat === 'ALL' ? btnTextColor : textColor
             }}
-            className="px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border border-white/10 transition">
-            Todos
+            className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap border border-white/10 transition shadow-sm">
+            🍽️ Todos os Itens
           </button>
           {categories.map(c => {
             const isSelected = String(selectedCat) === String(c.id);
@@ -645,7 +670,7 @@ export default function DeliveryCliente() {
                   backgroundColor: isSelected ? primaryColor : cardColor,
                   color: isSelected ? btnTextColor : textColor
                 }}
-                className="px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border border-white/10 transition">
+                className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap border border-white/10 transition shadow-sm">
                 {c.name}
               </button>
             );
@@ -653,45 +678,50 @@ export default function DeliveryCliente() {
         </div>
       </div>
 
-      <div className="mt-4 px-4 space-y-3">
+      {/* LISTA DE PRODUTOS MODULAR (GRID RESPONSIVO) */}
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredProducts.map(p => (
           <div 
             key={p.id} 
             onClick={() => handleOpenProductModal(p)}
             style={{ backgroundColor: cardColor }} 
-            className="p-3 rounded-2xl border border-white/10 flex justify-between items-center cursor-pointer hover:border-white/20 transition">
-            <div className="flex items-center space-x-3">
-              <img src={p.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'} alt={p.name} className="w-16 h-16 rounded-xl object-cover border border-white/10 bg-gray-800 shrink-0" />
-              <div>
-                <h3 className="font-bold text-xs flex items-center space-x-1" style={{ color: textColor }}>
+            className="p-3.5 rounded-2xl border border-white/10 hover:border-orange-500/50 transition flex flex-col justify-between cursor-pointer space-y-3 group shadow-lg">
+            
+            <div className="flex items-start space-x-3">
+              <img src={p.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=200&auto=format&fit=crop&q=80'} alt={p.name} className="w-20 h-20 rounded-xl object-cover border border-white/10 bg-gray-800 shrink-0 group-hover:scale-105 transition" />
+              <div className="flex-1 min-w-0">
+                <h3 className="font-extrabold text-xs sm:text-sm flex items-center space-x-1 truncate" style={{ color: textColor }}>
                   <span>{p.name}</span>
                   {p.is_combo && <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.2 rounded font-bold">COMBO</span>}
                 </h3>
-                <p className="text-[10px] opacity-60 line-clamp-2">{p.description}</p>
-                <span className="font-bold text-xs block mt-1" style={{ color: primaryColor }}>
-                  R$ {Number(p.price).toFixed(2)}
-                  {p.max_addons > 0 && !p.is_combo && <span className="text-[10px] opacity-70 font-normal ml-1">(Até {p.max_addons} sab.)</span>}
-                </span>
+                <p className="text-[11px] opacity-60 line-clamp-2 mt-1">{p.description || 'Sem descrição'}</p>
               </div>
             </div>
 
-            <button style={{ backgroundColor: primaryColor, color: btnTextColor }} className="px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap ml-2 shadow transition">
-              + Adicionar
-            </button>
+            <div className="flex justify-between items-center pt-2 border-t border-white/10">
+              <span className="font-extrabold text-sm sm:text-base" style={{ color: primaryColor }}>
+                R$ {Number(p.price).toFixed(2)}
+                {p.max_addons > 0 && !p.is_combo && <span className="text-[10px] opacity-70 font-normal ml-1 block sm:inline">(Até {p.max_addons} sab.)</span>}
+              </span>
+
+              <button style={{ backgroundColor: primaryColor, color: btnTextColor }} className="px-3.5 py-1.5 rounded-xl text-xs font-extrabold whitespace-nowrap shadow transition group-hover:opacity-90">
+                + Adicionar
+              </button>
+            </div>
           </div>
         ))}
       </div>
 
-      <footer className="mt-12 border-t border-white/10 pt-8 pb-10 px-4 text-center space-y-4">
+      <footer className="mt-16 border-t border-white/10 pt-8 pb-10 text-center space-y-4">
         <div className="flex flex-col items-center justify-center space-y-2">
           <img
             src={tenant.logo_url || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'}
             alt={tenant.name}
-            className="w-12 h-12 rounded-full border border-white/10 object-cover bg-gray-800 shadow"
+            className="w-14 h-14 rounded-2xl border border-white/10 object-cover bg-gray-800 shadow"
           />
-          <h3 className="font-bold text-sm" style={{ color: textColor }}>{tenant.name}</h3>
+          <h3 className="font-bold text-base" style={{ color: textColor }}>{tenant.name}</h3>
           {tenant.opening_time && tenant.closing_time && (
-            <p className="text-[11px] opacity-70">
+            <p className="text-xs opacity-70">
               🕒 Horário: {tenant.opening_time} às {tenant.closing_time}
             </p>
           )}
@@ -724,30 +754,31 @@ export default function DeliveryCliente() {
         </div>
       </footer>
 
+      {/* BOTÃO FLUTUANTE DO CARRINHO */}
       {cart.length > 0 && (
-        <div className="fixed bottom-4 left-4 right-4 max-w-md mx-auto z-40">
+        <div className="fixed bottom-4 left-4 right-4 max-w-lg mx-auto z-40">
           <button
             onClick={() => setShowCartModal(true)}
             style={{ backgroundColor: primaryColor, color: btnTextColor }}
-            className="w-full font-bold p-3.5 rounded-2xl flex justify-between items-center shadow-2xl transition hover:opacity-95">
-            <span className="text-xs bg-black/20 px-2.5 py-1 rounded-lg">🛒 {cart.reduce((a, b) => a + b.quantity, 0)} itens</span>
-            <span className="text-xs font-bold uppercase tracking-wider">{tableNumber ? `Enviar p/ Mesa ${tableNumber}` : 'Ver Carrinho'}</span>
-            <span className="text-xs font-bold">R$ {subtotal.toFixed(2)}</span>
+            className="w-full font-bold p-4 rounded-2xl flex justify-between items-center shadow-2xl transition hover:opacity-95">
+            <span className="text-xs bg-black/20 px-3 py-1.5 rounded-xl font-extrabold">🛒 {cart.reduce((a, b) => a + b.quantity, 0)} itens</span>
+            <span className="text-xs sm:text-sm font-black uppercase tracking-wider">{tableNumber ? `Enviar p/ Mesa ${tableNumber}` : 'Ver Carrinho'}</span>
+            <span className="text-xs sm:text-sm font-black">R$ {subtotal.toFixed(2)}</span>
           </button>
         </div>
       )}
 
-      {/* MODAL DE DETALHES DO ITEM (COMBO EM ETAPAS OU ITEM SIMPLES) */}
+      {/* MODAL DE DETALHES DO ITEM COM SABORES ORGANIZADOS POR CATEGORIA */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-lg rounded-3xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-white/10 pb-2">
-              <h3 className="font-bold text-sm truncate" style={{ color: primaryColor }}>{selectedProduct.name}</h3>
-              <button onClick={() => setSelectedProduct(null)} className="opacity-60 font-bold text-xs">✕ Fechar</button>
+              <h3 className="font-extrabold text-base truncate" style={{ color: primaryColor }}>{selectedProduct.name}</h3>
+              <button onClick={() => setSelectedProduct(null)} className="opacity-60 hover:opacity-100 font-bold text-xs bg-black/30 px-3 py-1.5 rounded-xl">✕ Fechar</button>
             </div>
 
-            <img src={selectedProduct.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=300&auto=format&fit=crop&q=80'} alt={selectedProduct.name} className="w-full h-36 rounded-xl object-cover border border-white/10" />
-            <p className="text-xs opacity-70">{selectedProduct.description}</p>
+            <img src={selectedProduct.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400&auto=format&fit=crop&q=80'} alt={selectedProduct.name} className="w-full h-40 sm:h-48 rounded-2xl object-cover border border-white/10" />
+            <p className="text-xs opacity-75">{selectedProduct.description}</p>
 
             {/* MONTAGEM DE COMBO EM ETAPAS */}
             {selectedProduct.is_combo && selectedProduct.combo_steps?.length > 0 ? (
@@ -764,9 +795,9 @@ export default function DeliveryCliente() {
                   const stepMax = Number(step.max || 1);
 
                   return (
-                    <div key={stepIdx} className="space-y-2 bg-black/20 p-3 rounded-xl border border-white/10">
+                    <div key={stepIdx} className="space-y-2 bg-black/20 p-3 rounded-2xl border border-white/10">
                       <div className="flex justify-between items-center">
-                        <label className="text-xs font-bold block text-orange-400">
+                        <label className="text-xs font-extrabold block text-orange-400">
                           {step.title || `Etapa #${stepIdx + 1}`}
                         </label>
 
@@ -779,7 +810,7 @@ export default function DeliveryCliente() {
                         </span>
                       </div>
 
-                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                      <div className="space-y-1.5 max-h-40 overflow-y-auto">
                         {stepAddons.length === 0 ? (
                           <p className="text-[10px] opacity-50 italic">Nenhum item cadastrado nesta categoria.</p>
                         ) : (
@@ -795,7 +826,7 @@ export default function DeliveryCliente() {
                                 }}
                                 className="p-2.5 rounded-xl border flex justify-between items-center text-xs cursor-pointer transition">
                                 <div className="flex items-center space-x-2">
-                                  <input type="checkbox" checked={isChecked} onChange={() => {}} className="accent-orange-500" />
+                                  <input type="checkbox" checked={isChecked} onChange={() => {}} className="accent-orange-500 pointer-events-none" />
                                   <div>
                                     <span className="font-bold block">{addon.name}</span>
                                     {addon.description && <p className="text-[10px] opacity-60 leading-tight">{addon.description}</p>}
@@ -814,16 +845,16 @@ export default function DeliveryCliente() {
                 })}
               </div>
             ) : (
-              /* SEÇÃO DE ITEM SIMPLES / PIZZA PADRÃO */
+              /* SEÇÃO DE ITEM SIMPLES / PIZZA COM SABORES CATEGORIZADOS */
               getProductAddonsArray(selectedProduct.addons_list).length > 0 && (
-                <div className="space-y-2 pt-2 border-t border-white/10">
+                <div className="space-y-3 pt-2 border-t border-white/10">
                   <div className="flex justify-between items-center">
-                    <label className="text-xs font-bold block opacity-90">
+                    <label className="text-xs font-extrabold block opacity-90">
                       {selectedProduct.max_addons > 0 ? '🍕 Escolha os Sabores:' : '➕ Adicionais Opcionais:'}
                     </label>
 
                     {selectedProduct.max_addons > 0 && (
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg border ${
                         selectedAddons.length === Number(selectedProduct.max_addons)
                           ? 'bg-green-500/20 text-green-400 border-green-500/30'
                           : 'bg-orange-500/20 text-orange-400 border-orange-500/30'
@@ -833,28 +864,56 @@ export default function DeliveryCliente() {
                     )}
                   </div>
 
-                  <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                    {getProductAddonsArray(selectedProduct.addons_list).map((addon, idx) => {
-                      const isChecked = selectedAddons.some(a => a.name === addon.name);
-                      return (
-                        <div
-                          key={idx}
-                          onClick={() => toggleAddon(addon)}
-                          style={{ backgroundColor: isChecked ? `${primaryColor}22` : bgColor, borderColor: isChecked ? primaryColor : 'rgba(255,255,255,0.1)' }}
-                          className="p-2.5 rounded-xl border flex justify-between items-center text-xs cursor-pointer transition">
-                          <div className="flex items-center space-x-2">
-                            <input type="checkbox" checked={isChecked} onChange={() => {}} className="accent-orange-500" />
-                            <div>
-                              <span className="font-bold block">{addon.name}</span>
-                              {addon.description && <p className="text-[10px] opacity-60 leading-tight">{addon.description}</p>}
-                            </div>
+                  {/* CAMPO DE BUSCA DE SABORES */}
+                  <input
+                    type="text"
+                    placeholder="🔍 Pesquisar sabor ou ingrediente..."
+                    value={modalAddonSearch}
+                    onChange={(e) => setModalAddonSearch(e.target.value)}
+                    style={{ backgroundColor: bgColor, color: textColor }}
+                    className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none focus:border-orange-500"
+                  />
+
+                  {/* LISTA DE SABORES AGRUPADOS POR CATEGORIA (DOCES, SALGADAS, ETC) */}
+                  <div className="space-y-4 max-h-56 overflow-y-auto pr-1">
+                    {Object.keys(getGroupedAddons(selectedProduct.addons_list)).length === 0 ? (
+                      <p className="text-xs opacity-50 text-center py-4">Nenhum sabor encontrado.</p>
+                    ) : (
+                      Object.entries(getGroupedAddons(selectedProduct.addons_list)).map(([catName, groupAddons]) => (
+                        <div key={catName} className="space-y-2">
+                          <h4 className="text-[11px] font-black uppercase tracking-wider text-orange-400 bg-black/40 px-2.5 py-1 rounded-lg border-l-4 border-orange-500">
+                            {catName}
+                          </h4>
+
+                          <div className="space-y-1.5">
+                            {groupAddons.map((addon, idx) => {
+                              const isChecked = selectedAddons.some(a => a.name === addon.name);
+                              return (
+                                <div
+                                  key={idx}
+                                  onClick={() => toggleAddon(addon)}
+                                  style={{ 
+                                    backgroundColor: isChecked ? `${primaryColor}22` : bgColor, 
+                                    borderColor: isChecked ? primaryColor : 'rgba(255,255,255,0.1)' 
+                                  }}
+                                  className="p-2.5 rounded-xl border flex justify-between items-center text-xs cursor-pointer transition">
+                                  <div className="flex items-center space-x-2">
+                                    <input type="checkbox" checked={isChecked} onChange={() => {}} className="accent-orange-500 pointer-events-none" />
+                                    <div>
+                                      <span className="font-bold block">{addon.name}</span>
+                                      {addon.description && <p className="text-[10px] opacity-60 leading-tight">{addon.description}</p>}
+                                    </div>
+                                  </div>
+                                  <span style={{ color: primaryColor }} className="font-bold shrink-0 whitespace-nowrap pl-1">
+                                    {Number(addon.price) > 0 ? `+ R$ ${Number(addon.price).toFixed(2)}` : 'Grátis'}
+                                  </span>
+                                </div>
+                              );
+                            })}
                           </div>
-                          <span style={{ color: primaryColor }} className="font-bold shrink-0 whitespace-nowrap pl-1">
-                            {Number(addon.price) > 0 ? `+ R$ ${Number(addon.price).toFixed(2)}` : 'Grátis'}
-                          </span>
                         </div>
-                      );
-                    })}
+                      ))
+                    )}
                   </div>
                 </div>
               )
@@ -863,7 +922,7 @@ export default function DeliveryCliente() {
             {/* SEÇÃO DE BORDAS RECHEADAS */}
             {getBordersArray(selectedProduct.borders_list).length > 0 && (
               <div className="space-y-2 pt-2 border-t border-white/10">
-                <label className="text-xs font-bold block opacity-90">🫓 Escolha a Borda:</label>
+                <label className="text-xs font-extrabold block opacity-90">🫓 Escolha a Borda:</label>
                 <div className="space-y-1.5 max-h-32 overflow-y-auto">
                   {getBordersArray(selectedProduct.borders_list).map((border, idx) => {
                     const isSelected = selectedBorder?.name === border.name;
@@ -874,7 +933,7 @@ export default function DeliveryCliente() {
                         style={{ backgroundColor: isSelected ? `${primaryColor}22` : bgColor, borderColor: isSelected ? primaryColor : 'rgba(255,255,255,0.1)' }}
                         className="p-2.5 rounded-xl border flex justify-between items-center text-xs cursor-pointer transition">
                         <div className="flex items-center space-x-2">
-                          <input type="radio" checked={isSelected} onChange={() => {}} className="accent-orange-500" />
+                          <input type="radio" checked={isSelected} onChange={() => {}} className="accent-orange-500 pointer-events-none" />
                           <span className="font-bold">{border.name}</span>
                         </div>
                         <span style={{ color: primaryColor }} className="font-bold text-[11px]">
@@ -909,7 +968,7 @@ export default function DeliveryCliente() {
               <button
                 onClick={handleAddProductToCart}
                 style={{ backgroundColor: primaryColor, color: btnTextColor }}
-                className="flex-1 font-bold py-3 rounded-xl text-xs shadow-lg transition">
+                className="flex-1 font-extrabold py-3 rounded-xl text-xs shadow-lg transition hover:opacity-90">
                 Adicionar • R$ {(currentModalUnitPrice * productQuantity).toFixed(2)}
               </button>
             </div>
@@ -920,19 +979,19 @@ export default function DeliveryCliente() {
       {/* MODAL DO CARRINHO & CHECKOUT */}
       {showCartModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-md rounded-3xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-white/10 pb-2">
-              <h3 className="font-bold text-sm" style={{ color: primaryColor }}>
+              <h3 className="font-extrabold text-sm sm:text-base" style={{ color: primaryColor }}>
                 {tableNumber ? `🪑 Pedido - Mesa ${tableNumber}` : '🛒 Seu Carrinho'}
               </h3>
-              <button onClick={() => setShowCartModal(false)} className="opacity-60 font-bold text-xs">✕ Fechar</button>
+              <button onClick={() => setShowCartModal(false)} className="opacity-60 hover:opacity-100 font-bold text-xs bg-black/30 px-3 py-1.5 rounded-xl">✕ Fechar</button>
             </div>
 
             <div className="space-y-2 max-h-48 overflow-y-auto">
               {cart.map(item => (
-                <div key={item.cartItemId} style={{ backgroundColor: bgColor }} className="p-2.5 rounded-xl border border-white/10 flex justify-between items-start text-xs space-x-2">
+                <div key={item.cartItemId} style={{ backgroundColor: bgColor }} className="p-3 rounded-xl border border-white/10 flex justify-between items-start text-xs space-x-2">
                   <div className="flex-1">
-                    <span className="font-bold block flex items-center space-x-1">
+                    <span className="font-extrabold block flex items-center space-x-1">
                       <span>{item.quantity}x {item.name}</span>
                       {item.is_combo && <span className="text-[8px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1 rounded font-bold">COMBO</span>}
                     </span>
@@ -957,7 +1016,7 @@ export default function DeliveryCliente() {
                     {item.observation && (
                       <p className="text-[10px] text-orange-400 italic">Obs: "{item.observation}"</p>
                     )}
-                    <span style={{ color: primaryColor }} className="font-bold block mt-1">R$ {(item.unitPrice * item.quantity).toFixed(2)}</span>
+                    <span style={{ color: primaryColor }} className="font-extrabold block mt-1">R$ {(item.unitPrice * item.quantity).toFixed(2)}</span>
                   </div>
 
                   <button onClick={() => removeFromCart(item.cartItemId)} className="text-red-400 font-bold text-xs p-1">🗑</button>
@@ -1043,7 +1102,7 @@ export default function DeliveryCliente() {
 
               <div>
                 <label className="text-[11px] opacity-70 block mb-1">Forma de Pagamento:</label>
-                <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none">
+                <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none font-bold">
                   {tableNumber && <option value="Pagar no Balcão">Pagar no Balcão ao Sair</option>}
                   <option value="Dinheiro">Dinheiro</option>
                   <option value="Cartão de Crédito/Débito">Cartão de Crédito/Débito</option>
@@ -1089,14 +1148,14 @@ export default function DeliveryCliente() {
                 {deliveryType === 'ENTREGA' && !tableNumber && (
                   <div className="flex justify-between"><span className="opacity-60">Taxa de Entrega:</span><span>R$ {currentDeliveryFee.toFixed(2)}</span></div>
                 )}
-                <div className="flex justify-between font-bold text-sm pt-1 border-t border-white/10"><span style={{ color: primaryColor }}>TOTAL:</span><span style={{ color: primaryColor }}>R$ {total.toFixed(2)}</span></div>
+                <div className="flex justify-between font-extrabold text-sm pt-1 border-t border-white/10"><span style={{ color: primaryColor }}>TOTAL:</span><span style={{ color: primaryColor }}>R$ {total.toFixed(2)}</span></div>
               </div>
 
               <button
                 type="submit"
                 disabled={isSubmitting}
                 style={{ backgroundColor: primaryColor, color: btnTextColor }}
-                className="w-full font-bold py-3.5 rounded-xl text-xs shadow-lg transition hover:opacity-90">
+                className="w-full font-extrabold py-3.5 rounded-xl text-xs shadow-lg transition hover:opacity-90">
                 {isSubmitting ? 'Enviando Pedido...' : (tableNumber ? 'Confirmar Pedido na Mesa 🚀' : 'Enviar Pedido 🚀')}
               </button>
             </form>
