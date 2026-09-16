@@ -249,7 +249,7 @@ export default function PdvKdsTenant() {
     }
   };
 
-  // ENVIO DE NOTIFICAÇÕES VIA WHATSAPP (REAPROVEITA A MESMA JANELA NO PC)
+  // ENVIO DE NOTIFICAÇÕES VIA WHATSAPP (PRIORIZA APP NO DESKTOP E TEM FALLBACK PARA NAVEGADOR)
   const sendWhatsAppStatus = (order, msgType) => {
     if (!order.customer_phone) return alert("Telefone não cadastrado.");
     const cleanPhone = order.customer_phone.replace(/\D/g, '');
@@ -268,31 +268,25 @@ export default function PdvKdsTenant() {
     }
 
     const encodedMsg = encodeURIComponent(msg);
-    const webUrl = `https://web.whatsapp.com/send?phone=55${cleanPhone}&text=${encodedMsg}`;
     const isMobile = typeof window !== 'undefined' && (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768);
 
     if (isMobile) {
-      // 📱 DISPOSITIVO MÓVEL: Abre direto o app do WhatsApp
+      // 📱 DISPOSITIVO MÓVEL: Abre direto no App do Celular
       window.open(`https://wa.me/55${cleanPhone}?text=${encodedMsg}`, '_blank');
     } else {
-      // 💻 COMPUTADOR: Reaproveita a MESMA janela flutuante se ela já estiver aberta
-      const width = 450;
-      const height = 750;
-      const left = window.screen.width - width - 20;
-      const top = 50;
+      // 💻 COMPUTADOR: Prioriza abrir o App Desktop do WhatsApp. Se não abrir, vai para a Web.
+      const appUrl = `whatsapp://send?phone=55${cleanPhone}&text=${encodedMsg}`;
+      const webUrl = `https://web.whatsapp.com/send?phone=55${cleanPhone}&text=${encodedMsg}`;
 
-      if (window.waPopUpWindow && !window.waPopUpWindow.closed) {
-        // Altera o endereço da janela existente e traz ela para a frente
-        window.waPopUpWindow.location.href = webUrl;
-        window.waPopUpWindow.focus();
-      } else {
-        // Cria a janela flutuante única pela primeira vez
-        window.waPopUpWindow = window.open(
-          webUrl,
-          'WhatsAppPopUpWindow',
-          `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes,status=no`
-        );
-      }
+      const startTime = Date.now();
+      window.location.href = appUrl;
+
+      // Fallback: se em 1.5s a tela não mudou o foco para o app, abre no navegador
+      setTimeout(() => {
+        if (Date.now() - startTime < 2000) {
+          window.open(webUrl, '_blank');
+        }
+      }, 1500);
     }
   };
 
@@ -840,16 +834,28 @@ export default function PdvKdsTenant() {
         <div className="space-y-2 pt-1">
           <div className="flex space-x-1.5 text-xs font-bold">
             {(!order.status || order.status === 'recebido' || order.status === 'pendente' || order.status === 'novo') && (
-              <button onClick={() => { updateOrderStatus(order.id, 'em_producao'); sendWhatsAppStatus(order, 'producao'); }} className="flex-1 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-xl text-white font-extrabold text-xs">
+              <button onClick={() => updateOrderStatus(order.id, 'em_producao')} className="flex-1 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-xl text-white font-extrabold text-xs">
                 👨‍🍳 Produção ➔
               </button>
             )}
 
             {(order.status === 'em_producao' || order.status === 'em_preparo') && (
-              <button onClick={() => { updateOrderStatus(order.id, 'saiu_entrega'); sendWhatsAppStatus(order, 'entrega'); }} className="flex-1 bg-purple-600 hover:bg-purple-700 py-2.5 rounded-xl text-white font-extrabold text-xs">
+              <button onClick={() => updateOrderStatus(order.id, 'saiu_entrega')} className="flex-1 bg-purple-600 hover:bg-purple-700 py-2.5 rounded-xl text-white font-extrabold text-xs">
                 {isTable ? '🪑 Servir ➔' : isDelivery ? '🛵 Entrega ➔' : '🛍️ Pronto ➔'}
               </button>
             )}
+
+            {/* BOTÃO INDEPENDENTE PARA ENVIAR WHATSAPP */}
+            <button
+              onClick={() => {
+                const type = (order.status === 'em_producao' || order.status === 'em_preparo') ? 'entrega' : 'producao';
+                sendWhatsAppStatus(order, type);
+              }}
+              className="bg-green-600/20 hover:bg-green-600/40 text-green-400 border border-green-500/30 px-3 py-2.5 rounded-xl font-bold"
+              title="Notificar Cliente via WhatsApp"
+            >
+              💬
+            </button>
 
             <button onClick={() => handleOpenClosingModal(order)} className="flex-1 bg-green-600 hover:bg-green-700 py-2.5 rounded-xl text-white font-extrabold text-xs">
               💰 Cobrar
