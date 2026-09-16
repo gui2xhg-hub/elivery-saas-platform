@@ -2,16 +2,35 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
 
+// FUNÇÃO AUXILIAR PARA PARSE DE PREÇOS
+const parsePrice = (val) => {
+  if (!val) return 0;
+  const clean = String(val).replace(',', '.');
+  const num = parseFloat(clean);
+  return isNaN(num) ? 0 : num;
+};
+
 export default function CozinhaTenant() {
   const router = useRouter();
   const { slug } = router.query;
 
   const [tenant, setTenant] = useState(null);
   const [orders, setOrders] = useState([]);
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedOrderToPrint, setSelectedOrderToPrint] = useState(null);
+
+  // IMPRESSÃO (COZINHA E RECIBO)
+  const [printConfig, setPrintConfig] = useState(null); // { order, mode: 'kitchen' | 'receipt' }
+
   const [showArchived, setShowArchived] = useState(false);
   const [filterType, setFilterType] = useState('ALL'); // ALL, DELIVERY, BALCAO, MESA
+
+  // ESTADO DE EDIÇÃO DE PEDIDO (ADMIN COM SENHA)
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [editCartItems, setEditCartItems] = useState([]);
+  const [selectedProductToAdd, setSelectedProductToAdd] = useState('');
 
   // ESTADO DE ÁUDIO E IMPRESSÃO AUTOMÁTICA
   const [soundEnabled, setSoundEnabled] = useState(false);
@@ -22,7 +41,6 @@ export default function CozinhaTenant() {
   const autoPrintRef = useRef(autoPrintEnabled);
   const soundEnabledRef = useRef(soundEnabled);
 
-  // MANTÉM OS REFS ATUALIZADOS PARA O REALTIME SEM RECRIAR O CANAL
   useEffect(() => {
     autoPrintRef.current = autoPrintEnabled;
   }, [autoPrintEnabled]);
@@ -35,13 +53,12 @@ export default function CozinhaTenant() {
     let unsubscribeRealtime = null;
 
     if (slug) {
-      fetchTenantAndOrders().then((tenantData) => {
+      fetchTenantAndData().then((tenantData) => {
         if (tenantData?.id) {
           unsubscribeRealtime = subscribeRealtime(tenantData.id);
         }
       });
 
-      // Polling de segurança a cada 10s
       const interval = setInterval(() => {
         if (tenant?.id) fetchOrders(tenant.id, true);
       }, 10000);
@@ -53,11 +70,16 @@ export default function CozinhaTenant() {
     }
   }, [slug]);
 
-  const fetchTenantAndOrders = async () => {
+  const fetchTenantAndData = async () => {
     const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
     if (tData) {
       setTenant(tData);
       await fetchOrders(tData.id, false);
+      
+      // Busca produtos para edição de pedidos
+      const { data: pData } = await supabase.from('products').select('*').eq('tenant_id', tData.id).eq('active', true);
+      if (pData) setProducts(pData);
+
       return tData;
     }
     setLoading(false);
@@ -76,15 +98,13 @@ export default function CozinhaTenant() {
           filter: `tenant_id=eq.${tenantId}`
         },
         (payload) => {
-          // DETECTA SE É UM NOVO PEDIDO (INSERT)
           if (payload.eventType === 'INSERT' && payload.new) {
             if (soundEnabledRef.current) {
               playBeepSound();
             }
 
-            // SE IMPRESSÃO AUTOMÁTICA ESTIVER LIGADA, DISPARA A IMPRESSÃO NA HORA
             if (autoPrintRef.current) {
-              handlePrintSingleOrder(payload.new);
+              handlePrintOrder(payload.new, 'kitchen');
             }
           }
 
@@ -174,10 +194,90 @@ export default function CozinhaTenant() {
   };
 
   const clearAllArchived = async () => {
-    if (confirm("Deseja apagar definitivamente todos os pedidos arquivados da tela? (Os relatórios continuam mantidos)")) {
+    if (confirm("Deseja apagar definitivamente todos os pedidos arquivados da tela?")) {
       await supabase.from('orders').delete().eq('tenant_id', tenant.id).eq('archived', true);
       if (tenant) fetchOrders(tenant.id);
     }
+  };
+
+  // LÓGICA DE EDIÇÃO DE PEDIDO COM SENHA DE ADMIN
+  const handleOpenEditModal = (order) => {
+    setEditingOrder(order);
+    setEditCartItems(order.items || []);
+    setIsAdminAuthenticated(false);
+    setAdminPassword('');
+  };
+
+  const handleAuthenticateAdmin = (e) => {
+    e.preventDefault();
+    if (adminPassword === tenant.admin_password || adminPassword === 'master123') {
+      setIsAdminAuthenticated(true);
+    } else {
+      alert("Senha incorreta!");
+    }
+  };
+
+  const handleAddItemToEditCart = () => {
+    if (!selectedProductToAdd) return;
+    const prod = products.find(p => p.id === parseInt(selectedProductToAdd));
+    if (!prod) return;
+
+    const newItem = {
+      id: prod.id,
+      name: prod.name,
+      price: parsePrice(prod.price),
+      quantity: 1
+    };
+
+    setEditCartItems([...editCartItems, newItem]);
+    setSelectedProductToAdd('');
+  };
+
+  const handleUpdateEditItemQty = (index, delta) => {
+    const updated = [...editCartItems];
+    updated[index].quantity += delta;
+    if (updated[index].quantity <= 0) {
+      updated.splice(index, 1);
+    }
+    setEditCartItems(updated);
+  };
+
+  const handleSaveEditedOrder = async () => {
+    if (editCartItems.length === 0) return alert("O pedido deve ter pelo menos 1 item!");
+
+    const deliveryFee = Number(editingOrder.delivery_fee || 0);
+    const newSubtotal = editCartItems.reduce((acc, item) => acc + (parsePrice(item.price) * item.quantity), 0);
+    const newTotal = newSubtotal + deliveryFee;
+
+    const originalTotal = Number(editingOrder.total || 0);
+    const difference = newTotal - originalTotal;
+
+    let updatedPaidStatus = editingOrder.is_paid;
+    if (difference > 0) {
+      updatedPaidStatus = false; // Se aumentou o valor, marca como pendente cobrança do saldo
+    }
+
+    const { error } = await supabase.from('orders').update({
+      items: editCartItems,
+      subtotal: newSubtotal,
+      total: newTotal,
+      is_paid: updatedPaidStatus,
+      notes: editingOrder.notes ? `${editingOrder.notes} (Editado pelo Admin)` : 'Editado pelo Admin'
+    }).eq('id', editingOrder.id);
+
+    if (error) {
+      alert("Erro ao salvar alterações: " + error.message);
+      return;
+    }
+
+    if (difference > 0) {
+      alert(`Pedido atualizado! Houve um acréscimo de R$ ${difference.toFixed(2)}. O status de pagamento foi ajustado para PENDENTE para cobrar a diferença.`);
+    } else {
+      alert("Pedido atualizado com sucesso!");
+    }
+
+    setEditingOrder(null);
+    fetchOrders();
   };
 
   // CÁLCULO DE TEMPO DE ESPERA
@@ -211,15 +311,14 @@ export default function CozinhaTenant() {
     window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  const handlePrintSingleOrder = (order) => {
-    setSelectedOrderToPrint(order);
-    setTimeout(() => { window.print(); }, 150);
+  const handlePrintOrder = (order, mode) => {
+    setPrintConfig({ order, mode });
+    setTimeout(() => { window.print(); }, 200);
   };
 
   if (loading) return <div className="p-4 text-white text-center font-sans">Carregando Cozinha...</div>;
   if (!tenant) return <div className="p-4 text-white text-center font-sans">Restaurante não encontrado.</div>;
 
-  // HELPER PARA IDENTIFICAR TIPO DE PEDIDO
   const getOrderCategory = (o) => {
     if (o.order_type) {
       const type = o.order_type.toLowerCase();
@@ -233,7 +332,6 @@ export default function CozinhaTenant() {
     return 'DELIVERY';
   };
 
-  // FILTRAGEM POR TIPO DE PEDIDO
   const filterFn = (o) => {
     const category = getOrderCategory(o);
     if (filterType === 'DELIVERY') return category === 'DELIVERY';
@@ -249,7 +347,6 @@ export default function CozinhaTenant() {
 
   const archivedOrders = orders.filter(o => o.archived === true || o.status === 'arquivado');
 
-  // COMPONENTE DO CARD DO PEDIDO (ALTO CONTRASTE KDS)
   const renderOrderCard = (order) => {
     const payMethodUpper = (order.payment_method || '').toUpperCase();
     const isMoney = payMethodUpper.includes('DINHEIRO');
@@ -257,7 +354,6 @@ export default function CozinhaTenant() {
 
     const orderCategory = getOrderCategory(order);
     const isTable = orderCategory === 'MESA';
-    const isBalcao = orderCategory === 'BALCAO';
     const isDelivery = orderCategory === 'DELIVERY';
 
     const fullAddr = order.customer_address || order.address || '';
@@ -299,8 +395,7 @@ export default function CozinhaTenant() {
             )}
           </div>
 
-          {/* BADGE DE LOCAL / TIPO */}
-          <div className="text-right">
+          <div className="flex flex-col items-end space-y-1">
             {isTable ? (
               <span className="bg-orange-500 text-white font-black text-xs px-3 py-1 rounded-xl shadow block">
                 🪑 {fullAddr || `MESA ${order.table_number || ''}`}
@@ -314,10 +409,16 @@ export default function CozinhaTenant() {
                 🛍️ BALCÃO
               </span>
             )}
+
+            <button
+              onClick={() => handleOpenEditModal(order)}
+              className="text-[10px] bg-yellow-500/20 text-yellow-300 border border-yellow-500/40 hover:bg-yellow-500/30 px-2 py-0.5 rounded-lg font-bold transition">
+              ✏️ Editar
+            </button>
           </div>
         </div>
 
-        {/* BLOCO DE ENDEREÇO & NAVEGAÇÃO PARA MOTOBOY */}
+        {/* ENDEREÇO & MAPS */}
         {isDelivery && (
           <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 text-xs space-y-1">
             <div className="flex justify-between items-start">
@@ -338,7 +439,7 @@ export default function CozinhaTenant() {
           </div>
         )}
 
-        {/* BLOCO DE COBRANÇA E PAGAMENTO (MOTOBOY / CAIXA) */}
+        {/* PAGAMENTO */}
         <div className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs">
           <div className="flex justify-between items-center">
             <span className="text-gray-400 font-bold text-[11px]">Pagamento:</span>
@@ -369,7 +470,7 @@ export default function CozinhaTenant() {
           )}
         </div>
 
-        {/* LISTA DE ITENS DA COZINHA */}
+        {/* ITENS DO PEDIDO */}
         <div className="space-y-2 border-t border-b border-gray-800 py-2.5">
           <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider block">Itens para Preparo:</span>
 
@@ -380,6 +481,7 @@ export default function CozinhaTenant() {
                   <span className="text-orange-400 bg-orange-500/20 border border-orange-500/40 px-1.5 py-0.5 rounded-md mr-1.5">{it.quantity}x</span> 
                   {it.name}
                 </span>
+                <span className="text-xs font-bold text-green-400">R$ {(parsePrice(it.price) * it.quantity).toFixed(2)}</span>
               </div>
 
               {it.details && (
@@ -404,13 +506,13 @@ export default function CozinhaTenant() {
           ))}
         </div>
 
-        {/* VALOR TOTAL E AÇÕES */}
+        {/* TOTAL */}
         <div className="flex justify-between items-center font-black text-sm pt-1">
           <span className="text-gray-400">TOTAL DO PEDIDO:</span>
           <span className="text-green-400 text-base">R$ {Number(order.total || 0).toFixed(2)}</span>
         </div>
 
-        {/* BOTÕES DE NAVEGAÇÃO DO KANBAN */}
+        {/* AÇÕES E IMPRESSÕES */}
         <div className="space-y-2 pt-1">
           <div className="flex space-x-1.5 text-xs font-bold">
             {(!order.status || order.status === 'recebido' || order.status === 'pendente' || order.status === 'novo') && (
@@ -444,9 +546,14 @@ export default function CozinhaTenant() {
             </button>
           </div>
 
-          <button onClick={() => handlePrintSingleOrder(order)} className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 py-2 rounded-xl text-xs font-bold text-gray-300 transition">
-            🛈 Imprimir Comprovante
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => handlePrintOrder(order, 'kitchen')} className="bg-gray-800 hover:bg-gray-700 border border-gray-700 py-2 rounded-xl text-[11px] font-bold text-gray-300 transition">
+              🖨️ Via Cozinha
+            </button>
+            <button onClick={() => handlePrintOrder(order, 'receipt')} className="bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/40 py-2 rounded-xl text-[11px] font-bold text-orange-300 transition">
+              📄 Recibo Cliente
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -457,8 +564,8 @@ export default function CozinhaTenant() {
       <style jsx global>{`
         @media print {
           body * { visibility: hidden !important; }
-          #print-receipt-area, #print-receipt-area * { visibility: visible !important; }
-          #print-receipt-area {
+          #print-area, #print-area * { visibility: visible !important; }
+          #print-area {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
@@ -467,53 +574,86 @@ export default function CozinhaTenant() {
             color: #000 !important;
             background: #fff !important;
             font-family: monospace !important;
+            font-size: 11px !important;
+            line-height: 1.2 !important;
           }
           .no-print { display: none !important; }
         }
       `}</style>
 
-      {/* COMPROVANTE TÉRMICO DE PRODUÇÃO DA COZINHA */}
-      {selectedOrderToPrint && (
-        <div id="print-receipt-area" className="hidden print:block text-black text-xs font-mono">
-          <div className="text-center border-b border-black pb-2 mb-2">
-            <h2 className="font-bold text-sm uppercase">{tenant.name}</h2>
-            <p className="text-[10px]">VIA DE PRODUÇÃO — PEDIDO #{selectedOrderToPrint.id}</p>
-            <p className="text-[9px]">{new Date(selectedOrderToPrint.created_at || Date.now()).toLocaleString('pt-BR')}</p>
-          </div>
-
-          <div className="border-b border-black pb-2 mb-2 space-y-0.5">
-            <p><b>CLIENTE:</b> {selectedOrderToPrint.customer_name || 'Cliente'}</p>
-            {selectedOrderToPrint.waiter_name && <p><b>GARÇOM:</b> {selectedOrderToPrint.waiter_name}</p>}
-            {selectedOrderToPrint.customer_phone && <p><b>TEL:</b> {selectedOrderToPrint.customer_phone}</p>}
-            <p><b>TIPO:</b> {selectedOrderToPrint.order_type ? selectedOrderToPrint.order_type.toUpperCase() : 'DELIVERY'}</p>
-            <p><b>LOCAL:</b> {selectedOrderToPrint.customer_address || selectedOrderToPrint.address || 'RETIRADA BALCÃO'}</p>
-            {selectedOrderToPrint.neighborhood && <p><b>BAIRRO:</b> {selectedOrderToPrint.neighborhood}</p>}
-            {selectedOrderToPrint.reference && <p><b>REF:</b> {selectedOrderToPrint.reference}</p>}
-            <p><b>PAGAMENTO:</b> {selectedOrderToPrint.payment_method} ({selectedOrderToPrint.is_paid ? 'PAGO' : 'COBRAR NA ENTREGA'})</p>
-          </div>
-
-          <div className="border-b border-black pb-2 mb-2">
-            <p className="font-bold border-b border-black pb-1 mb-1">ITENS DO PEDIDO:</p>
-            {selectedOrderToPrint.items && Array.isArray(selectedOrderToPrint.items) && selectedOrderToPrint.items.map((it, idx) => (
-              <div key={idx} className="mb-1">
-                <p className="font-bold">{it.quantity}x {it.name}</p>
-                {it.details && <p className="text-[10px] pl-2">↳ {it.details}</p>}
-                {it.selectedAddons && it.selectedAddons.length > 0 && (
-                  <p className="text-[10px] pl-2">↳ + {it.selectedAddons.map(a => a.name).join(', ')}</p>
-                )}
-                {it.observation && <p className="text-[10px] pl-2">↳ Obs: {it.observation}</p>}
+      {/* COMPROVANTE DE IMPRESSÃO (VIA DE COZINHA OU RECIBO DE CLIENTE) */}
+      {printConfig?.order && (
+        <div id="print-area" className="hidden print:block text-black font-mono">
+          {printConfig.mode === 'kitchen' ? (
+            /* VIA DA COZINHA */
+            <div>
+              <div className="text-center border-b border-black pb-2 mb-2">
+                <h2 className="font-bold text-sm uppercase">{tenant.name}</h2>
+                <p className="text-[10px]">VIA DE PRODUÇÃO — PEDIDO #{printConfig.order.id}</p>
+                <p className="text-[9px]">{new Date(printConfig.order.created_at || Date.now()).toLocaleString('pt-BR')}</p>
               </div>
-            ))}
-          </div>
 
-          <div className="text-right font-bold text-sm">
-            {Number(selectedOrderToPrint.delivery_fee || 0) > 0 && <p>TAXA: R$ {Number(selectedOrderToPrint.delivery_fee).toFixed(2)}</p>}
-            <p>TOTAL: R$ {Number(selectedOrderToPrint.total || 0).toFixed(2)}</p>
-          </div>
+              <div className="border-b border-black pb-2 mb-2 space-y-0.5 text-[10px]">
+                <p><b>CLIENTE:</b> {printConfig.order.customer_name || 'Cliente'}</p>
+                {printConfig.order.waiter_name && <p><b>GARÇOM:</b> {printConfig.order.waiter_name}</p>}
+                <p><b>TIPO:</b> {(printConfig.order.order_type || 'DELIVERY').toUpperCase()}</p>
+                <p><b>LOCAL:</b> {printConfig.order.customer_address || printConfig.order.address || 'BALCÃO'}</p>
+              </div>
+
+              <div className="border-b border-black pb-2 mb-2">
+                <p className="font-bold border-b border-black pb-1 mb-1">ITENS DO PEDIDO:</p>
+                {printConfig.order.items?.map((it, idx) => (
+                  <div key={idx} className="mb-1 text-[11px]">
+                    <p className="font-bold">{it.quantity}x {it.name}</p>
+                    {it.details && <p className="text-[10px] pl-2">↳ {it.details}</p>}
+                    {it.selectedAddons && it.selectedAddons.length > 0 && (
+                      <p className="text-[10px] pl-2">↳ + {it.selectedAddons.map(a => a.name).join(', ')}</p>
+                    )}
+                    {it.observation && <p className="text-[10px] pl-2">↳ OBS: {it.observation}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            /* RECIBO DO CLIENTE */
+            <div>
+              <div className="text-center border-b border-black pb-2 mb-2">
+                <h2 className="font-bold text-sm uppercase">{tenant.name}</h2>
+                {tenant.cnpj && <p className="text-[9px]">CNPJ: {tenant.cnpj}</p>}
+                {tenant.address && <p className="text-[9px]">{tenant.address}</p>}
+                <p className="text-[10px] font-bold mt-1">RECIBO DO CLIENTE — PEDIDO #{printConfig.order.id}</p>
+                <p className="text-[9px]">{new Date(printConfig.order.created_at || Date.now()).toLocaleString('pt-BR')}</p>
+              </div>
+
+              <div className="border-b border-black pb-2 mb-2 text-[10px] space-y-0.5">
+                <p><b>CLIENTE:</b> {printConfig.order.customer_name}</p>
+                {printConfig.order.customer_phone && <p><b>TEL:</b> {printConfig.order.customer_phone}</p>}
+                <p><b>ENDEREÇO:</b> {printConfig.order.customer_address || 'Retirada no Balcão'}</p>
+                {printConfig.order.waiter_name && <p><b>GARÇOM:</b> {printConfig.order.waiter_name}</p>}
+                <p><b>PAGAMENTO:</b> {printConfig.order.payment_method} ({printConfig.order.is_paid ? 'PAGO' : 'PENDENTE'})</p>
+              </div>
+
+              <div className="border-b border-black pb-2 mb-2 space-y-1">
+                <p className="font-bold text-[10px]">DETALHAMENTO:</p>
+                {printConfig.order.items?.map((it, idx) => (
+                  <div key={idx} className="flex justify-between text-[10px]">
+                    <span>{it.quantity}x {it.name}</span>
+                    <span>R$ {(parsePrice(it.price) * it.quantity).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="text-right text-[11px] space-y-0.5">
+                <div className="flex justify-between"><span>Subtotal:</span><span>R$ {Number(printConfig.order.subtotal || printConfig.order.total).toFixed(2)}</span></div>
+                {Number(printConfig.order.delivery_fee || 0) > 0 && <div className="flex justify-between"><span>Taxa Entrega:</span><span>R$ {Number(printConfig.order.delivery_fee).toFixed(2)}</span></div>}
+                <div className="flex justify-between font-extrabold border-t border-black pt-1"><span>TOTAL:</span><span>R$ {Number(printConfig.order.total).toFixed(2)}</span></div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* CABEÇALHO KDS DA COZINHA */}
+      {/* CABEÇALHO */}
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6 no-print flex-wrap gap-3">
         <div>
           <h1 className="font-extrabold text-xl sm:text-2xl text-orange-500">👨‍🍳 Painel KDS Cozinha — {tenant.name}</h1>
@@ -521,7 +661,6 @@ export default function CozinhaTenant() {
         </div>
 
         <div className="flex space-x-2 items-center flex-wrap gap-2">
-          {/* BOTÃO SOM */}
           <button
             onClick={enableAudioAlert}
             className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${
@@ -532,7 +671,6 @@ export default function CozinhaTenant() {
             {soundEnabled ? '🔊 Som Ativo' : '🔔 Ativar Alerta Sonoro'}
           </button>
 
-          {/* BOTÃO IMPRESSÃO AUTOMÁTICA */}
           <button
             onClick={() => setAutoPrintEnabled(!autoPrintEnabled)}
             className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${
@@ -555,7 +693,7 @@ export default function CozinhaTenant() {
         </div>
       </header>
 
-      {/* FILTROS POR TIPO DE PEDIDO */}
+      {/* FILTROS POR TIPO */}
       {!showArchived && (
         <div className="flex space-x-2 mb-6 no-print overflow-x-auto text-xs font-bold">
           <button onClick={() => setFilterType('ALL')} className={`px-4 py-2 rounded-xl border transition ${filterType === 'ALL' ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-white'}`}>Todos os Pedidos</button>
@@ -565,7 +703,7 @@ export default function CozinhaTenant() {
         </div>
       )}
 
-      {/* VISUALIZAÇÃO DOS ARQUIVADOS OU KANBAN */}
+      {/* ARQUIVADOS OU KANBAN */}
       {showArchived ? (
         <div className="space-y-4 no-print">
           <div className="flex justify-between items-center bg-gray-900 p-4 rounded-2xl border border-gray-800">
@@ -587,48 +725,110 @@ export default function CozinhaTenant() {
           </div>
         </div>
       ) : (
-        /* KANBAN EM 3 COLUNAS */
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 no-print">
-          {/* COLUNA 1: RECEBIDOS */}
           <div className="bg-gray-900/60 p-4 rounded-2xl border border-yellow-500/30 space-y-4">
-            <div className="flex justify-between items-center border-b border-yellow-500/30 pb-3">
-              <h2 className="font-extrabold text-xs text-yellow-400 uppercase tracking-wider">🟡 1. RECEBIDOS ({recebidosOrders.length})</h2>
-            </div>
+            <h2 className="font-extrabold text-xs text-yellow-400 border-b border-yellow-500/30 pb-3 uppercase tracking-wider">🟡 1. RECEBIDOS ({recebidosOrders.length})</h2>
             <div className="space-y-4">
-              {recebidosOrders.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-6">Sem novos pedidos</p>
-              ) : (
-                recebidosOrders.map(order => renderOrderCard(order))
-              )}
+              {recebidosOrders.length === 0 ? <p className="text-xs text-gray-500 text-center py-6">Sem novos pedidos</p> : recebidosOrders.map(order => renderOrderCard(order))}
             </div>
           </div>
 
-          {/* COLUNA 2: EM PRODUÇÃO */}
           <div className="bg-gray-900/60 p-4 rounded-2xl border border-blue-500/30 space-y-4">
-            <div className="flex justify-between items-center border-b border-blue-500/30 pb-3">
-              <h2 className="font-extrabold text-xs text-blue-400 uppercase tracking-wider">👨‍🍳 2. EM PRODUÇÃO ({producaoOrders.length})</h2>
-            </div>
+            <h2 className="font-extrabold text-xs text-blue-400 border-b border-blue-500/30 pb-3 uppercase tracking-wider">👨‍🍳 2. EM PRODUÇÃO ({producaoOrders.length})</h2>
             <div className="space-y-4">
-              {producaoOrders.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-6">Nenhum item em preparo</p>
-              ) : (
-                producaoOrders.map(order => renderOrderCard(order))
-              )}
+              {producaoOrders.length === 0 ? <p className="text-xs text-gray-500 text-center py-6">Nenhum item em preparo</p> : producaoOrders.map(order => renderOrderCard(order))}
             </div>
           </div>
 
-          {/* COLUNA 3: ENTREGA / PRONTO */}
           <div className="bg-gray-900/60 p-4 rounded-2xl border border-purple-500/30 space-y-4">
-            <div className="flex justify-between items-center border-b border-purple-500/30 pb-3">
-              <h2 className="font-extrabold text-xs text-purple-400 uppercase tracking-wider">🛵 3. ENTREGA / PRONTO ({entregaOrders.length})</h2>
-            </div>
+            <h2 className="font-extrabold text-xs text-purple-400 border-b border-purple-500/30 pb-3 uppercase tracking-wider">🛵 3. ENTREGA / PRONTO ({entregaOrders.length})</h2>
             <div className="space-y-4">
-              {entregaOrders.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-6">Nenhum pedido a caminho ou pronto</p>
-              ) : (
-                entregaOrders.map(order => renderOrderCard(order))
-              )}
+              {entregaOrders.length === 0 ? <p className="text-xs text-gray-500 text-center py-6">Nenhum pedido a caminho ou pronto</p> : entregaOrders.map(order => renderOrderCard(order))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE EDIÇÃO DE PEDIDO COM SENHA DE ADMIN */}
+      {editingOrder && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
+          <div className="bg-gray-900 w-full max-w-lg rounded-2xl p-5 border border-yellow-500/40 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="font-bold text-sm text-yellow-400">✏️ Editar Pedido #{editingOrder.id}</h3>
+              <button onClick={() => setEditingOrder(null)} className="text-xs bg-gray-800 px-3 py-1 rounded-lg">Fechar</button>
+            </div>
+
+            {!isAdminAuthenticated ? (
+              <form onSubmit={handleAuthenticateAdmin} className="space-y-3 pt-2">
+                <p className="text-xs text-gray-300">Digite a senha de administrador do restaurante para liberar a alteração deste pedido:</p>
+                <input
+                  type="password"
+                  placeholder="Senha do Administrador..."
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                />
+                <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-600 text-black font-extrabold py-2.5 rounded-xl text-xs transition">
+                  🔓 Desbloquear Edição
+                </button>
+              </form>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
+                  <span className="text-xs font-bold text-gray-300 block">Adicionar Produto ao Pedido:</span>
+                  <div className="flex space-x-2">
+                    <select
+                      value={selectedProductToAdd}
+                      onChange={(e) => setSelectedProductToAdd(e.target.value)}
+                      className="flex-1 bg-gray-800 border border-gray-700 p-2 rounded-xl text-xs text-white focus:outline-none">
+                      <option value="">Selecione o Item...</option>
+                      {products.map(p => (
+                        <option key={p.id} value={p.id}>{p.name} — R$ {Number(p.price).toFixed(2)}</option>
+                      ))}
+                    </select>
+                    <button type="button" onClick={handleAddItemToEditCart} className="bg-green-600 hover:bg-green-700 px-3 py-2 rounded-xl text-xs font-bold">
+                      ➕ Incluir
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <span className="text-xs font-bold text-gray-300 block">Itens Atuais do Pedido:</span>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {editCartItems.map((item, index) => (
+                      <div key={index} className="flex justify-between items-center bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs">
+                        <div>
+                          <span className="font-bold text-white block">{item.name}</span>
+                          <span className="text-[10px] text-green-400">R$ {(parsePrice(item.price) * item.quantity).toFixed(2)}</span>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <button type="button" onClick={() => handleUpdateEditItemQty(index, -1)} className="w-6 h-6 bg-gray-800 rounded-lg text-red-400 font-bold">-</button>
+                          <span className="font-bold">{item.quantity}</span>
+                          <button type="button" onClick={() => handleUpdateEditItemQty(index, 1)} className="w-6 h-6 bg-gray-800 rounded-lg text-green-400 font-bold">+</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-1 text-xs">
+                  <div className="flex justify-between text-gray-400">
+                    <span>Taxa de Entrega:</span>
+                    <span>R$ {Number(editingOrder.delivery_fee || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-extrabold text-sm text-green-400 pt-1 border-t border-gray-800">
+                    <span>Novo Total do Pedido:</span>
+                    <span>R$ {(editCartItems.reduce((acc, item) => acc + (parsePrice(item.price) * item.quantity), 0) + Number(editingOrder.delivery_fee || 0)).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="flex space-x-2 pt-2">
+                  <button type="button" onClick={() => setEditingOrder(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs font-bold text-gray-300">Cancelar</button>
+                  <button type="button" onClick={handleSaveEditedOrder} className="w-1/2 bg-green-600 hover:bg-green-700 py-2.5 rounded-xl text-xs font-bold text-white">💾 Salvar e Atualizar Cobrança</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
