@@ -9,6 +9,44 @@ const parsePrice = (val) => {
   return isNaN(num) ? 0 : num;
 };
 
+// Função auxiliar para converter valor em Reais para Extenso
+const valorPorExtenso = (v) => {
+  const valor = parsePrice(v);
+  if (valor === 0) return 'Zero Reais';
+
+  const unidades = ['', 'Um', 'Dois', 'Três', 'Quatro', 'Cinco', 'Seis', 'Sete', 'Oito', 'Nove', 'Dez', 'Onze', 'Doze', 'Treze', 'Quatorze', 'Quinze', 'Dezesseis', 'Dezessete', 'Dezoito', 'Dezenove'];
+  const dezenas = ['', '', 'Vinte', 'Trinta', 'Quarenta', 'Cinquenta', 'Sessenta', 'Setenta', 'Oitenta', 'Noventa'];
+  const centenas = ['', 'Cento', 'Duzentos', 'Trezentos', 'Quatrocentos', 'Quinhentos', 'Seiscentos', 'Setecentos', 'Oitocentos', 'Novecentos'];
+
+  const inteiros = Math.floor(valor);
+  const centavos = Math.round((valor - inteiros) * 100);
+
+  const getExtensoNumero = (num) => {
+    if (num === 0) return '';
+    if (num === 100) return 'Cem';
+    if (num < 20) return unidades[num];
+    if (num < 100) {
+      const d = Math.floor(num / 10);
+      const u = num % 10;
+      return dezenas[d] + (u > 0 ? ` e ${unidades[u]}` : '');
+    }
+    const c = Math.floor(num / 100);
+    const resto = num % 100;
+    return centenas[c] + (resto > 0 ? ` e ${getExtensoNumero(resto)}` : '');
+  };
+
+  let str = '';
+  if (inteiros > 0) {
+    str += `${getExtensoNumero(inteiros)} ${inteiros === 1 ? 'Real' : 'Reais'}`;
+  }
+  if (centavos > 0) {
+    if (inteiros > 0) str += ' e ';
+    str += `${getExtensoNumero(centavos)} ${centavos === 1 ? 'Centavo' : 'Centavos'}`;
+  }
+
+  return str;
+};
+
 export default function PdvKdsTenant() {
   const router = useRouter();
   const { slug } = router.query;
@@ -185,7 +223,6 @@ export default function PdvKdsTenant() {
     return index !== -1 ? `#${String(index + 1).padStart(2, '0')}` : `#${order.id}`;
   };
 
-  // ATUALIZAÇÃO OTIMISTA DE STATUS
   const updateOrderStatus = async (orderId, newStatus) => {
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
@@ -195,7 +232,6 @@ export default function PdvKdsTenant() {
     }
   };
 
-  // ATUALIZAÇÃO OTIMISTA DE ARQUIVAMENTO
   const archiveOrder = async (orderId) => {
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, archived: true, status: 'concluido' } : o));
     const { error } = await supabase.from('orders').update({ archived: true, status: 'concluido' }).eq('id', orderId);
@@ -233,7 +269,6 @@ export default function PdvKdsTenant() {
     window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // EDIÇÃO ADMIN
   const handleStartEditOrder = (order) => {
     if (isAdminEditAuth) {
       openEditModal(order);
@@ -318,7 +353,6 @@ export default function PdvKdsTenant() {
     if (tenant) fetchOrders(tenant.id);
   };
 
-  // MONTAGEM DO ITEM NO PDV
   const handleOpenProdModal = (prod) => {
     setSelectedProdForPdv(prod);
     setSelectedAddonsForProd([]);
@@ -406,7 +440,6 @@ export default function PdvKdsTenant() {
     setActiveTab('kds');
   };
 
-  // FECHAMENTO E QUITAÇÃO DO PEDIDO (COM ATUALIZAÇÃO OTIMISTA)
   const handleOpenClosingModal = (order) => {
     setClosingOrder(order);
     setSplitPeopleCount(1);
@@ -444,7 +477,6 @@ export default function PdvKdsTenant() {
         status: 'concluido'
       };
 
-      // Atualiza o estado local imediatamente (Muda para concluído e vai para Arquivados)
       setOrders(prev => prev.map(o => o.id === closingOrder.id ? { ...o, ...payload } : o));
 
       const { error } = await supabase.from('orders').update(payload).eq('id', closingOrder.id);
@@ -788,7 +820,7 @@ export default function PdvKdsTenant() {
             padding: 4px !important; 
             color: #000 !important; 
             background: #fff !important; 
-            font-family: 'Courier New', Courier, monospace !important; 
+            font-family: Arial, sans-serif !important; 
             font-size: 11px !important;
             line-height: 1.3 !important;
           }
@@ -798,73 +830,120 @@ export default function PdvKdsTenant() {
         }
       `}</style>
 
-      {/* ÁREA DE IMPRESSÃO - FORMATO CUPOM TÉRMICO (80MM) */}
+      {/* ÁREA DE IMPRESSÃO - SUPORTA DUPLO FORMATO (TICKET COZINHA E RECIBO OFICIAL TRADICIONAL) */}
       {printConfig?.order && (
-        <div id="print-area" className="hidden print:block text-black font-mono">
-          <div className="text-center border-b border-dashed border-black pb-2 mb-2">
-            <h2 className="font-extrabold text-sm uppercase">{tenant.name}</h2>
-            <p className="text-[10px] font-bold mt-0.5">
-              *** {printConfig.mode === 'kitchen' ? 'VIA DE PRODUÇÃO' : 'RECIBO DO CLIENTE'} ***
-            </p>
-            <p className="text-[12px] font-black mt-1">
-              PEDIDO {getOrderDisplayNumber(printConfig.order)}
-            </p>
-            <p className="text-[9px] mt-0.5">
-              {new Date(printConfig.order.created_at || Date.now()).toLocaleString('pt-BR')}
-            </p>
-          </div>
-
-          <div className="border-b border-dashed border-black pb-2 mb-2 text-[10px] space-y-0.5">
-            <p><b>CLIENTE:</b> {printConfig.order.customer_name}</p>
-            <p><b>LOCAL:</b> {printConfig.order.customer_address}</p>
-            {printConfig.order.waiter_name && <p><b>GARÇOM:</b> {printConfig.order.waiter_name}</p>}
-            {printConfig.order.customer_phone && <p><b>TEL:</b> {printConfig.order.customer_phone}</p>}
-            {printConfig.order.payment_method && <p><b>PAGAMENTO:</b> {printConfig.order.payment_method}</p>}
-          </div>
-
-          <div className="border-b border-dashed border-black pb-2 mb-2 text-[10px]">
-            <p className="font-bold border-b border-black pb-1 mb-1">ITENS DO PEDIDO:</p>
-            {printConfig.order.items?.map((it, idx) => (
-              <div key={idx} className="mb-1.5">
-                <div className="flex justify-between font-bold">
-                  <span>{it.quantity}x {it.name}</span>
-                  <span>R$ {(it.price * it.quantity).toFixed(2)}</span>
-                </div>
-                {it.is_combo && it.comboSteps && it.comboSteps.length > 0 ? (
-                  it.comboSteps.map((step, sIdx) => (
-                    <p key={sIdx} className="pl-2 text-[9px]">↳ {step.title}: {step.items?.map(i => i.name).join(', ')}</p>
-                  ))
-                ) : (
-                  it.selectedAddons && it.selectedAddons.length > 0 && (
-                    <p className="pl-2 text-[9px]">↳ {it.selectedAddons.map(a => a.name).join(', ')}</p>
-                  )
-                )}
-                {it.selectedBorder && it.selectedBorder.name && it.selectedBorder.name !== 'Sem Borda' && (
-                  <p className="pl-2 text-[9px]">↳ Borda: {it.selectedBorder.name}</p>
-                )}
-                {it.observation && (
-                  <p className="pl-2 text-[9px] font-bold">↳ OBS: {it.observation}</p>
-                )}
+        <div id="print-area" className="hidden print:block text-black">
+          {printConfig.mode === 'kitchen' ? (
+            /* COMANDA DE PRODUÇÃO DA COZINHA (TICKET) */
+            <div className="font-mono">
+              <div className="text-center border-b border-dashed border-black pb-2 mb-2">
+                <h2 className="font-extrabold text-sm uppercase">{tenant.name}</h2>
+                <p className="text-[10px] font-bold mt-0.5">*** VIA DE PRODUÇÃO COZINHA ***</p>
+                <p className="text-[12px] font-black mt-1">PEDIDO {getOrderDisplayNumber(printConfig.order)}</p>
+                <p className="text-[9px] mt-0.5">{new Date(printConfig.order.created_at || Date.now()).toLocaleString('pt-BR')}</p>
               </div>
-            ))}
-          </div>
 
-          {printConfig.order.notes && (
-            <div className="border-b border-dashed border-black pb-2 mb-2 text-[10px]">
-              <p><b>OBS. PEDIDO:</b> {printConfig.order.notes}</p>
+              <div className="border-b border-dashed border-black pb-2 mb-2 text-[10px] space-y-0.5">
+                <p><b>CLIENTE:</b> {printConfig.order.customer_name}</p>
+                <p><b>LOCAL:</b> {printConfig.order.customer_address}</p>
+                {printConfig.order.waiter_name && <p><b>GARÇOM:</b> {printConfig.order.waiter_name}</p>}
+                {printConfig.order.customer_phone && <p><b>TEL:</b> {printConfig.order.customer_phone}</p>}
+              </div>
+
+              <div className="border-b border-dashed border-black pb-2 mb-2 text-[10px]">
+                <p className="font-bold border-b border-black pb-1 mb-1">ITENS DO PEDIDO:</p>
+                {printConfig.order.items?.map((it, idx) => (
+                  <div key={idx} className="mb-1.5">
+                    <div className="flex justify-between font-bold">
+                      <span>{it.quantity}x {it.name}</span>
+                    </div>
+                    {it.is_combo && it.comboSteps && it.comboSteps.length > 0 ? (
+                      it.comboSteps.map((step, sIdx) => (
+                        <p key={sIdx} className="pl-2 text-[9px]">↳ {step.title}: {step.items?.map(i => i.name).join(', ')}</p>
+                      ))
+                    ) : (
+                      it.selectedAddons && it.selectedAddons.length > 0 && (
+                        <p className="pl-2 text-[9px]">↳ {it.selectedAddons.map(a => a.name).join(', ')}</p>
+                      )
+                    )}
+                    {it.selectedBorder && it.selectedBorder.name && it.selectedBorder.name !== 'Sem Borda' && (
+                      <p className="pl-2 text-[9px]">↳ Borda: {it.selectedBorder.name}</p>
+                    )}
+                    {it.observation && (
+                      <p className="pl-2 text-[9px] font-bold">↳ OBS: {it.observation}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {printConfig.order.notes && (
+                <div className="text-[10px]">
+                  <p><b>OBS. PEDIDO:</b> {printConfig.order.notes}</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* RECIBO DE PAGAMENTO E CONSUMO (ESTILO MODELO OFICIAL LANCHONETE) */
+            <div className="border-2 border-black p-2 font-sans text-black">
+              {/* CABEÇALHO DO RECIBO */}
+              <div className="flex justify-between items-start border-b-2 border-black pb-2 mb-2">
+                <div>
+                  <h2 className="font-black text-sm uppercase tracking-wide">{tenant.name}</h2>
+                  <p className="text-[9px] font-bold">Lanchonete e Alimentos</p>
+                  {tenant.phone && <p className="text-[8px]">Tel: {tenant.phone}</p>}
+                </div>
+                <div className="text-right bg-gray-200 border border-black p-1 rounded">
+                  <span className="block text-[8px] font-bold uppercase">RECIBO Nº {getOrderDisplayNumber(printConfig.order)}</span>
+                  <span className="block text-xs font-black">R$ {Number(printConfig.order.total || 0).toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* CORPO PREENCHIDO AUTOMATICAMENTE */}
+              <div className="text-[10px] space-y-1.5 leading-snug">
+                <p className="border-b border-dotted border-gray-600 pb-0.5">
+                  <b>Recebi(emos) de:</b> {printConfig.order.customer_name || 'Cliente Balcão'}
+                </p>
+
+                {(printConfig.order.customer_phone || printConfig.order.customer_address) && (
+                  <p className="border-b border-dotted border-gray-600 pb-0.5">
+                    <b>Contato/End:</b> {[printConfig.order.customer_phone, printConfig.order.customer_address].filter(Boolean).join(' - ')}
+                  </p>
+                )}
+
+                <p className="border-b border-dotted border-gray-600 pb-0.5">
+                  <b>A quantia de:</b> {valorPorExtenso(printConfig.order.total)}
+                </p>
+
+                <div className="border-b border-dotted border-gray-600 pb-1">
+                  <b>Referente a:</b> Consumo de lanchonete/pedidos:
+                  <ul className="pl-2 mt-0.5 space-y-0.5 text-[9px]">
+                    {printConfig.order.items?.map((it, idx) => (
+                      <li key={idx}>
+                        • {it.quantity}x {it.name} - R$ {(it.price * it.quantity).toFixed(2)}
+                      </li>
+                    ))}
+                    {Number(printConfig.order.delivery_fee) > 0 && (
+                      <li>• 1x Taxa de Entrega - R$ {Number(printConfig.order.delivery_fee).toFixed(2)}</li>
+                    )}
+                  </ul>
+                </div>
+
+                <p className="border-b border-dotted border-gray-600 pb-0.5">
+                  <b>Forma de Pagamento:</b> {printConfig.order.payment_method || 'Dinheiro / Outro'}
+                </p>
+              </div>
+
+              {/* DATA E ASSINATURA */}
+              <div className="mt-4 pt-2 text-center text-[9px] space-y-3">
+                <p>Data: {new Date(printConfig.order.created_at || Date.now()).toLocaleDateString('pt-BR')}</p>
+
+                <div className="pt-4 border-t border-black w-3/4 mx-auto">
+                  <p className="font-bold text-[8px] uppercase">{tenant.name}</p>
+                  <p className="text-[7px]">Assinatura / Carimbo do Emissor</p>
+                </div>
+              </div>
             </div>
           )}
-
-          <div className="text-right text-[11px] font-bold space-y-0.5 pt-1">
-            {Number(printConfig.order.delivery_fee) > 0 && (
-              <p className="text-[10px] font-normal">TAXA ENTREGA: R$ {Number(printConfig.order.delivery_fee).toFixed(2)}</p>
-            )}
-            <p className="text-xs font-black">TOTAL: R$ {Number(printConfig.order.total).toFixed(2)}</p>
-          </div>
-
-          <div className="text-center text-[9px] mt-3 border-t border-dashed border-black pt-2">
-            <p>Obrigado pela preferência!</p>
-          </div>
         </div>
       )}
 
