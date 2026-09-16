@@ -249,6 +249,7 @@ export default function PdvKdsTenant() {
     }
   };
 
+  // ENVIO DE NOTIFICAÇÕES VIA WHATSAPP (POP-UP NO PC / APP NO MOBILE)
   const sendWhatsAppStatus = (order, msgType) => {
     if (!order.customer_phone) return alert("Telefone não cadastrado.");
     const cleanPhone = order.customer_phone.replace(/\D/g, '');
@@ -266,7 +267,25 @@ export default function PdvKdsTenant() {
         : `Olá ${order.customer_name}! 🛍️ Seu pedido ${orderNum} no *${tenant.name}* está PRONTO para retirada!`;
     }
 
-    window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+    const encodedMsg = encodeURIComponent(msg);
+    const isMobile = typeof window !== 'undefined' && (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768);
+
+    if (isMobile) {
+      // 📱 DISPOSITIVO MÓVEL: Abre direto o app do WhatsApp
+      window.open(`https://wa.me/55${cleanPhone}?text=${encodedMsg}`, '_blank');
+    } else {
+      // 💻 COMPUTADOR: Abre Mini-Janela Flutuante no canto superior direito
+      const width = 450;
+      const height = 750;
+      const left = window.screen.width - width - 20;
+      const top = 50;
+
+      window.open(
+        `https://web.whatsapp.com/send?phone=55${cleanPhone}&text=${encodedMsg}`,
+        'WhatsAppPopUp',
+        `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes,status=no`
+      );
+    }
   };
 
   const handleStartEditOrder = (order) => {
