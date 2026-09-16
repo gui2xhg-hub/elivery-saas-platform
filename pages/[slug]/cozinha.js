@@ -249,39 +249,45 @@ export default function PdvKdsTenant() {
     }
   };
 
-  // ENVIO DE NOTIFICAÇÕES VIA WHATSAPP (PRIORIZA APP NO DESKTOP E TEM FALLBACK PARA NAVEGADOR)
+  // ENVIO DE NOTIFICAÇÕES VIA WHATSAPP (CORRIGIDO E UNIFICADO)
   const sendWhatsAppStatus = (order, msgType) => {
-    if (!order.customer_phone) return alert("Telefone não cadastrado.");
+    if (!order.customer_phone) return; // Se não tem telefone, apenas ignora o envio sem travar o status
     const cleanPhone = order.customer_phone.replace(/\D/g, '');
-    if (!cleanPhone || cleanPhone === '00000000000') return alert("WhatsApp indisponível.");
+    if (!cleanPhone || cleanPhone === '00000000000') return;
 
     let msg = '';
-    const isDelivery = order.order_type === 'delivery' || (!order.customer_address?.includes('MESA') && !order.customer_address?.includes('Balcão'));
+    const orderCat = getOrderCategory(order);
+    const isDelivery = orderCat === 'DELIVERY';
+    const isBalcao = orderCat === 'BALCAO';
     const orderNum = getOrderDisplayNumber(order);
 
     if (msgType === 'producao') {
+      // ETAPA 1: Em preparo / Produção
       msg = `Olá ${order.customer_name}! 👨‍🍳 Seu pedido ${orderNum} no *${tenant.name}* já está em preparo!`;
     } else if (msgType === 'entrega') {
-      msg = isDelivery
-        ? `Olá ${order.customer_name}! 🛵 Seu pedido ${orderNum} no *${tenant.name}* saiu para entrega!`
-        : `Olá ${order.customer_name}! 🛍️ Seu pedido ${orderNum} no *${tenant.name}* está PRONTO para retirada!`;
+      // ETAPA 2: Finalização / Entrega / Balcão
+      if (isDelivery) {
+        msg = `Olá ${order.customer_name}! 🛵 Seu pedido ${orderNum} no *${tenant.name}* saiu para entrega!`;
+      } else if (isBalcao) {
+        msg = `Olá ${order.customer_name}! 🛍️ Seu pedido ${orderNum} no *${tenant.name}* está PRONTO para retirada!`;
+      } else {
+        msg = `Olá ${order.customer_name}! 🪑 Seu pedido ${orderNum} no *${tenant.name}* está pronto e sendo servido na sua mesa!`;
+      }
     }
 
     const encodedMsg = encodeURIComponent(msg);
     const isMobile = typeof window !== 'undefined' && (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768);
 
     if (isMobile) {
-      // 📱 DISPOSITIVO MÓVEL: Abre direto no App do Celular
       window.open(`https://wa.me/55${cleanPhone}?text=${encodedMsg}`, '_blank');
     } else {
-      // 💻 COMPUTADOR: Prioriza abrir o App Desktop do WhatsApp. Se não abrir, vai para a Web.
+      // Prioriza abrir o App Desktop (whatsapp://), se não abrir em 1.5s cai pro WhatsApp Web
       const appUrl = `whatsapp://send?phone=55${cleanPhone}&text=${encodedMsg}`;
       const webUrl = `https://web.whatsapp.com/send?phone=55${cleanPhone}&text=${encodedMsg}`;
 
       const startTime = Date.now();
       window.location.href = appUrl;
 
-      // Fallback: se em 1.5s a tela não mudou o foco para o app, abre no navegador
       setTimeout(() => {
         if (Date.now() - startTime < 2000) {
           window.open(webUrl, '_blank');
@@ -834,28 +840,28 @@ export default function PdvKdsTenant() {
         <div className="space-y-2 pt-1">
           <div className="flex space-x-1.5 text-xs font-bold">
             {(!order.status || order.status === 'recebido' || order.status === 'pendente' || order.status === 'novo') && (
-              <button onClick={() => updateOrderStatus(order.id, 'em_producao')} className="flex-1 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-xl text-white font-extrabold text-xs">
+              <button 
+                onClick={() => {
+                  updateOrderStatus(order.id, 'em_producao');
+                  sendWhatsAppStatus(order, 'producao');
+                }} 
+                className="flex-1 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-xl text-white font-extrabold text-xs"
+              >
                 👨‍🍳 Produção ➔
               </button>
             )}
 
             {(order.status === 'em_producao' || order.status === 'em_preparo') && (
-              <button onClick={() => updateOrderStatus(order.id, 'saiu_entrega')} className="flex-1 bg-purple-600 hover:bg-purple-700 py-2.5 rounded-xl text-white font-extrabold text-xs">
+              <button 
+                onClick={() => {
+                  updateOrderStatus(order.id, 'saiu_entrega');
+                  sendWhatsAppStatus(order, 'entrega');
+                }} 
+                className="flex-1 bg-purple-600 hover:bg-purple-700 py-2.5 rounded-xl text-white font-extrabold text-xs"
+              >
                 {isTable ? '🪑 Servir ➔' : isDelivery ? '🛵 Entrega ➔' : '🛍️ Pronto ➔'}
               </button>
             )}
-
-            {/* BOTÃO INDEPENDENTE PARA ENVIAR WHATSAPP */}
-            <button
-              onClick={() => {
-                const type = (order.status === 'em_producao' || order.status === 'em_preparo') ? 'entrega' : 'producao';
-                sendWhatsAppStatus(order, type);
-              }}
-              className="bg-green-600/20 hover:bg-green-600/40 text-green-400 border border-green-500/30 px-3 py-2.5 rounded-xl font-bold"
-              title="Notificar Cliente via WhatsApp"
-            >
-              💬
-            </button>
 
             <button onClick={() => handleOpenClosingModal(order)} className="flex-1 bg-green-600 hover:bg-green-700 py-2.5 rounded-xl text-white font-extrabold text-xs">
               💰 Cobrar
