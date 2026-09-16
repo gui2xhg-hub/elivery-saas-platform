@@ -110,10 +110,26 @@ export default function AdminTenant() {
   const fetchTenant = async () => {
     const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
     if (tData) {
-      setTenant({
+      let updatedTenant = {
         ...tData,
-        work_days: tData.work_days || [1, 2, 3, 4, 5, 6]
-      });
+        work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
+        auto_reset_orders: tData.auto_reset_orders ?? false
+      };
+
+      // VERIFICA SE O AUTO-ZERAR ESTÁ ATIVADO E SE JÁ MUDOU O DIA DO EXPEDIENTE
+      if (updatedTenant.auto_reset_orders) {
+        const lastReset = updatedTenant.order_reset_at ? new Date(updatedTenant.order_reset_at) : new Date(0);
+        const now = new Date();
+        const isDifferentDay = now.toDateString() !== lastReset.toDateString();
+
+        if (isDifferentDay) {
+          const nowIso = now.toISOString();
+          await supabase.from('tenants').update({ order_reset_at: nowIso }).eq('id', updatedTenant.id);
+          updatedTenant.order_reset_at = nowIso;
+        }
+      }
+
+      setTenant(updatedTenant);
     }
     setLoading(false);
   };
@@ -141,7 +157,8 @@ export default function AdminTenant() {
     if (tData) {
       setTenant({
         ...tData,
-        work_days: tData.work_days || [1, 2, 3, 4, 5, 6]
+        work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
+        auto_reset_orders: tData.auto_reset_orders ?? false
       });
     }
     if (cData) {
@@ -155,24 +172,44 @@ export default function AdminTenant() {
     if (wData) setWaitersList(wData);
   };
 
+  // CÁLCULO INTELIGENTE DA NUMERAÇÃO DE PEDIDO
   const getOrderDisplayNumber = (order) => {
     if (order.daily_number) {
       return `#${String(order.daily_number).padStart(2, '0')}`;
     }
-    const resetDate = tenant?.order_reset_at ? new Date(tenant.order_reset_at) : new Date(0);
-    const tenantOrdersAfterReset = allOrders
-      .filter(o => new Date(o.created_at) >= resetDate)
-      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    
-    const index = tenantOrdersAfterReset.findIndex(o => o.id === order.id);
-    if (index !== -1) {
-      return `#${String(index + 1).padStart(2, '0')}`;
+
+    const resetDate = tenant?.order_reset_at ? new Date(tenant.order_reset_at) : null;
+
+    if (resetDate) {
+      const orderDate = new Date(order.created_at);
+
+      if (orderDate >= resetDate) {
+        // Pedidos posteriores ao ponto de reset recomeçam do #01
+        const ordersAfterReset = allOrders
+          .filter(o => new Date(o.created_at) >= resetDate)
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        const idx = ordersAfterReset.findIndex(o => o.id === order.id);
+        if (idx !== -1) return `#${String(idx + 1).padStart(2, '0')}`;
+      } else {
+        // Pedidos anteriores ao reset mantêm sua numeração histórica original
+        const ordersBeforeReset = allOrders
+          .filter(o => new Date(o.created_at) < resetDate)
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        const idx = ordersBeforeReset.findIndex(o => o.id === order.id);
+        if (idx !== -1) return `#${String(idx + 1).padStart(2, '0')}`;
+      }
     }
+
+    // Sequência geral padrão
+    const sortedAll = [...allOrders].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const globalIdx = sortedAll.findIndex(o => o.id === order.id);
+    if (globalIdx !== -1) return `#${String(globalIdx + 1).padStart(2, '0')}`;
+
     return `#${order.id}`;
   };
 
   const handleResetOrderCounter = async () => {
-    if (confirm("⚠️ Deseja zerar o contador do expediente?\n\nOs novos pedidos começarão novamente a partir do número #01. Os dados dos relatórios e históricos anteriores continuarão salvos.")) {
+    if (confirm("⚠️ Deseja zerar o contador do expediente agora?\n\nOs novos pedidos começarão a partir do número #01. Os pedidos já registrados continuarão salvos com suas numerações anteriores.")) {
       const nowIso = new Date().toISOString();
       const { error } = await supabase.from('tenants').update({ order_reset_at: nowIso }).eq('id', tenant.id);
       if (error) {
@@ -182,6 +219,12 @@ export default function AdminTenant() {
         fetchData();
       }
     }
+  };
+
+  const handleToggleAutoReset = async (enabled) => {
+    setTenant(prev => ({ ...prev, auto_reset_orders: enabled }));
+    const { error } = await supabase.from('tenants').update({ auto_reset_orders: enabled }).eq('id', tenant.id);
+    if (error) alert("Erro ao salvar opção de auto-zerar: " + error.message);
   };
 
   const toggleDaySelection = (currentDays, dayId) => {
@@ -327,7 +370,8 @@ export default function AdminTenant() {
       has_delivery: tenant.has_delivery ?? true,
       has_balcao: tenant.has_balcao ?? true,
       has_tables: tenant.has_tables ?? true,
-      has_waiters: tenant.has_waiters ?? false
+      has_waiters: tenant.has_waiters ?? false,
+      auto_reset_orders: tenant.auto_reset_orders ?? false
     }).eq('id', tenant.id);
 
     if (error) alert("Erro ao salvar configurações: " + error.message);
@@ -633,22 +677,22 @@ export default function AdminTenant() {
         <button onClick={() => setActiveTab('products')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🍔 Itens</button>
         <button onClick={() => setActiveTab('addons')} className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>➕ Adicionais/Sabores</button>
         <button onClick={() => setActiveTab('categories')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'categories' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🏷️ Categorias</button>
-        
+
         {(tenant.has_waiters ?? false) && (
           <button onClick={() => setActiveTab('waiters')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'waiters' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>👤 Garçons</button>
         )}
-        
+
         <button onClick={() => setActiveTab('clients')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'clients' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>👥 Clientes</button>
         <button onClick={() => setActiveTab('reports')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>📊 Financeiro</button>
-        
+
         {(tenant.has_tables ?? true) && (
           <button onClick={() => setActiveTab('tables')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'tables' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🪑 Mesas QR</button>
         )}
-        
+
         {(tenant.has_delivery ?? true) && (
           <button onClick={() => setActiveTab('neighborhoods')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'neighborhoods' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🛵 Bairros</button>
         )}
-        
+
         <button onClick={() => setActiveTab('settings')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>⚙️ Config</button>
       </div>
 
@@ -1045,9 +1089,19 @@ export default function AdminTenant() {
               </div>
             </div>
 
-            <div className="flex space-x-2 w-full sm:w-auto">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <label className="flex items-center space-x-2 cursor-pointer bg-gray-800 border border-gray-700 px-3 py-2 rounded-xl text-xs text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={tenant.auto_reset_orders || false}
+                  onChange={(e) => handleToggleAutoReset(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-orange-500 rounded cursor-pointer"
+                />
+                <span>Auto-zerar a cada dia</span>
+              </label>
+
               <button onClick={handleResetOrderCounter} className="bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/40 font-bold px-3 py-2 rounded-xl text-xs transition">
-                🔄 Zerar Nº de Pedidos (#01)
+                🔄 Zerar Agora (#01)
               </button>
               <button onClick={() => window.print()} className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-2 rounded-xl text-xs transition shadow">
                 🖨️ Imprimir
@@ -1266,7 +1320,20 @@ export default function AdminTenant() {
             </section>
 
             <section className="bg-gray-900 p-6 rounded-2xl border border-gray-800 space-y-4">
-              <h3 className="font-bold text-base text-orange-400 border-b border-gray-800 pb-2">⏰ Horários de Funcionamento</h3>
+              <h3 className="font-bold text-base text-orange-400 border-b border-gray-800 pb-2">⏰ Horários de Funcionamento & Sequência de Pedidos</h3>
+
+              <div className="bg-gray-950 p-3.5 rounded-xl border border-gray-800 space-y-2">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={tenant.auto_reset_orders || false}
+                    onChange={(e) => setTenant({ ...tenant, auto_reset_orders: e.target.checked })}
+                    className="w-4 h-4 accent-orange-500 rounded cursor-pointer"
+                  />
+                  <span className="text-xs font-bold text-orange-400">🔄 Auto-zerar sequência de pedidos a cada expediente/virada de dia</span>
+                </label>
+                <p className="text-[10px] text-gray-400 pl-6">Quando ativado, os novos pedidos do próximo dia/expediente começarão automaticamente do #01 sem alterar o histórico anterior.</p>
+              </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
