@@ -219,16 +219,26 @@ export default function CozinhaTenant() {
   if (loading) return <div className="p-4 text-white text-center font-sans">Carregando Cozinha...</div>;
   if (!tenant) return <div className="p-4 text-white text-center font-sans">Restaurante não encontrado.</div>;
 
+  // HELPER PARA IDENTIFICAR TIPO DE PEDIDO
+  const getOrderCategory = (o) => {
+    if (o.order_type) {
+      const type = o.order_type.toLowerCase();
+      if (type === 'mesa') return 'MESA';
+      if (type === 'balcao' || type === 'retirada') return 'BALCAO';
+      if (type === 'delivery') return 'DELIVERY';
+    }
+    const fullAddr = (o.customer_address || o.address || '').toUpperCase();
+    if (fullAddr.includes('MESA') || o.table_number) return 'MESA';
+    if (fullAddr.includes('BALCÃO') || fullAddr.includes('RETIRADA')) return 'BALCAO';
+    return 'DELIVERY';
+  };
+
   // FILTRAGEM POR TIPO DE PEDIDO
   const filterFn = (o) => {
-    const fullAddr = (o.customer_address || o.address || '').toUpperCase();
-    const isTable = fullAddr.includes('MESA') || o.table_number || o.order_type === 'MESA' || o.order_type === 'mesa';
-    const isBalcao = fullAddr.includes('BALCÃO') || fullAddr.includes('RETIRADA') || o.order_type === 'retirada';
-    const isDelivery = !isTable && !isBalcao;
-
-    if (filterType === 'DELIVERY') return isDelivery;
-    if (filterType === 'BALCAO') return isBalcao;
-    if (filterType === 'MESA') return isTable;
+    const category = getOrderCategory(o);
+    if (filterType === 'DELIVERY') return category === 'DELIVERY';
+    if (filterType === 'BALCAO') return category === 'BALCAO';
+    if (filterType === 'MESA') return category === 'MESA';
     return true;
   };
 
@@ -239,18 +249,18 @@ export default function CozinhaTenant() {
 
   const archivedOrders = orders.filter(o => o.archived === true || o.status === 'arquivado');
 
-  // COMPONENTE DO CARD DO PEDIDO (ALTO CONTRASTE KDS + MOTOBOY)
+  // COMPONENTE DO CARD DO PEDIDO (ALTO CONTRASTE KDS)
   const renderOrderCard = (order) => {
     const payMethodUpper = (order.payment_method || '').toUpperCase();
-    const isPix = payMethodUpper.includes('PIX');
     const isMoney = payMethodUpper.includes('DINHEIRO');
     const isCardOnline = payMethodUpper.includes('ONLINE') || payMethodUpper.includes('PAGO ONLINE');
 
-    const fullAddr = order.customer_address || order.address || '';
-    const isTable = fullAddr.toUpperCase().includes('MESA') || order.table_number || order.order_type === 'MESA' || order.order_type === 'mesa';
-    const isBalcao = fullAddr.toUpperCase().includes('BALCÃO') || fullAddr.toUpperCase().includes('RETIRADA') || order.order_type === 'retirada';
-    const isDelivery = !isTable && !isBalcao;
+    const orderCategory = getOrderCategory(order);
+    const isTable = orderCategory === 'MESA';
+    const isBalcao = orderCategory === 'BALCAO';
+    const isDelivery = orderCategory === 'DELIVERY';
 
+    const fullAddr = order.customer_address || order.address || '';
     const elapsed = getElapsedTime(order.created_at);
     const isDelayed = elapsed.minutes >= 20;
 
@@ -275,6 +285,13 @@ export default function CozinhaTenant() {
               </span>
             </div>
             <h3 className="font-bold text-base text-white mt-0.5">{order.customer_name || 'Cliente'}</h3>
+            
+            {order.waiter_name && (
+              <span className="text-xs text-yellow-400 font-extrabold block mt-0.5">
+                👤 Garçom: {order.waiter_name}
+              </span>
+            )}
+
             {order.customer_phone && (
               <a href={`tel:${order.customer_phone}`} className="text-xs text-blue-400 font-bold hover:underline block mt-0.5">
                 📱 {order.customer_phone}
@@ -286,7 +303,7 @@ export default function CozinhaTenant() {
           <div className="text-right">
             {isTable ? (
               <span className="bg-orange-500 text-white font-black text-xs px-3 py-1 rounded-xl shadow block">
-                🪑 {fullAddr || `MESA ${order.table_number}`}
+                🪑 {fullAddr || `MESA ${order.table_number || ''}`}
               </span>
             ) : isDelivery ? (
               <span className="bg-purple-600 text-white font-black text-xs px-3 py-1 rounded-xl shadow block">
@@ -352,7 +369,7 @@ export default function CozinhaTenant() {
           )}
         </div>
 
-        {/* LISTA DE ITENS DA COZINHA (ALTO CONTRASTE) */}
+        {/* LISTA DE ITENS DA COZINHA */}
         <div className="space-y-2 border-t border-b border-gray-800 py-2.5">
           <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider block">Itens para Preparo:</span>
 
@@ -365,21 +382,18 @@ export default function CozinhaTenant() {
                 </span>
               </div>
 
-              {/* SABORES OU DETALHES DE PIZZA */}
               {it.details && (
                 <div className="bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 font-bold text-xs p-1.5 rounded-lg mt-1">
                   🍕 {it.details}
                 </div>
               )}
 
-              {/* ADICIONAIS / EXTRAS */}
               {it.selectedAddons && it.selectedAddons.length > 0 && (
                 <p className="text-xs text-purple-300 font-bold pl-1 mt-0.5">
                   ➕ {it.selectedAddons.map(a => a.name).join(', ')}
                 </p>
               )}
 
-              {/* OBSERVAÇÃO DESTACADA */}
               {it.observation && (
                 <div className="bg-red-500/20 border border-red-500/40 text-red-300 font-extrabold text-xs p-1.5 rounded-lg mt-1 flex items-center space-x-1">
                   <span>⚠️ OBS:</span>
@@ -458,19 +472,21 @@ export default function CozinhaTenant() {
         }
       `}</style>
 
-      {/* COMPROVANTE TÉRMICO */}
+      {/* COMPROVANTE TÉRMICO DE PRODUÇÃO DA COZINHA */}
       {selectedOrderToPrint && (
         <div id="print-receipt-area" className="hidden print:block text-black text-xs font-mono">
           <div className="text-center border-b border-black pb-2 mb-2">
             <h2 className="font-bold text-sm uppercase">{tenant.name}</h2>
-            <p className="text-[10px]">COMPROVANTE PEDIDO #{selectedOrderToPrint.id}</p>
+            <p className="text-[10px]">VIA DE PRODUÇÃO — PEDIDO #{selectedOrderToPrint.id}</p>
             <p className="text-[9px]">{new Date(selectedOrderToPrint.created_at || Date.now()).toLocaleString('pt-BR')}</p>
           </div>
 
           <div className="border-b border-black pb-2 mb-2 space-y-0.5">
             <p><b>CLIENTE:</b> {selectedOrderToPrint.customer_name || 'Cliente'}</p>
+            {selectedOrderToPrint.waiter_name && <p><b>GARÇOM:</b> {selectedOrderToPrint.waiter_name}</p>}
             {selectedOrderToPrint.customer_phone && <p><b>TEL:</b> {selectedOrderToPrint.customer_phone}</p>}
-            <p><b>LOCAL/TIPO:</b> {selectedOrderToPrint.customer_address || selectedOrderToPrint.address || (selectedOrderToPrint.order_type === 'delivery' ? 'ENTREGA' : 'RETIRADA')}</p>
+            <p><b>TIPO:</b> {selectedOrderToPrint.order_type ? selectedOrderToPrint.order_type.toUpperCase() : 'DELIVERY'}</p>
+            <p><b>LOCAL:</b> {selectedOrderToPrint.customer_address || selectedOrderToPrint.address || 'RETIRADA BALCÃO'}</p>
             {selectedOrderToPrint.neighborhood && <p><b>BAIRRO:</b> {selectedOrderToPrint.neighborhood}</p>}
             {selectedOrderToPrint.reference && <p><b>REF:</b> {selectedOrderToPrint.reference}</p>}
             <p><b>PAGAMENTO:</b> {selectedOrderToPrint.payment_method} ({selectedOrderToPrint.is_paid ? 'PAGO' : 'COBRAR NA ENTREGA'})</p>
