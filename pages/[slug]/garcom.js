@@ -248,6 +248,7 @@ export default function GarcomPDV() {
       customer_name: `Mesa ${selectedTable}`,
       customer_phone: '',
       customer_address: `Atendimento Local - Mesa ${selectedTable}`,
+      table_number: selectedTable, // Campo preenchido para sincronização perfeita
       delivery_fee: 0,
       subtotal: cartTotal,
       total: cartTotal,
