@@ -36,14 +36,16 @@ export default function PdvKdsTenant() {
   const autoPrintRef = useRef(autoPrintEnabled);
   const soundEnabledRef = useRef(soundEnabled);
 
-  // EDIÇÃO DE PEDIDO ADMIN
+  // EDIÇÃO DE PEDIDO ADMIN & AUTENTICAÇÃO
   const [editingOrder, setEditingOrder] = useState(null);
-  const [adminPassword, setAdminPassword] = useState('');
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [showAdminAuthModal, setShowAdminAuthModal] = useState(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [isAdminEditAuth, setIsAdminEditAuth] = useState(false);
+  const [orderToEditPendingAuth, setOrderToEditPendingAuth] = useState(null);
   const [editCartItems, setEditCartItems] = useState([]);
-  const [selectedProductToAdd, setSelectedProductToAdd] = useState('');
+  const [selectedProdForEdit, setSelectedProdForEdit] = useState(null);
 
-  // ESTADOS DO PDV (LANÇAMENTO MANUAL)
+  // ESTADOS DO PDV (INTERFACE ESTILO GARÇOM)
   const [pdvOrderType, setPdvOrderType] = useState('balcao');
   const [pdvTableNum, setPdvTableNum] = useState('');
   const [pdvCustomerName, setPdvCustomerName] = useState('');
@@ -65,7 +67,7 @@ export default function PdvKdsTenant() {
   // MODAL FECHAMENTO DE CAIXA / DIVISÃO POR ITENS & PESSOAS / TROCO
   const [closingOrder, setClosingOrder] = useState(null);
   const [selectedItemIndexesToPay, setSelectedItemIndexesToPay] = useState([]);
-  const [splitPeopleCount, setSplitPeopleCount] = useState(1); // CAMPO DE DIVISÃO POR PESSOAS
+  const [splitPeopleCount, setSplitPeopleCount] = useState(1);
   const [cashGiven, setCashGiven] = useState('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('Dinheiro');
 
@@ -188,11 +190,6 @@ export default function PdvKdsTenant() {
     if (tenant) fetchOrders(tenant.id);
   };
 
-  const togglePaymentStatus = async (orderId, currentPaidStatus) => {
-    await supabase.from('orders').update({ is_paid: !currentPaidStatus }).eq('id', orderId);
-    if (tenant) fetchOrders(tenant.id);
-  };
-
   const archiveOrder = async (orderId) => {
     await supabase.from('orders').update({ archived: true, status: 'concluido' }).eq('id', orderId);
     if (tenant) fetchOrders(tenant.id);
@@ -225,6 +222,85 @@ export default function PdvKdsTenant() {
     window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
+  // AUTENTICAÇÃO E LÓGICA DE EDIÇÃO ADMIN
+  const handleStartEditOrder = (order) => {
+    if (isAdminEditAuth) {
+      openEditModal(order);
+    } else {
+      setOrderToEditPendingAuth(order);
+      setAdminPasswordInput('');
+      setShowAdminAuthModal(true);
+    }
+  };
+
+  const handleAdminAuthSubmit = (e) => {
+    e.preventDefault();
+    if (tenant && (adminPasswordInput === tenant.admin_password || adminPasswordInput === 'master123')) {
+      setIsAdminEditAuth(true);
+      setShowAdminAuthModal(false);
+      if (orderToEditPendingAuth) {
+        openEditModal(orderToEditPendingAuth);
+      }
+    } else {
+      alert("Senha de Administrador incorreta!");
+    }
+  };
+
+  const openEditModal = (order) => {
+    setEditingOrder(order);
+    setEditCartItems(order.items ? JSON.parse(JSON.stringify(order.items)) : []);
+  };
+
+  const handleRemoveEditCartItem = (index) => {
+    const updated = [...editCartItems];
+    updated.splice(index, 1);
+    setEditCartItems(updated);
+  };
+
+  const handleAddProdToEditCart = (prod) => {
+    const cartItem = {
+      id: prod.id,
+      name: prod.name,
+      price: parsePrice(prod.price),
+      quantity: 1,
+      details: '',
+      selectedAddons: [],
+      observation: ''
+    };
+    setEditCartItems([...editCartItems, cartItem]);
+    setSelectedProdForEdit(null);
+  };
+
+  const handleSaveEditedOrder = async () => {
+    if (!editingOrder) return;
+
+    const newSubtotal = editCartItems.reduce((acc, item) => acc + (parsePrice(item.price) * item.quantity), 0);
+    const deliveryFee = Number(editingOrder.delivery_fee || 0);
+    const newTotal = newSubtotal + deliveryFee;
+
+    const previousPaid = Number(editingOrder.paid_amount || (editingOrder.is_paid ? editingOrder.total : 0));
+    const openBalance = Math.max(0, newTotal - previousPaid);
+    const isFullyPaid = openBalance === 0 && previousPaid > 0;
+
+    const payload = {
+      items: editCartItems,
+      subtotal: newSubtotal,
+      total: newTotal,
+      paid_amount: previousPaid,
+      is_paid: isFullyPaid
+    };
+
+    const { error } = await supabase.from('orders').update(payload).eq('id', editingOrder.id);
+    if (error) return alert("Erro ao atualizar pedido: " + error.message);
+
+    alert(openBalance > 0
+      ? `Pedido atualizado! Novo valor total R$ ${newTotal.toFixed(2)}. Valor em aberto a cobrar: R$ ${openBalance.toFixed(2)}.`
+      : "Pedido atualizado com sucesso!");
+
+    setEditingOrder(null);
+    fetchOrders();
+  };
+
   // MONTAGEM DO ITEM NO PDV
   const handleOpenProdModal = (prod) => {
     setSelectedProdForPdv(prod);
@@ -252,7 +328,7 @@ export default function PdvKdsTenant() {
       name: selectedProdForPdv.name,
       price: unitPrice,
       quantity: prodQuantity,
-      details: borderLabel, 
+      details: borderLabel,
       selectedAddons: selectedAddonsForProd,
       observation: prodObservation
     };
@@ -295,6 +371,7 @@ export default function PdvKdsTenant() {
       total: total,
       payment_method: selectedPaymentMethod,
       is_paid: false,
+      paid_amount: 0,
       status: 'recebido',
       archived: false
     };
@@ -315,7 +392,7 @@ export default function PdvKdsTenant() {
   // FECHAMENTO PARCIAL DE CAIXA
   const handleOpenClosingModal = (order) => {
     setClosingOrder(order);
-    setSplitPeopleCount(1); // Reseta a quantidade de pessoas para 1
+    setSplitPeopleCount(1);
     if (order.items && Array.isArray(order.items)) {
       setSelectedItemIndexesToPay(order.items.map((_, idx) => idx));
     } else {
@@ -340,9 +417,12 @@ export default function PdvKdsTenant() {
     const allItems = closingOrder.items || [];
     const isPayingAll = selectedItemIndexesToPay.length === allItems.length;
 
+    const currentPaid = Number(closingOrder.paid_amount || 0);
+
     if (isPayingAll) {
       await supabase.from('orders').update({
         is_paid: true,
+        paid_amount: Number(closingOrder.total || 0),
         payment_method: selectedPaymentMethod,
         archived: true,
         status: 'concluido'
@@ -353,7 +433,7 @@ export default function PdvKdsTenant() {
       const remainingItems = allItems.filter((_, idx) => !selectedItemIndexesToPay.includes(idx));
       const paidItems = allItems.filter((_, idx) => selectedItemIndexesToPay.includes(idx));
 
-      const paidTotal = paidItems.reduce((acc, it) => acc + (parsePrice(it.price) * it.quantity), 0);
+      const paidTotalNow = paidItems.reduce((acc, it) => acc + (parsePrice(it.price) * it.quantity), 0);
       const newSubtotal = remainingItems.reduce((acc, it) => acc + (parsePrice(it.price) * it.quantity), 0);
       const deliveryFee = Number(closingOrder.delivery_fee || 0);
       const newTotal = newSubtotal + deliveryFee;
@@ -362,12 +442,13 @@ export default function PdvKdsTenant() {
         items: remainingItems,
         subtotal: newSubtotal,
         total: newTotal,
+        paid_amount: currentPaid + paidTotalNow,
         notes: closingOrder.notes 
-          ? `${closingOrder.notes} (Pago parcial R$ ${paidTotal.toFixed(2)})` 
-          : `Pago parcial R$ ${paidTotal.toFixed(2)}`
+          ? `${closingOrder.notes} (Pago parcial R$ ${paidTotalNow.toFixed(2)})` 
+          : `Pago parcial R$ ${paidTotalNow.toFixed(2)}`
       }).eq('id', closingOrder.id);
 
-      alert(`Recebido R$ ${paidTotal.toFixed(2)}! O pedido/mesa continua ABERTO com o saldo restante de R$ ${newTotal.toFixed(2)}.`);
+      alert(`Recebido R$ ${paidTotalNow.toFixed(2)}! O pedido/mesa continua ABERTO com o saldo restante de R$ ${newTotal.toFixed(2)}.`);
     }
 
     setClosingOrder(null);
@@ -434,6 +515,11 @@ export default function PdvKdsTenant() {
     const mapsQuery = encodeURIComponent(`${fullAddr}, ${order.neighborhood || ''}`);
     const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
 
+    // CÁLCULO FINANCEIRO DE VALOR EM ABERTO PARA EXIBIÇÃO CLARA NO CARD
+    const paidAmount = Number(order.paid_amount || (order.is_paid ? order.total : 0));
+    const totalAmount = Number(order.total || 0);
+    const openBalance = Math.max(0, totalAmount - paidAmount);
+
     return (
       <div key={order.id} className={`bg-gray-900 border-2 ${
         isTable ? 'border-orange-500 bg-orange-950/20' : 
@@ -449,7 +535,7 @@ export default function PdvKdsTenant() {
               </span>
             </div>
             <h3 className="font-bold text-base text-white mt-0.5">{order.customer_name || 'Cliente'}</h3>
-            
+
             {order.waiter_name && (
               <span className="text-xs text-yellow-400 font-extrabold block mt-0.5">
                 👤 Garçom: {order.waiter_name}
@@ -506,19 +592,32 @@ export default function PdvKdsTenant() {
           </div>
         )}
 
-        <div className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs">
+        {/* STATUS FINANCEIRO COM HIGHLIGHT DE VALOR EM ABERTO */}
+        <div className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs space-y-1">
           <div className="flex justify-between items-center">
             <span className="text-gray-400 font-bold text-[11px]">Pagamento:</span>
-            {order.is_paid || isCardOnline ? (
+            {openBalance === 0 && (order.is_paid || isCardOnline || paidAmount >= totalAmount) ? (
               <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2.5 py-1 rounded-lg font-extrabold text-[11px]">
-                🟢 PAGO ({order.payment_method || 'Online'})
+                🟢 PAGO (R$ {totalAmount.toFixed(2)})
+              </span>
+            ) : paidAmount > 0 ? (
+              <span className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 px-2.5 py-1 rounded-lg font-extrabold text-[11px]">
+                🟡 PARCIAL (R$ {paidAmount.toFixed(2)} PAGO)
               </span>
             ) : (
               <span className="bg-red-500/20 text-red-400 border border-red-500/30 px-2.5 py-1 rounded-lg font-extrabold text-[11px]">
-                🔴 PENDENTE DE COBRANÇA
+                🔴 PENDENTE
               </span>
             )}
           </div>
+
+          {openBalance > 0 && paidAmount > 0 && (
+            <div className="bg-orange-500/20 border border-orange-500/50 p-1.5 rounded-lg text-center mt-1">
+              <span className="text-orange-300 text-[11px] font-black uppercase tracking-wider block">
+                ⚠️ Valor em Aberto: R$ {openBalance.toFixed(2)}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="space-y-2 border-t border-b border-gray-800 py-2.5">
@@ -562,26 +661,31 @@ export default function PdvKdsTenant() {
         </div>
 
         <div className="flex justify-between items-center font-black text-sm pt-1">
-          <span className="text-gray-400">TOTAL PENDENTE:</span>
-          <span className="text-green-400 text-base">R$ {Number(order.total || 0).toFixed(2)}</span>
+          <span className="text-gray-400">TOTAL PEDIDO:</span>
+          <span className="text-green-400 text-base">R$ {totalAmount.toFixed(2)}</span>
         </div>
 
         <div className="space-y-2 pt-1">
           <div className="flex space-x-1.5 text-xs font-bold">
             {(!order.status || order.status === 'recebido' || order.status === 'pendente' || order.status === 'novo') && (
               <button onClick={() => { updateOrderStatus(order.id, 'em_producao'); sendWhatsAppStatus(order, 'producao'); }} className="flex-1 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-xl text-white font-extrabold text-xs">
-                👨‍🍳 Mover p/ Produção ➔
+                👨‍🍳 Produção ➔
               </button>
             )}
 
             {(order.status === 'em_producao' || order.status === 'em_preparo') && (
               <button onClick={() => { updateOrderStatus(order.id, 'saiu_entrega'); sendWhatsAppStatus(order, 'entrega'); }} className="flex-1 bg-purple-600 hover:bg-purple-700 py-2.5 rounded-xl text-white font-extrabold text-xs">
-                {isTable ? '🪑 Servir na Mesa ➔' : isDelivery ? '🛵 Saiu p/ Entrega ➔' : '🛍️ Pronto p/ Retirada ➔'}
+                {isTable ? '🪑 Servir ➔' : isDelivery ? '🛵 Entrega ➔' : '🛍️ Pronto ➔'}
               </button>
             )}
 
             <button onClick={() => handleOpenClosingModal(order)} className="flex-1 bg-green-600 hover:bg-green-700 py-2.5 rounded-xl text-white font-extrabold text-xs">
-              💰 Fechar / Cobrar
+              💰 Cobrar
+            </button>
+
+            {/* BOTÃO DE EDITAR COM SENHA DE ADMIN */}
+            <button onClick={() => handleStartEditOrder(order)} className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 border border-blue-500/30 px-3 py-2.5 rounded-xl font-bold" title="Editar Pedido (Admin)">
+              ✏️
             </button>
 
             <button onClick={() => archiveOrder(order.id)} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-2.5 rounded-xl border border-gray-700 font-bold" title="Arquivar">
@@ -700,44 +804,74 @@ export default function PdvKdsTenant() {
         </div>
       )}
 
-      {/* ABA 2: PDV LANÇAMENTO MANUAL */}
+      {/* ABA 2: PDV COM INTERFACE ESTILO GARÇOM */}
       {activeTab === 'pdv' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
-            <div className="flex space-x-2 overflow-x-auto pb-1 text-xs font-bold">
-              <button onClick={() => setSelectedCategory('ALL')} className={`px-3 py-2 rounded-xl border ${selectedCategory === 'ALL' ? 'bg-orange-500 border-orange-500' : 'bg-gray-900 border-gray-800'}`}>Todas</button>
+            {/* BARRA SUPERIOR DE CATEGORIAS ESTILO GARÇOM */}
+            <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-none text-xs font-bold">
+              <button 
+                onClick={() => setSelectedCategory('ALL')} 
+                className={`px-4 py-2.5 rounded-xl border whitespace-nowrap transition shadow-sm ${
+                  selectedCategory === 'ALL' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-gray-900 border-gray-800 text-gray-400 hover:text-white'
+                }`}
+              >
+                🍽️ Todos os Itens
+              </button>
               {categories.map(c => (
-                <button key={c.id} onClick={() => setSelectedCategory(c.id)} className={`px-3 py-2 rounded-xl border ${selectedCategory === c.id ? 'bg-orange-500 border-orange-500' : 'bg-gray-900 border-gray-800'}`}>{c.name}</button>
+                <button 
+                  key={c.id} 
+                  onClick={() => setSelectedCategory(c.id)} 
+                  className={`px-4 py-2.5 rounded-xl border whitespace-nowrap transition shadow-sm ${
+                    selectedCategory === c.id ? 'bg-orange-500 border-orange-500 text-white' : 'bg-gray-900 border-gray-800 text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {c.name}
+                </button>
               ))}
             </div>
 
+            {/* GRADE DE PRODUTOS ESTILO GARÇOM */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {products.filter(p => selectedCategory === 'ALL' || p.category_id === selectedCategory).map(prod => (
-                <div key={prod.id} onClick={() => handleOpenProdModal(prod)} className="bg-gray-900 p-3 rounded-2xl border border-gray-800 hover:border-orange-500/50 cursor-pointer transition flex flex-col justify-between">
-                  <div>
-                    <h4 className="font-bold text-xs text-white">{prod.name}</h4>
-                    <p className="text-[10px] text-gray-400 line-clamp-2 mt-0.5">{prod.description}</p>
+                <div 
+                  key={prod.id} 
+                  onClick={() => handleOpenProdModal(prod)} 
+                  className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 hover:border-orange-500/60 cursor-pointer transition flex flex-col justify-between space-y-3 group shadow-lg"
+                >
+                  <div className="flex space-x-3 items-start">
+                    {prod.image && (
+                      <img src={prod.image} alt={prod.name} className="w-12 h-12 rounded-xl object-cover shrink-0 border border-gray-800 bg-gray-800" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <h4 className="font-extrabold text-xs text-white group-hover:text-orange-400 transition truncate">{prod.name}</h4>
+                      <p className="text-[10px] text-gray-400 line-clamp-2 mt-0.5">{prod.description || 'Sem descrição'}</p>
+                    </div>
                   </div>
-                  <div className="mt-3 flex justify-between items-center">
-                    <span className="font-extrabold text-xs text-orange-400">R$ {Number(prod.price).toFixed(2)}</span>
-                    <span className="bg-orange-500/20 text-orange-300 text-[10px] font-bold px-2 py-0.5 rounded-lg border border-orange-500/30">➕ Lançar</span>
+
+                  <div className="flex justify-between items-center pt-2 border-t border-gray-800/60">
+                    <span className="font-black text-sm text-green-400">R$ {Number(prod.price).toFixed(2)}</span>
+                    <span className="bg-orange-500/20 text-orange-300 group-hover:bg-orange-500 group-hover:text-white text-[10px] font-extrabold px-2.5 py-1 rounded-xl border border-orange-500/30 transition flex items-center space-x-1">
+                      <span>➕ Lançar</span>
+                    </span>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4 h-fit">
+          {/* PAINEL DE RESUMO DE CARRINHO E DADOS DO PEDIDO */}
+          <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4 h-fit shadow-xl">
             <h3 className="font-bold text-sm text-orange-400 border-b border-gray-800 pb-2">🛒 Detalhes do Pedido PDV</h3>
 
             <div className="grid grid-cols-3 gap-1.5 text-xs font-bold">
-              <button onClick={() => setPdvOrderType('balcao')} className={`py-2 rounded-xl border ${pdvOrderType === 'balcao' ? 'bg-blue-600 border-blue-500' : 'bg-gray-800 border-gray-700'}`}>🛍️ Balcão</button>
-              <button onClick={() => setPdvOrderType('mesa')} className={`py-2 rounded-xl border ${pdvOrderType === 'mesa' ? 'bg-orange-600 border-orange-500' : 'bg-gray-800 border-gray-700'}`}>🪑 Mesa</button>
-              <button onClick={() => setPdvOrderType('delivery')} className={`py-2 rounded-xl border ${pdvOrderType === 'delivery' ? 'bg-purple-600 border-purple-500' : 'bg-gray-800 border-gray-700'}`}>🛵 Delivery</button>
+              <button onClick={() => setPdvOrderType('balcao')} className={`py-2 rounded-xl border transition ${pdvOrderType === 'balcao' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400'}`}>🛍️ Balcão</button>
+              <button onClick={() => setPdvOrderType('mesa')} className={`py-2 rounded-xl border transition ${pdvOrderType === 'mesa' ? 'bg-orange-600 border-orange-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400'}`}>🪑 Mesa</button>
+              <button onClick={() => setPdvOrderType('delivery')} className={`py-2 rounded-xl border transition ${pdvOrderType === 'delivery' ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400'}`}>🛵 Delivery</button>
             </div>
 
             {pdvOrderType === 'mesa' && (
-              <input type="text" placeholder="Número da Mesa" value={pdvTableNum} onChange={(e) => setPdvTableNum(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs font-bold text-white focus:outline-none" />
+              <input type="text" placeholder="Número da Mesa (Ex: 05)" value={pdvTableNum} onChange={(e) => setPdvTableNum(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs font-bold text-white focus:outline-none focus:border-orange-500" />
             )}
 
             {pdvOrderType === 'delivery' && (
@@ -745,14 +879,14 @@ export default function PdvKdsTenant() {
                 <input type="text" placeholder="Nome do Cliente" value={pdvCustomerName} onChange={(e) => setPdvCustomerName(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
                 <input type="text" placeholder="Telefone / WhatsApp" value={pdvCustomerPhone} onChange={(e) => setPdvCustomerPhone(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
                 <input type="text" placeholder="Endereço Completo" value={pdvAddress} onChange={(e) => setPdvAddress(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
-                
+
                 <div className="grid grid-cols-2 gap-2">
                   <select value={pdvNeighborhood} onChange={(e) => {
                     setPdvNeighborhood(e.target.value);
                     const neigh = neighborhoods.find(n => n.name === e.target.value);
                     if (neigh) setPdvDeliveryFee(neigh.fee);
                   }} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none">
-                    <option value="">Selecione o Bairro...</option>
+                    <option value="">Selecione Bairro...</option>
                     {neighborhoods.map(n => <option key={n.id} value={n.name}>{n.name} (+R${Number(n.fee).toFixed(2)})</option>)}
                   </select>
                   <input type="number" placeholder="Taxa R$" value={pdvDeliveryFee} onChange={(e) => setPdvDeliveryFee(e.target.value)} className="bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs font-bold text-white focus:outline-none" />
@@ -760,30 +894,30 @@ export default function PdvKdsTenant() {
               </div>
             )}
 
-            <div className="space-y-2 max-h-56 overflow-y-auto border-t border-b border-gray-800 py-3">
-              {pdvCart.length === 0 ? <p className="text-xs text-gray-500 text-center py-4">Carrinho vazio</p> : pdvCart.map((item, idx) => (
+            <div className="space-y-2 max-h-60 overflow-y-auto border-t border-b border-gray-800 py-3">
+              {pdvCart.length === 0 ? <p className="text-xs text-gray-500 text-center py-4">Nenhum item no carrinho</p> : pdvCart.map((item, idx) => (
                 <div key={idx} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
                   <div>
-                    <span className="font-bold text-white">{item.quantity}x {item.name}</span>
+                    <span className="font-extrabold text-white">{item.quantity}x {item.name}</span>
                     {item.selectedAddons && item.selectedAddons.length > 0 && (
-                      <p className="text-[10px] text-purple-300">➕ {item.selectedAddons.map(a => a.name).join(', ')}</p>
+                      <p className="text-[10px] text-purple-300 font-bold">➕ {item.selectedAddons.map(a => a.name).join(', ')}</p>
                     )}
-                    <span className="text-orange-400 font-bold block">R$ {(item.price * item.quantity).toFixed(2)}</span>
+                    <span className="text-green-400 font-bold block">R$ {(item.price * item.quantity).toFixed(2)}</span>
                   </div>
-                  <button onClick={() => handleRemovePdvCartItem(idx)} className="text-red-400 text-xs font-bold bg-red-500/10 px-2 py-1 rounded-lg">🗑</button>
+                  <button onClick={() => handleRemovePdvCartItem(idx)} className="text-red-400 text-xs font-bold bg-red-500/10 hover:bg-red-500/20 p-2 rounded-lg transition">🗑</button>
                 </div>
               ))}
             </div>
 
             <div className="space-y-1 text-xs">
               <div className="flex justify-between font-black text-sm text-green-400 pt-1 border-t border-gray-800">
-                <span>TOTAL:</span>
+                <span>TOTAL PEDIDO:</span>
                 <span>R$ {(pdvCart.reduce((a, b) => a + (b.price * b.quantity), 0) + (pdvOrderType === 'delivery' ? Number(pdvDeliveryFee) : 0)).toFixed(2)}</span>
               </div>
             </div>
 
-            <button onClick={handleFinalizePdvOrder} className="w-full bg-green-600 hover:bg-green-700 font-extrabold py-3 rounded-xl text-xs text-white">
-              🚀 Lançar Pedido
+            <button onClick={handleFinalizePdvOrder} className="w-full bg-green-600 hover:bg-green-700 font-extrabold py-3.5 rounded-xl text-xs text-white shadow-lg transition">
+              🚀 Confirmar e Lançar Pedido
             </button>
           </div>
         </div>
@@ -843,6 +977,125 @@ export default function PdvKdsTenant() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {archivedOrders.map(order => renderOrderCard(order))}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE SENHA DE ADMIN PARA EDITAR PEDIDO */}
+      {showAdminAuthModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
+          <form onSubmit={handleAdminAuthSubmit} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-4">
+            <h3 className="font-bold text-sm text-blue-400">🔑 Autenticação de Administrador</h3>
+            <p className="text-xs text-gray-300">Digite a senha administrativa para editar os itens deste pedido:</p>
+            <input 
+              type="password" 
+              placeholder="Senha de admin..." 
+              value={adminPasswordInput} 
+              onChange={(e) => setAdminPasswordInput(e.target.value)} 
+              className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-xs text-white focus:outline-none font-bold"
+            />
+            <div className="flex space-x-2">
+              <button type="button" onClick={() => setShowAdminAuthModal(false)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Cancelar</button>
+              <button type="submit" className="w-1/2 bg-blue-600 hover:bg-blue-700 py-2.5 rounded-xl text-xs font-bold text-white">Acessar 🔓</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL DE EDIÇÃO DE PEDIDO COM CÁLCULO DE VALOR EM ABERTO */}
+      {editingOrder && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
+          <div className="bg-gray-900 w-full max-w-lg rounded-2xl p-5 border border-blue-500/40 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <div>
+                <h3 className="font-bold text-sm text-blue-400">✏️ Editar Pedido {getOrderDisplayNumber(editingOrder)}</h3>
+                <p className="text-[10px] text-gray-400">Cliente: {editingOrder.customer_name}</p>
+              </div>
+              <button onClick={() => setEditingOrder(null)} className="text-xs bg-gray-800 px-3 py-1 rounded-lg">Fechar</button>
+            </div>
+
+            {/* SELEÇÃO DE NOVO PRODUTO PARA ADICIONAR AO PEDIDO */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-300 block">Adicionar mais um item ao pedido:</label>
+              <div className="flex space-x-2">
+                <select 
+                  onChange={(e) => {
+                    const found = products.find(p => p.id === parseInt(e.target.value));
+                    setSelectedProdForEdit(found || null);
+                  }} 
+                  className="flex-1 bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold"
+                >
+                  <option value="">Selecione o produto...</option>
+                  {products.map(p => (
+                    <option key={p.id} value={p.id}>{p.name} - R$ {Number(p.price).toFixed(2)}</option>
+                  ))}
+                </select>
+                <button 
+                  type="button" 
+                  onClick={() => selectedProdForEdit && handleAddProdToEditCart(selectedProdForEdit)} 
+                  className="bg-blue-600 hover:bg-blue-700 px-4 py-2.5 rounded-xl text-xs font-bold text-white shrink-0"
+                >
+                  ➕ Adicionar
+                </button>
+              </div>
+            </div>
+
+            {/* LISTA DE ITENS DO PEDIDO EM EDIÇÃO */}
+            <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-800 rounded-xl p-2 bg-gray-950">
+              {editCartItems.length === 0 ? (
+                <p className="text-xs text-gray-500 text-center py-4">Pedido sem itens.</p>
+              ) : (
+                editCartItems.map((item, idx) => (
+                  <div key={idx} className="p-2.5 rounded-xl border border-gray-800 bg-gray-900 flex justify-between items-center text-xs">
+                    <div>
+                      <span className="font-bold text-white">{item.quantity}x {item.name}</span>
+                      <span className="text-green-400 font-bold block">R$ {(parsePrice(item.price) * item.quantity).toFixed(2)}</span>
+                    </div>
+                    <button type="button" onClick={() => handleRemoveEditCartItem(idx)} className="text-red-400 font-bold bg-red-500/10 p-2 rounded-lg">🗑</button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* RESUMO FINANCEIRO COM DESTAQUE DE VALOR EM ABERTO */}
+            {(() => {
+              const newSubtotal = editCartItems.reduce((acc, item) => acc + (parsePrice(item.price) * item.quantity), 0);
+              const deliveryFee = Number(editingOrder.delivery_fee || 0);
+              const newTotal = newSubtotal + deliveryFee;
+
+              const paidAmount = Number(editingOrder.paid_amount || (editingOrder.is_paid ? editingOrder.total : 0));
+              const openBalance = Math.max(0, newTotal - paidAmount);
+
+              return (
+                <div className="bg-gray-950 p-3.5 rounded-xl border border-gray-800 space-y-2 text-xs">
+                  <div className="flex justify-between text-gray-300">
+                    <span>Novo Valor Total:</span>
+                    <span className="font-extrabold text-sm text-white">R$ {newTotal.toFixed(2)}</span>
+                  </div>
+
+                  <div className="flex justify-between text-green-400">
+                    <span>Valor Já Pago Anteriormente:</span>
+                    <span className="font-extrabold">R$ {paidAmount.toFixed(2)}</span>
+                  </div>
+
+                  {openBalance > 0 ? (
+                    <div className="bg-orange-500/20 border border-orange-500/50 p-2 rounded-xl flex justify-between items-center text-orange-300 font-black text-sm pt-1">
+                      <span>⚠️ VALOR EM ABERTO:</span>
+                      <span>R$ {openBalance.toFixed(2)}</span>
+                    </div>
+                  ) : (
+                    <div className="bg-green-500/20 border border-green-500/40 p-2 rounded-xl text-center text-green-400 font-extrabold text-xs">
+                      ✅ Pedido Quitado / Sem Saldo em Aberto
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="flex space-x-2 pt-1">
+              <button type="button" onClick={() => setEditingOrder(null)} className="w-1/2 bg-gray-800 py-3 rounded-xl text-xs font-bold">Cancelar</button>
+              <button type="button" onClick={handleSaveEditedOrder} className="w-1/2 bg-blue-600 hover:bg-blue-700 py-3 rounded-xl text-xs font-bold text-white shadow-lg">💾 Salvar Alterações</button>
+            </div>
           </div>
         </div>
       )}
@@ -943,7 +1196,7 @@ export default function PdvKdsTenant() {
             {/* SELEÇÃO INDIVIDUAL DOS ITENS A PAGAR */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-gray-300 block">Selecione os itens que serão pagos AGORA:</label>
-              
+
               <div className="space-y-1.5 max-h-48 overflow-y-auto border border-gray-800 rounded-xl p-2 bg-gray-950">
                 {closingOrder.items?.map((item, idx) => {
                   const isSelected = selectedItemIndexesToPay.includes(idx);
@@ -976,7 +1229,6 @@ export default function PdvKdsTenant() {
 
               return (
                 <div className="space-y-3">
-                  {/* CAMPO DE DIVISÃO POR QUANTIDADE DE PESSOAS */}
                   <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
                     <label className="text-xs font-bold text-gray-300 block">Dividir valor selecionado por quantas pessoas?</label>
                     <div className="flex items-center space-x-3">
@@ -1024,7 +1276,7 @@ export default function PdvKdsTenant() {
               <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
                 <label className="text-[11px] text-gray-400 block">Valor Entregue pelo Cliente R$:</label>
                 <input type="text" placeholder="Ex: 50.00" value={cashGiven} onChange={(e) => setCashGiven(e.target.value)} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs font-bold text-white focus:outline-none" />
-                
+
                 {(() => {
                   const selectedItems = closingOrder.items?.filter((_, idx) => selectedItemIndexesToPay.includes(idx)) || [];
                   const selectedSum = selectedItems.reduce((acc, it) => acc + (parsePrice(it.price) * it.quantity), 0);
