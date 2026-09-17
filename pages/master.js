@@ -9,6 +9,23 @@ const parsePrice = (val, defaultVal = 0) => {
   return isNaN(num) ? defaultVal : num;
 };
 
+// AUXILIARES DE CICLO DE PAGAMENTO
+const getCycleText = (cycle) => {
+  switch (cycle) {
+    case 'weekly': return 'semanalidade';
+    case 'biweekly': return 'quinzenalidade';
+    default: return 'mensalidade';
+  }
+};
+
+const getCycleLabel = (cycle) => {
+  switch (cycle) {
+    case 'weekly': return 'Semanal';
+    case 'biweekly': return 'Quinzenal';
+    default: return 'Mensal';
+  }
+};
+
 export default function MasterAdmin() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [masterPassword, setMasterPassword] = useState('');
@@ -44,6 +61,7 @@ export default function MasterAdmin() {
     price_color: '#FF8C00',
     due_date: '',
     monthly_fee: '99.00',
+    billing_cycle: 'monthly', // 'monthly' | 'weekly' | 'biweekly'
     admin_password: '',
     business_type: 'delivery',
     has_tables: true
@@ -64,7 +82,7 @@ export default function MasterAdmin() {
   // FORMULÁRIOS DA GESTÃO INTERNA
   const [newInternalClient, setNewInternalClient] = useState({ name: '', phone: '', email: '', document: '', notes: '' });
   const [newMember, setNewMember] = useState({ name: '', phone: '', role: '', pix_key: '' });
-  const [newService, setNewService] = useState({ client_id: '', title: '', amount: '', due_date: '', assigned_team_id: '', payout_amount: '' });
+  const [newService, setNewService] = useState({ client_id: '', title: '', amount: '', due_date: '', assigned_team_id: '', payout_amount: '', billing_cycle: 'monthly' });
   const [newExpense, setNewExpense] = useState({ description: '', amount: '', due_date: '', category: 'Servidores' });
 
   // LOGIN MASTER
@@ -202,20 +220,22 @@ export default function MasterAdmin() {
     const formattedDate = tenant.due_date ? tenant.due_date.split('-').reverse().join('/') : '';
     const phone = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
     const formattedPhone = phone.startsWith('55') ? phone : `55${phone}`;
+    const cycleTerm = getCycleText(tenant.billing_cycle || 'monthly');
+    const cycleLabel = getCycleLabel(tenant.billing_cycle || 'monthly');
 
     let text = '';
     if (diffDays < 0) {
       text = `🔴 *AVISO DE DESATIVAÇÃO DE SISTEMA — SINERGE*\n\n` +
         `Olá, *${tenant.name}*!\n\n` +
-        `Sua mensalidade no valor de *R$ ${parsePrice(tenant.monthly_fee, 99).toFixed(2)}* venceu em *${formattedDate}*.\n\n` +
+        `Sua ${cycleTerm} (${cycleLabel}) no valor de *R$ ${parsePrice(tenant.monthly_fee, 99).toFixed(2)}* venceu em *${formattedDate}*.\n\n` +
         `⚠️ *Seu acesso ao sistema será desativado em breve.* Para reativar imediatamente e evitar interrupções no seu atendimento, efetue o pagamento via PIX:\n\n` +
         `🔑 *Chave PIX:* financeiro@sinergemkt.com\n\n` +
         `Após realizar o pagamento, envie o comprovante por aqui para liberação automática.`;
     } else {
-      text = `⚠️ *AVISO DE RENOVAÇÃO DE MENSALIDADE — SINERGE*\n\n` +
+      text = `⚠️ *AVISO DE RENOVAÇÃO DE SISTEMA — SINERGE*\n\n` +
         `Olá, *${tenant.name}*!\n\n` +
-        `Passando para lembrar que sua mensalidade no valor de *R$ ${parsePrice(tenant.monthly_fee, 99).toFixed(2)}* vence ${diffDays === 0 ? '*HOJE*' : `em *${diffDays} dia(s)* (${formattedDate})`}.\n\n` +
-        `Por favor, confirme a renovação para manter seu sistema ativo sem interrupções!\n\n` +
+        `Passando para lembrar que sua ${cycleTerm} (${cycleLabel}) no valor de *R$ ${parsePrice(tenant.monthly_fee, 99).toFixed(2)}* vence ${diffDays === 0 ? '*HOJE*' : `em *${diffDays} dia(s)* (${formattedDate})`}.\n\n` +
+        `Por favor, confirme o pagamento para manter seu sistema ativo sem interrupções!\n\n` +
         `🔑 *Chave PIX:* financeiro@sinergemkt.com`;
     }
 
@@ -274,6 +294,7 @@ export default function MasterAdmin() {
       price_color: newTenant.price_color || '#FF8C00',
       due_date: newTenant.due_date || null,
       monthly_fee: parsePrice(newTenant.monthly_fee, 99.00),
+      billing_cycle: newTenant.billing_cycle || 'monthly',
       active: true,
       has_delivery: isDelivery,
       has_agendamento: isAgendamento,
@@ -297,7 +318,7 @@ export default function MasterAdmin() {
         name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '',
         primary_color: '#FF8C00', button_text_color: '#FFFFFF',
         secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF',
-        price_color: '#FF8C00', due_date: '', monthly_fee: '99.00', admin_password: '', business_type: 'delivery',
+        price_color: '#FF8C00', due_date: '', monthly_fee: '99.00', billing_cycle: 'monthly', admin_password: '', business_type: 'delivery',
         has_tables: true
       });
       fetchTenants();
@@ -314,6 +335,7 @@ export default function MasterAdmin() {
       whatsapp: cleanPhone,
       admin_password: editingTenant.admin_password,
       monthly_fee: parsePrice(editingTenant.monthly_fee, 99.00),
+      billing_cycle: editingTenant.billing_cycle || 'monthly',
       due_date: editingTenant.due_date || null,
       logo_url: editingTenant.logo_url,
       banner_url: editingTenant.banner_url,
@@ -424,10 +446,11 @@ export default function MasterAdmin() {
       due_date: newService.due_date,
       assigned_team_id: newService.assigned_team_id ? parseInt(newService.assigned_team_id) : null,
       payout_amount: newService.payout_amount ? parseFloat(newService.payout_amount) : 0,
+      billing_cycle: newService.billing_cycle || 'monthly',
       status: 'pendente',
       payout_status: 'pendente'
     }]);
-    setNewService({ client_id: '', title: '', amount: '', due_date: '', assigned_team_id: '', payout_amount: '' });
+    setNewService({ client_id: '', title: '', amount: '', due_date: '', assigned_team_id: '', payout_amount: '', billing_cycle: 'monthly' });
     fetchInternalData();
   };
 
@@ -450,11 +473,13 @@ export default function MasterAdmin() {
     if (!phone) return alert('Cliente sem telefone cadastrado!');
     const clientName = srv.internal_clients?.name || 'Cliente';
     const formattedDate = srv.due_date ? srv.due_date.split('-').reverse().join('/') : '';
+    const cycleText = getCycleText(srv.billing_cycle || 'monthly');
+    const cycleLabel = getCycleLabel(srv.billing_cycle || 'monthly');
 
     const msg = `Olá *${clientName}*! 👋\n\n` +
-      `Passando para lembrar referente ao serviço *${srv.title}*:\n` +
+      `Passando para lembrar referente ao serviço *${srv.title}* (${cycleLabel}):\n` +
       `• Vencimento: *${formattedDate}*\n` +
-      `• Valor: *R$ ${Number(srv.amount).toFixed(2)}*\n\n` +
+      `• Valor da ${cycleText}: *R$ ${Number(srv.amount).toFixed(2)}*\n\n` +
       `📌 *Chave PIX para pagamento:*\nfinanceiro@sinergemkt.com\n\n` +
       `Qualquer dúvida fico à disposição!`;
 
@@ -468,9 +493,17 @@ export default function MasterAdmin() {
   const totalInternalExpenses = internalExpenses.reduce((acc, e) => acc + (e.status === 'pago' ? Number(e.amount) : 0), 0);
   const netInternalProfit = totalInternalReceivables - totalInternalPayouts - totalInternalExpenses;
 
-  // FILTROS DE CLIENTES SAAS
+  // FILTROS DE CLIENTES SAAS E CÁLCULO DE MRR PROJETADO
   const activeTenants = tenants.filter(t => t.active);
-  const totalMRR = activeTenants.reduce((acc, t) => acc + parsePrice(t.monthly_fee, 0), 0);
+  
+  // CONVERSÃO DE CICLO PARA PROJEÇÃO MENSAL (MRR)
+  const totalMRR = activeTenants.reduce((acc, t) => {
+    const fee = parsePrice(t.monthly_fee, 0);
+    const cycle = t.billing_cycle || 'monthly';
+    if (cycle === 'weekly') return acc + (fee * 4.33); // Média de semanas no mês
+    if (cycle === 'biweekly') return acc + (fee * 2.16); // Média de quinzenas no mês
+    return acc + fee;
+  }, 0);
 
   const deliveryCount = activeTenants.filter(t => (t.has_delivery || t.business_type === 'delivery' || (!t.has_agendamento && !t.has_ecommerce && t.business_type !== 'agendamento' && t.business_type !== 'ecommerce'))).length;
   const agendamentoCount = activeTenants.filter(t => (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !t.has_ecommerce && t.business_type !== 'ecommerce').length;
@@ -604,7 +637,7 @@ export default function MasterAdmin() {
           {/* DASHBOARD DE MÉTRICAS */}
           <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mb-8">
             <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl col-span-2 sm:col-span-1">
-              <span className="text-[10px] font-bold text-gray-400 uppercase block">Faturamento (MRR)</span>
+              <span className="text-[10px] font-bold text-gray-400 uppercase block">Faturamento Projetado (MRR)</span>
               <span className="text-lg font-bold text-green-400">R$ {totalMRR.toFixed(2)}</span>
             </div>
 
@@ -764,19 +797,28 @@ export default function MasterAdmin() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Ciclo de Pagamento:</label>
+                    <select value={newTenant.billing_cycle} onChange={(e) => setNewTenant({ ...newTenant, billing_cycle: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none">
+                      <option value="monthly">📅 Mensal</option>
+                      <option value="biweekly">🗓️ Quinzenal</option>
+                      <option value="weekly">⚡ Semanal</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Valor do Ciclo (R$):</label>
+                    <input type="text" placeholder="99.00" value={newTenant.monthly_fee} onChange={(e) => setNewTenant({ ...newTenant, monthly_fee: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+                  </div>
+
                   <div>
                     <label className="text-[11px] text-gray-400 block mb-1">Data de Vencimento:</label>
                     <input type="date" value={newTenant.due_date} onChange={(e) => setNewTenant({ ...newTenant, due_date: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none cursor-pointer" style={{ colorScheme: 'dark' }} />
                   </div>
 
                   <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Mensalidade (R$):</label>
-                    <input type="text" placeholder="99.00" value={newTenant.monthly_fee} onChange={(e) => setNewTenant({ ...newTenant, monthly_fee: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Senha Admin do Cliente:</label>
+                    <label className="text-[11px] text-gray-400 block mb-1">Senha Admin:</label>
                     <input type="text" placeholder="123456" value={newTenant.admin_password} onChange={(e) => setNewTenant({ ...newTenant, admin_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
                   </div>
                 </div>
@@ -829,12 +871,15 @@ export default function MasterAdmin() {
                             <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${isEcommerce ? 'bg-blue-500/20 text-blue-400' : isAgendamento ? 'bg-purple-500/20 text-purple-400' : 'bg-orange-500/20 text-orange-400'}`}>
                               {isEcommerce ? '👕 E-commerce' : isAgendamento ? '✂️ Agendamento' : '🍔 Delivery'}
                             </span>
+                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-full uppercase bg-gray-800 text-gray-300 border border-gray-700">
+                              🔄 {getCycleLabel(t.billing_cycle)}
+                            </span>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${dueInfo.isExpiring ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40 animate-pulse' : dueInfo.isExpired ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
                               {dueInfo.label}
                             </span>
                           </div>
                           <p className="text-[11px] text-gray-400 mt-0.5">
-                            Slug: <b className="text-orange-400">/{t.slug}</b> • Zap: <b className="text-gray-300">{t.whatsapp}</b> • R$ <b className="text-green-400">{parsePrice(t.monthly_fee, 99).toFixed(2)}</b>
+                            Slug: <b className="text-orange-400">/{t.slug}</b> • Zap: <b className="text-gray-300">{t.whatsapp}</b> • R$ <b className="text-green-400">{parsePrice(t.monthly_fee, 99).toFixed(2)}</b> / {getCycleLabel(t.billing_cycle).toLowerCase()}
                           </p>
                         </div>
                       </div>
@@ -954,18 +999,29 @@ export default function MasterAdmin() {
             <div className="space-y-4">
               <form onSubmit={handleAddService} className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 text-xs shadow-lg">
                 <h4 className="font-bold text-orange-400">➕ Novo Serviço / Cobrança</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                   <select value={newService.client_id} onChange={(e) => setNewService({ ...newService, client_id: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white">
                     <option value="">-- Selecionar Cliente --</option>
                     {internalClients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
+
                   <input type="text" placeholder="Título (Ex: Gestão de Anúncios - Mês 10)" value={newService.title} onChange={(e) => setNewService({ ...newService, title: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" />
+
+                  <select value={newService.billing_cycle} onChange={(e) => setNewService({ ...newService, billing_cycle: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white">
+                    <option value="monthly">📅 Mensal</option>
+                    <option value="biweekly">🗓️ Quinzenal</option>
+                    <option value="weekly">⚡ Semanal</option>
+                  </select>
+
                   <input type="text" placeholder="Valor Cobrado R$" value={newService.amount} onChange={(e) => setNewService({ ...newService, amount: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" />
+
                   <input type="date" value={newService.due_date} onChange={(e) => setNewService({ ...newService, due_date: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white cursor-pointer" style={{ colorScheme: 'dark' }} />
+
                   <select value={newService.assigned_team_id} onChange={(e) => setNewService({ ...newService, assigned_team_id: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white">
                     <option value="">-- Responsável da Equipe (Opcional) --</option>
                     {internalTeam.map(t => <option key={t.id} value={t.id}>{t.name} ({t.role})</option>)}
                   </select>
+
                   <input type="text" placeholder="Valor Repasse Equipe R$" value={newService.payout_amount} onChange={(e) => setNewService({ ...newService, payout_amount: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" />
                 </div>
                 <button type="submit" className="bg-green-600 hover:bg-green-700 font-bold px-4 py-2.5 rounded-lg text-white shadow-md transition">Cadastrar Cobrança 🚀</button>
@@ -981,8 +1037,13 @@ export default function MasterAdmin() {
                   internalServices.map(srv => (
                     <div key={srv.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs">
                       <div>
-                        <span className="font-bold text-white block">{srv.title} — <b className="text-orange-400">{srv.internal_clients?.name || 'Sem Cliente'}</b></span>
-                        <span className="text-gray-400 text-[10px]">Vencimento: {srv.due_date ? srv.due_date.split('-').reverse().join('/') : ''} • R$ {Number(srv.amount).toFixed(2)}</span>
+                        <span className="font-bold text-white block">
+                          {srv.title} — <b className="text-orange-400">{srv.internal_clients?.name || 'Sem Cliente'}</b>
+                          <span className="ml-2 text-[10px] bg-gray-800 border border-gray-700 px-2 py-0.5 rounded text-gray-300">
+                            {getCycleLabel(srv.billing_cycle)}
+                          </span>
+                        </span>
+                        <span className="text-gray-400 text-[10px]">Vencimento: {srv.due_date ? srv.due_date.split('-').reverse().join('/') : ''} • R$ {Number(srv.amount).toFixed(2)} ({getCycleText(srv.billing_cycle)})</span>
                         {srv.internal_team && (
                           <span className="text-purple-400 text-[10px] block mt-0.5">Repasse: {srv.internal_team.name} (R$ {Number(srv.payout_amount).toFixed(2)}) — Status Repasse: <b>{srv.payout_status}</b></span>
                         )}
@@ -1148,14 +1209,23 @@ export default function MasterAdmin() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Valor da Mensalidade (R$):</label>
+                <label className="text-[11px] text-gray-400 block mb-1">Ciclo de Pagamento:</label>
+                <select value={editingTenant.billing_cycle || 'monthly'} onChange={(e) => setEditingTenant({ ...editingTenant, billing_cycle: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none">
+                  <option value="monthly">📅 Mensal</option>
+                  <option value="biweekly">🗓️ Quinzenal</option>
+                  <option value="weekly">⚡ Semanal</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Valor do Ciclo (R$):</label>
                 <input type="text" value={editingTenant.monthly_fee || ''} onChange={(e) => setEditingTenant({ ...editingTenant, monthly_fee: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
               </div>
 
               <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Data de Vencimento:</label>
+                <label className="text-[11px] text-gray-400 block mb-1">Data Vencimento:</label>
                 <input type="date" value={editingTenant.due_date || ''} onChange={(e) => setEditingTenant({ ...editingTenant, due_date: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none cursor-pointer" style={{ colorScheme: 'dark' }} />
               </div>
             </div>
