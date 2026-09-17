@@ -61,7 +61,7 @@ export default function MasterAdmin() {
     price_color: '#FF8C00',
     due_date: '',
     monthly_fee: '99.00',
-    billing_cycle: 'monthly', // 'monthly' | 'weekly' | 'biweekly'
+    billing_cycle: 'monthly',
     admin_password: '',
     business_type: 'delivery',
     has_tables: true
@@ -102,6 +102,10 @@ export default function MasterAdmin() {
   const [editingService, setEditingService] = useState(null);
   const [editingExpense, setEditingExpense] = useState(null);
 
+  // ESTADO PARA MODAL DE DAR BAIXA / ENTRADA / ANTECIPAÇÃO
+  const [paymentModalService, setPaymentModalService] = useState(null);
+  const [paymentInput, setPaymentInput] = useState('');
+
   // LOGIN MASTER
   const handleLogin = (e) => {
     e.preventDefault();
@@ -129,7 +133,6 @@ export default function MasterAdmin() {
 
     if (!rawTenants) return;
 
-    // 1. VERIFICA E DESATIVA AUTOMATICAMENTE CLIENTES VENCIDOS
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
@@ -145,7 +148,6 @@ export default function MasterAdmin() {
 
     setTenants(updatedTenants);
 
-    // 2. BUSCAR ESTATÍSTICAS DE USO (ORDERS + APPOINTMENTS)
     const validTenantIds = new Set(updatedTenants.map(t => t.id));
     let statsMap = {};
 
@@ -154,7 +156,6 @@ export default function MasterAdmin() {
     });
 
     try {
-      // BUSCA EM PEDIDOS (DELIVERY E E-COMMERCE)
       const { data: oData } = await supabase
         .from('orders')
         .select('id, tenant_id, total, created_at, payment_method, status');
@@ -179,7 +180,6 @@ export default function MasterAdmin() {
         });
       }
 
-      // BUSCA EM AGENDAMENTOS (AGENDAMENTO / BARBEARIA / SALÃO)
       const { data: aData } = await supabase
         .from('appointments')
         .select('id, tenant_id, total_price, created_at, appointment_date, status');
@@ -504,21 +504,24 @@ export default function MasterAdmin() {
     }
 
     let calculatedCycleAmount = 0;
+    let totalVal = parsePrice(newService.total_package_value, 0);
+    let installments = parseInt(newService.installments_count) || 1;
+
     if (newService.billing_type === 'package') {
-      const total = parsePrice(newService.total_package_value, 0);
-      const installments = parseInt(newService.installments_count) || 1;
-      calculatedCycleAmount = total / installments;
+      calculatedCycleAmount = totalVal / installments;
     } else {
       calculatedCycleAmount = parsePrice(newService.amount, 0);
+      totalVal = calculatedCycleAmount;
     }
 
     const serviceData = {
       client_id: parseInt(newService.client_id),
       title: newService.title.trim(),
       billing_type: newService.billing_type,
-      total_package_value: parsePrice(newService.total_package_value, 0),
-      installments_count: parseInt(newService.installments_count) || 1,
+      total_package_value: totalVal,
+      installments_count: installments,
       amount: calculatedCycleAmount,
+      amount_paid: 0,
       due_date: newService.due_date,
       assigned_team_id: newService.assigned_team_id ? parseInt(newService.assigned_team_id) : null,
       payout_amount: parsePrice(newService.payout_amount, 0),
@@ -554,20 +557,22 @@ export default function MasterAdmin() {
     if (!editingService) return;
 
     let calculatedCycleAmount = 0;
+    let totalVal = parsePrice(editingService.total_package_value, 0);
+    let installments = parseInt(editingService.installments_count) || 1;
+
     if (editingService.billing_type === 'package') {
-      const total = parsePrice(editingService.total_package_value, 0);
-      const installments = parseInt(editingService.installments_count) || 1;
-      calculatedCycleAmount = total / installments;
+      calculatedCycleAmount = totalVal / installments;
     } else {
       calculatedCycleAmount = parsePrice(editingService.amount, 0);
+      totalVal = calculatedCycleAmount;
     }
 
     const payload = {
       client_id: parseInt(editingService.client_id),
       title: editingService.title.trim(),
       billing_type: editingService.billing_type,
-      total_package_value: parsePrice(editingService.total_package_value, 0),
-      installments_count: parseInt(editingService.installments_count) || 1,
+      total_package_value: totalVal,
+      installments_count: installments,
       amount: calculatedCycleAmount,
       due_date: editingService.due_date,
       billing_cycle: editingService.billing_cycle,
@@ -580,6 +585,43 @@ export default function MasterAdmin() {
 
     alert("Serviço atualizado com sucesso!");
     setEditingService(null);
+    fetchInternalData();
+  };
+
+  // HANDLER REGISTRAR PAGAMENTO / DAR BAIXA / ENTRADA
+  const handleRegisterPayment = async (e) => {
+    e.preventDefault();
+    if (!paymentModalService) return;
+
+    const paymentVal = parsePrice(paymentInput, 0);
+    if (paymentVal <= 0) return alert("Informe um valor válido!");
+
+    const currentPaid = Number(paymentModalService.amount_paid || 0);
+    const targetTotal = paymentModalService.billing_type === 'package' 
+      ? Number(paymentModalService.total_package_value || paymentModalService.amount || 0)
+      : Number(paymentModalService.amount || 0);
+
+    const newTotalPaid = currentPaid + paymentVal;
+    let newStatus = 'parcial';
+
+    if (newTotalPaid >= targetTotal) {
+      newStatus = 'pago';
+    } else if (newTotalPaid > 0) {
+      newStatus = 'parcial';
+    } else {
+      newStatus = 'pendente';
+    }
+
+    const { error } = await supabase.from('internal_services').update({
+      amount_paid: newTotalPaid,
+      status: newStatus
+    }).eq('id', paymentModalService.id);
+
+    if (error) return alert("Erro ao dar baixa: " + error.message);
+
+    alert(`Baixa de R$ ${paymentVal.toFixed(2)} registrada com sucesso!`);
+    setPaymentModalService(null);
+    setPaymentInput('');
     fetchInternalData();
   };
 
@@ -623,23 +665,52 @@ export default function MasterAdmin() {
     const cycleText = getCycleText(srv.billing_cycle || 'monthly');
     const cycleLabel = getCycleLabel(srv.billing_cycle || 'monthly');
 
-    const msg = `Olá *${clientName}*! 👋\n\n` +
+    const totalToPay = srv.billing_type === 'package' ? Number(srv.total_package_value || srv.amount) : Number(srv.amount);
+    const paidAlready = Number(srv.amount_paid || 0);
+    const remaining = Math.max(0, totalToPay - paidAlready);
+
+    let msg = `Olá *${clientName}*! 👋\n\n` +
       `Passando para lembrar referente ao serviço *${srv.title}* (${cycleLabel}):\n` +
-      `• Vencimento: *${formattedDate}*\n` +
-      `• Valor da ${cycleText}: *R$ ${Number(srv.amount).toFixed(2)}*\n\n` +
-      `📌 *Chave PIX para pagamento:*\nfinanceiro@sinergemkt.com\n\n` +
-      `Qualquer dúvida fico à disposição!`;
+      `• Vencimento: *${formattedDate}*\n`;
+
+    if (srv.billing_type === 'package') {
+      msg += `• Pacote Total: *R$ ${totalToPay.toFixed(2)}*\n` +
+        `• Já Pago/Entrada: *R$ ${paidAlready.toFixed(2)}*\n` +
+        `• Saldo Pendente: *R$ ${remaining.toFixed(2)}*\n\n`;
+    } else {
+      msg += `• Valor da ${cycleText}: *R$ ${Number(srv.amount).toFixed(2)}*\n\n`;
+    }
+
+    msg += `📌 *Chave PIX para pagamento:*\nfinanceiro@sinergemkt.com\n\nQualquer dúvida fico à disposição!`;
 
     const formattedPhone = phone.startsWith('55') ? phone : `55${phone}`;
     window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // CÁLCULOS DO DRE INTERNO DA AGÊNCIA (INCLUINDO FOLHA SALARIAL FIXA)
-  const totalInternalReceivables = internalServices.reduce((acc, s) => acc + (s.status === 'pago' ? Number(s.amount) : 0), 0);
-  const totalInternalPayouts = internalServices.reduce((acc, s) => acc + (s.payout_status === 'pago' ? Number(s.payout_amount) : 0), 0);
+  // CÁLCULOS DO DRE INTERNO DA AGÊNCIA (EXATO COM PAGAMENTOS REALIZADOS E PENDENTES)
+  const totalInternalReceivables = internalServices.reduce((acc, s) => {
+    if (s.status === 'pago') {
+      return acc + (s.billing_type === 'package' ? Number(s.total_package_value || s.amount) : Number(s.amount));
+    }
+    return acc + Number(s.amount_paid || 0);
+  }, 0);
+
+  const totalPendingReceivables = internalServices.reduce((acc, s) => {
+    const total = s.billing_type === 'package' ? Number(s.total_package_value || s.amount) : Number(s.amount);
+    const paid = Number(s.amount_paid || (s.status === 'pago' ? total : 0));
+    return acc + Math.max(0, total - paid);
+  }, 0);
+
+  const totalInternalPayoutsPaid = internalServices.reduce((acc, s) => acc + (s.payout_status === 'pago' ? Number(s.payout_amount || 0) : 0), 0);
+  const totalInternalPayoutsPending = internalServices.reduce((acc, s) => acc + (s.payout_status !== 'pago' ? Number(s.payout_amount || 0) : 0), 0);
   const totalSalaries = internalTeam.reduce((acc, t) => acc + Number(t.salary || 0), 0);
-  const totalInternalExpenses = internalExpenses.reduce((acc, e) => acc + (e.status === 'pago' ? Number(e.amount) : 0), 0);
-  const netInternalProfit = totalInternalReceivables - (totalInternalPayouts + totalSalaries + totalInternalExpenses);
+  const totalInternalExpensesPaid = internalExpenses.reduce((acc, e) => acc + (e.status === 'pago' ? Number(e.amount || 0) : 0), 0);
+  const totalInternalExpensesPending = internalExpenses.reduce((acc, e) => acc + (e.status !== 'pago' ? Number(e.amount || 0) : 0), 0);
+
+  const totalPaidOutflow = totalInternalPayoutsPaid + totalSalaries + totalInternalExpensesPaid;
+  const totalPendingOutflow = totalInternalPayoutsPending + totalInternalExpensesPending;
+  const netInternalProfitCash = totalInternalReceivables - totalPaidOutflow;
+  const netInternalProfitProjected = (totalInternalReceivables + totalPendingReceivables) - (totalPaidOutflow + totalPendingOutflow);
 
   // FILTROS DE CLIENTES SAAS E CÁLCULO DE MRR PROJETADO
   const activeTenants = tenants.filter(t => t.active);
@@ -1112,27 +1183,33 @@ export default function MasterAdmin() {
       {activeMainTab === 'internal' && (
         <div className="space-y-6">
           {/* CARD DRE / RESUMO FINANCEIRO COMPLETO DA SUA AGÊNCIA */}
-          <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 bg-gray-900 p-4 rounded-2xl border border-gray-800 shadow-xl">
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5 bg-gray-900 p-4 rounded-2xl border border-gray-800 shadow-xl">
             <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
-              <span className="text-[10px] text-gray-400 block font-bold">ENTRADAS (PAGAS)</span>
+              <span className="text-[10px] text-gray-400 block font-bold uppercase">Recebido (Caixa Real)</span>
               <span className="text-base font-bold text-green-400">R$ {totalInternalReceivables.toFixed(2)}</span>
             </div>
             <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
-              <span className="text-[10px] text-gray-400 block font-bold">REPASSES PROJETOS</span>
-              <span className="text-base font-bold text-purple-400">R$ {totalInternalPayouts.toFixed(2)}</span>
+              <span className="text-[10px] text-yellow-400 block font-bold uppercase">A Receber (Pendente)</span>
+              <span className="text-base font-bold text-yellow-400">R$ {totalPendingReceivables.toFixed(2)}</span>
             </div>
             <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
-              <span className="text-[10px] text-gray-400 block font-bold">FOLHA SALARIAL (FIXA)</span>
-              <span className="text-base font-bold text-blue-400">R$ {totalSalaries.toFixed(2)}</span>
+              <span className="text-[10px] text-gray-400 block font-bold uppercase">Total Pago (Saídas)</span>
+              <span className="text-base font-bold text-red-400">R$ {totalPaidOutflow.toFixed(2)}</span>
             </div>
             <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
-              <span className="text-[10px] text-gray-400 block font-bold">DESPESAS FIXAS/VARIÁVEIS</span>
-              <span className="text-base font-bold text-red-400">R$ {totalInternalExpenses.toFixed(2)}</span>
+              <span className="text-[10px] text-purple-400 block font-bold uppercase">A Pagar (Pendente)</span>
+              <span className="text-base font-bold text-purple-400">R$ {totalPendingOutflow.toFixed(2)}</span>
+            </div>
+            <div className="bg-gray-950 p-3 rounded-xl border border-green-500/30">
+              <span className="text-[10px] text-green-400 block font-bold uppercase">Saldo em Caixa</span>
+              <span className={`text-base font-bold ${netInternalProfitCash >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                R$ {netInternalProfitCash.toFixed(2)}
+              </span>
             </div>
             <div className="bg-gray-950 p-3 rounded-xl border border-orange-500/30">
-              <span className="text-[10px] text-orange-400 block font-bold">LUCRO LÍQUIDO</span>
-              <span className={`text-base font-bold ${netInternalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                R$ {netInternalProfit.toFixed(2)}
+              <span className="text-[10px] text-orange-400 block font-bold uppercase">Lucro Projetado</span>
+              <span className={`text-base font-bold ${netInternalProfitProjected >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                R$ {netInternalProfitProjected.toFixed(2)}
               </span>
             </div>
           </div>
@@ -1170,14 +1247,14 @@ export default function MasterAdmin() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-950 p-3 rounded-xl border border-orange-500/30">
                     <div>
                       <label className="text-gray-400 block mb-1">Valor Total do Pack (R$):</label>
-                      <input type="text" placeholder="Ex: 3000.00" value={newService.total_package_value} onChange={(e) => setNewService({ ...newService, total_package_value: e.target.value })} className="w-full bg-gray-900 border border-gray-800 p-2 rounded-lg text-white font-bold" required />
+                      <input type="text" placeholder="Ex: 600.00" value={newService.total_package_value} onChange={(e) => setNewService({ ...newService, total_package_value: e.target.value })} className="w-full bg-gray-900 border border-gray-800 p-2 rounded-lg text-white font-bold" required />
                     </div>
                     <div>
-                      <label className="text-gray-400 block mb-1">Nº de Parcelas/Ciclos:</label>
+                      <label className="text-gray-400 block mb-1">Nº de Parcelas/Semanas:</label>
                       <input type="number" min="1" value={newService.installments_count} onChange={(e) => setNewService({ ...newService, installments_count: e.target.value })} className="w-full bg-gray-900 border border-gray-800 p-2 rounded-lg text-white font-bold" required />
                     </div>
                     <div>
-                      <label className="text-gray-400 block mb-1">Calculado por Ciclo:</label>
+                      <label className="text-gray-400 block mb-1">Calculado por Parcela/Ciclo:</label>
                       <div className="p-2 font-bold text-green-400 text-sm">
                         R$ {((parsePrice(newService.total_package_value) / (parseInt(newService.installments_count) || 1)) || 0).toFixed(2)}
                       </div>
@@ -1224,48 +1301,72 @@ export default function MasterAdmin() {
                 <button type="submit" className="bg-green-600 hover:bg-green-700 font-bold px-4 py-2.5 rounded-lg text-white shadow-md transition">Cadastrar Cobrança / Pacote 🚀</button>
               </form>
 
-              {/* LISTA DE COBRANÇAS INTERNAS COM BOTAO DE EDICAO */}
+              {/* LISTA DE COBRANÇAS INTERNAS COM BAIXA DE ENTRADAS/ANTECIPAÇÕES */}
               <div className="space-y-2">
                 {internalServices.length === 0 ? (
                   <div className="bg-gray-900 p-6 rounded-xl border border-gray-800 text-center text-xs text-gray-500">
                     Nenhum serviço ou cobrança cadastrado até o momento.
                   </div>
                 ) : (
-                  internalServices.map(srv => (
-                    <div key={srv.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs">
-                      <div>
-                        <span className="font-bold text-white block">
-                          {srv.title} — <b className="text-orange-400">{srv.internal_clients?.name || 'Sem Cliente'}</b>
-                          <span className="ml-2 text-[10px] bg-gray-800 border border-gray-700 px-2 py-0.5 rounded text-gray-300">
-                            {getCycleLabel(srv.billing_cycle)}
+                  internalServices.map(srv => {
+                    const totalVal = srv.billing_type === 'package' ? Number(srv.total_package_value || srv.amount) : Number(srv.amount);
+                    const paidVal = Number(srv.amount_paid || (srv.status === 'pago' ? totalVal : 0));
+                    const remainingVal = Math.max(0, totalVal - paidVal);
+
+                    return (
+                      <div key={srv.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs">
+                        <div>
+                          <span className="font-bold text-white block">
+                            {srv.title} — <b className="text-orange-400">{srv.internal_clients?.name || 'Sem Cliente'}</b>
+                            <span className="ml-2 text-[10px] bg-gray-800 border border-gray-700 px-2 py-0.5 rounded text-gray-300">
+                              {getCycleLabel(srv.billing_cycle)}
+                            </span>
+                            {srv.billing_type === 'package' && (
+                              <span className="ml-1.5 text-[10px] bg-purple-500/20 border border-purple-500/40 text-purple-300 px-2 py-0.5 rounded font-bold">
+                                📦 Pack Total: R$ {totalVal.toFixed(2)} ({srv.installments_count}x de R$ {Number(srv.amount).toFixed(2)})
+                              </span>
+                            )}
                           </span>
-                          {srv.billing_type === 'package' && (
-                            <span className="ml-1.5 text-[10px] bg-purple-500/20 border border-purple-500/40 text-purple-300 px-2 py-0.5 rounded font-bold">
-                              📦 Pack: R$ {Number(srv.total_package_value).toFixed(2)} ({srv.installments_count}x)
+
+                          <div className="text-gray-400 text-[10px] space-x-2 mt-0.5">
+                            <span>Vencimento: <b>{srv.due_date ? srv.due_date.split('-').reverse().join('/') : ''}</b></span>
+                            <span>Cobrança por ciclo: <b>R$ {Number(srv.amount).toFixed(2)}</b></span>
+                            <span>Já Pago: <b className="text-green-400">R$ {paidVal.toFixed(2)}</b></span>
+                            {remainingVal > 0 && <span>Pendente: <b className="text-yellow-400">R$ {remainingVal.toFixed(2)}</b></span>}
+                          </div>
+
+                          {srv.internal_team && (
+                            <span className="text-purple-400 text-[10px] block mt-0.5">
+                              Repasse Projeto: {srv.internal_team.name} (R$ {Number(srv.payout_amount).toFixed(2)}) — Status Repasse: <b>{srv.payout_status}</b>
                             </span>
                           )}
-                        </span>
-                        <span className="text-gray-400 text-[10px]">Vencimento: {srv.due_date ? srv.due_date.split('-').reverse().join('/') : ''} • R$ {Number(srv.amount).toFixed(2)} / {getCycleText(srv.billing_cycle)}</span>
-                        {srv.internal_team && (
-                          <span className="text-purple-400 text-[10px] block mt-0.5">Repasse Projeto: {srv.internal_team.name} (R$ {Number(srv.payout_amount).toFixed(2)}) — Status Repasse: <b>{srv.payout_status}</b></span>
-                        )}
-                      </div>
+                        </div>
 
-                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                        <button onClick={() => handleSendInternalChargeMessage(srv)} className="bg-green-600/20 text-green-400 border border-green-500/30 px-2.5 py-1 rounded-lg font-bold hover:bg-green-600/30">💬 Cobrar Zap</button>
-                        <button onClick={async () => { await supabase.from('internal_services').update({ status: srv.status === 'pago' ? 'pendente' : 'pago' }).eq('id', srv.id); fetchInternalData(); }} className={`px-2.5 py-1 rounded-lg font-bold ${srv.status === 'pago' ? 'bg-green-500 text-white' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'}`}>
-                          {srv.status === 'pago' ? '✓ Pago' : 'Pendente'}
-                        </button>
-                        {srv.assigned_team_id && (
-                          <button onClick={async () => { await supabase.from('internal_services').update({ payout_status: srv.payout_status === 'pago' ? 'pendente' : 'pago' }).eq('id', srv.id); fetchInternalData(); }} className={`px-2 py-1 rounded-lg text-[10px] font-bold ${srv.payout_status === 'pago' ? 'bg-purple-600 text-white' : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'}`}>
-                            {srv.payout_status === 'pago' ? '✓ Repasse Pago' : 'Repasse Pendente'}
+                        <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                          <button onClick={() => setPaymentModalService(srv)} className="bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-lg font-bold hover:bg-emerald-600/30">
+                            💵 Dar Baixa / Entrada
                           </button>
-                        )}
-                        <button onClick={() => setEditingService(srv)} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded-lg font-bold">✏️ Editar</button>
-                        <button onClick={async () => { if (confirm('Excluir este serviço?')) { await supabase.from('internal_services').delete().eq('id', srv.id); fetchInternalData(); } }} className="text-red-400 hover:text-red-300 font-bold p-1">🗑</button>
+
+                          <button onClick={() => handleSendInternalChargeMessage(srv)} className="bg-green-600/20 text-green-400 border border-green-500/30 px-2.5 py-1 rounded-lg font-bold hover:bg-green-600/30">
+                            💬 Cobrar Zap
+                          </button>
+
+                          <span className={`px-2.5 py-1 rounded-lg font-bold text-[10px] ${srv.status === 'pago' ? 'bg-green-500 text-white' : srv.status === 'parcial' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'}`}>
+                            {srv.status === 'pago' ? '✓ Pago' : srv.status === 'parcial' ? '🌗 Parcial' : '⏳ Pendente'}
+                          </span>
+
+                          {srv.assigned_team_id && (
+                            <button onClick={async () => { await supabase.from('internal_services').update({ payout_status: srv.payout_status === 'pago' ? 'pendente' : 'pago' }).eq('id', srv.id); fetchInternalData(); }} className={`px-2 py-1 rounded-lg text-[10px] font-bold ${srv.payout_status === 'pago' ? 'bg-purple-600 text-white' : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'}`}>
+                              {srv.payout_status === 'pago' ? '✓ Repasse Pago' : 'Repasse Pendente'}
+                            </button>
+                          )}
+
+                          <button onClick={() => setEditingService(srv)} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded-lg font-bold">✏️ Editar</button>
+                          <button onClick={async () => { if (confirm('Excluir este serviço?')) { await supabase.from('internal_services').delete().eq('id', srv.id); fetchInternalData(); } }} className="text-red-400 hover:text-red-300 font-bold p-1">🗑</button>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1379,6 +1480,46 @@ export default function MasterAdmin() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* MODAL PARA DAR BAIXA / REGISTRAR ENTRADA / ANTECIPAÇÃO */}
+      {paymentModalService && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleRegisterPayment} className="bg-gray-900 p-6 rounded-2xl max-w-sm w-full space-y-4 border border-emerald-500/40 text-xs shadow-2xl">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="font-bold text-emerald-400 text-sm">💵 Registrar Pagamento / Entrada</h3>
+              <button type="button" onClick={() => setPaymentModalService(null)} className="text-gray-400">✕</button>
+            </div>
+
+            <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-1">
+              <span className="font-bold text-white block">{paymentModalService.title}</span>
+              <span className="text-gray-400 text-[11px] block">Cliente: {paymentModalService.internal_clients?.name}</span>
+              <span className="text-gray-400 text-[11px] block">
+                Valor do Pack/Cobrança: <b>R$ {Number(paymentModalService.total_package_value || paymentModalService.amount).toFixed(2)}</b>
+              </span>
+              <span className="text-green-400 text-[11px] block">
+                Já Pago/Baixado: <b>R$ {Number(paymentModalService.amount_paid || 0).toFixed(2)}</b>
+              </span>
+            </div>
+
+            <div>
+              <label className="text-gray-300 block mb-1 font-bold">Valor do Pagamento Recebido (R$):</label>
+              <input 
+                type="text" 
+                placeholder="Ex: 200.00" 
+                value={paymentInput} 
+                onChange={(e) => setPaymentInput(e.target.value)} 
+                className="w-full bg-gray-950 p-3 rounded-xl border border-gray-800 text-white font-bold text-sm focus:outline-none focus:border-emerald-500" 
+                required 
+              />
+            </div>
+
+            <div className="flex space-x-2 pt-2">
+              <button type="button" onClick={() => setPaymentModalService(null)} className="w-1/2 bg-gray-800 text-gray-300 font-bold py-2.5 rounded-xl">Cancelar</button>
+              <button type="submit" className="w-1/2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl shadow-lg shadow-emerald-600/20">Confirmar Baixa 🚀</button>
+            </div>
+          </form>
         </div>
       )}
 
