@@ -81,9 +81,26 @@ export default function MasterAdmin() {
 
   // FORMULÁRIOS DA GESTÃO INTERNA
   const [newInternalClient, setNewInternalClient] = useState({ name: '', phone: '', email: '', document: '', notes: '' });
-  const [newMember, setNewMember] = useState({ name: '', phone: '', role: '', pix_key: '' });
-  const [newService, setNewService] = useState({ client_id: '', title: '', amount: '', due_date: '', assigned_team_id: '', payout_amount: '', billing_cycle: 'monthly' });
+  const [newMember, setNewMember] = useState({ name: '', phone: '', role: '', pix_key: '', salary: '' });
+  const [newService, setNewService] = useState({
+    client_id: '',
+    title: '',
+    billing_type: 'recurrent', // 'recurrent' | 'package'
+    total_package_value: '',
+    installments_count: '1',
+    amount: '',
+    due_date: '',
+    assigned_team_id: '',
+    payout_amount: '',
+    billing_cycle: 'monthly'
+  });
   const [newExpense, setNewExpense] = useState({ description: '', amount: '', due_date: '', category: 'Servidores' });
+
+  // ESTADOS DE EDIÇÃO DA GESTÃO INTERNA (CRUD COMPLETO)
+  const [editingInternalClient, setEditingInternalClient] = useState(null);
+  const [editingMember, setEditingMember] = useState(null);
+  const [editingService, setEditingService] = useState(null);
+  const [editingExpense, setEditingExpense] = useState(null);
 
   // LOGIN MASTER
   const handleLogin = (e) => {
@@ -418,53 +435,183 @@ export default function MasterAdmin() {
     }
   };
 
+  // HANDLERS CLIENTES DIRETO
   const handleAddInternalClient = async (e) => {
     e.preventDefault();
     if (!newInternalClient.name || !newInternalClient.phone) return alert('Preencha Nome e Telefone!');
-    await supabase.from('internal_clients').insert([newInternalClient]);
+    const { error } = await supabase.from('internal_clients').insert([newInternalClient]);
+    if (error) return alert("Erro ao salvar cliente: " + error.message);
     setNewInternalClient({ name: '', phone: '', email: '', document: '', notes: '' });
     fetchInternalData();
   };
 
+  const handleUpdateInternalClient = async (e) => {
+    e.preventDefault();
+    if (!editingInternalClient) return;
+    const { error } = await supabase.from('internal_clients').update({
+      name: editingInternalClient.name.trim(),
+      phone: editingInternalClient.phone,
+      email: editingInternalClient.email,
+      document: editingInternalClient.document,
+      notes: editingInternalClient.notes
+    }).eq('id', editingInternalClient.id);
+
+    if (error) return alert("Erro ao atualizar cliente: " + error.message);
+    alert("Cliente atualizado com sucesso!");
+    setEditingInternalClient(null);
+    fetchInternalData();
+  };
+
+  // HANDLERS EQUIPE / FUNCIONÁRIOS
   const handleAddMember = async (e) => {
     e.preventDefault();
     if (!newMember.name) return alert('Preencha o Nome do membro!');
-    await supabase.from('internal_team').insert([newMember]);
-    setNewMember({ name: '', phone: '', role: '', pix_key: '' });
+    const payload = {
+      name: newMember.name.trim(),
+      phone: newMember.phone,
+      role: newMember.role,
+      pix_key: newMember.pix_key,
+      salary: parsePrice(newMember.salary, 0)
+    };
+    const { error } = await supabase.from('internal_team').insert([payload]);
+    if (error) return alert("Erro ao cadastrar funcionário: " + error.message);
+    setNewMember({ name: '', phone: '', role: '', pix_key: '', salary: '' });
     fetchInternalData();
   };
 
+  const handleUpdateMember = async (e) => {
+    e.preventDefault();
+    if (!editingMember) return;
+    const payload = {
+      name: editingMember.name.trim(),
+      phone: editingMember.phone,
+      role: editingMember.role,
+      pix_key: editingMember.pix_key,
+      salary: parsePrice(editingMember.salary, 0)
+    };
+    const { error } = await supabase.from('internal_team').update(payload).eq('id', editingMember.id);
+    if (error) return alert("Erro ao atualizar colaborador: " + error.message);
+    alert("Colaborador atualizado!");
+    setEditingMember(null);
+    fetchInternalData();
+  };
+
+  // HANDLERS COBRANÇAS / SERVIÇOS / PACOTES
   const handleAddService = async (e) => {
     e.preventDefault();
-    if (!newService.client_id || !newService.title || !newService.amount || !newService.due_date) {
-      return alert('Preencha cliente, título, valor e vencimento!');
+    if (!newService.client_id || !newService.title || !newService.due_date) {
+      return alert('Preencha cliente, título e vencimento!');
     }
-    await supabase.from('internal_services').insert([{
+
+    let calculatedCycleAmount = 0;
+    if (newService.billing_type === 'package') {
+      const total = parsePrice(newService.total_package_value, 0);
+      const installments = parseInt(newService.installments_count) || 1;
+      calculatedCycleAmount = total / installments;
+    } else {
+      calculatedCycleAmount = parsePrice(newService.amount, 0);
+    }
+
+    const serviceData = {
       client_id: parseInt(newService.client_id),
-      title: newService.title,
-      amount: parseFloat(newService.amount),
+      title: newService.title.trim(),
+      billing_type: newService.billing_type,
+      total_package_value: parsePrice(newService.total_package_value, 0),
+      installments_count: parseInt(newService.installments_count) || 1,
+      amount: calculatedCycleAmount,
       due_date: newService.due_date,
       assigned_team_id: newService.assigned_team_id ? parseInt(newService.assigned_team_id) : null,
-      payout_amount: newService.payout_amount ? parseFloat(newService.payout_amount) : 0,
+      payout_amount: parsePrice(newService.payout_amount, 0),
       billing_cycle: newService.billing_cycle || 'monthly',
       status: 'pendente',
       payout_status: 'pendente'
-    }]);
-    setNewService({ client_id: '', title: '', amount: '', due_date: '', assigned_team_id: '', payout_amount: '', billing_cycle: 'monthly' });
+    };
+
+    const { error } = await supabase.from('internal_services').insert([serviceData]);
+
+    if (error) {
+      alert("Erro ao salvar cobrança: " + error.message);
+    } else {
+      alert("Serviço/Pacote cadastrado com sucesso!");
+      setNewService({
+        client_id: '',
+        title: '',
+        billing_type: 'recurrent',
+        total_package_value: '',
+        installments_count: '1',
+        amount: '',
+        due_date: '',
+        assigned_team_id: '',
+        payout_amount: '',
+        billing_cycle: 'monthly'
+      });
+      fetchInternalData();
+    }
+  };
+
+  const handleUpdateService = async (e) => {
+    e.preventDefault();
+    if (!editingService) return;
+
+    let calculatedCycleAmount = 0;
+    if (editingService.billing_type === 'package') {
+      const total = parsePrice(editingService.total_package_value, 0);
+      const installments = parseInt(editingService.installments_count) || 1;
+      calculatedCycleAmount = total / installments;
+    } else {
+      calculatedCycleAmount = parsePrice(editingService.amount, 0);
+    }
+
+    const payload = {
+      client_id: parseInt(editingService.client_id),
+      title: editingService.title.trim(),
+      billing_type: editingService.billing_type,
+      total_package_value: parsePrice(editingService.total_package_value, 0),
+      installments_count: parseInt(editingService.installments_count) || 1,
+      amount: calculatedCycleAmount,
+      due_date: editingService.due_date,
+      billing_cycle: editingService.billing_cycle,
+      assigned_team_id: editingService.assigned_team_id ? parseInt(editingService.assigned_team_id) : null,
+      payout_amount: parsePrice(editingService.payout_amount, 0)
+    };
+
+    const { error } = await supabase.from('internal_services').update(payload).eq('id', editingService.id);
+    if (error) return alert("Erro ao atualizar serviço: " + error.message);
+
+    alert("Serviço atualizado com sucesso!");
+    setEditingService(null);
     fetchInternalData();
   };
 
+  // HANDLERS CONTAS A PAGAR / DESPESAS
   const handleAddExpense = async (e) => {
     e.preventDefault();
     if (!newExpense.description || !newExpense.amount || !newExpense.due_date) return alert('Preencha os campos obrigatórios!');
-    await supabase.from('internal_expenses').insert([{
-      description: newExpense.description,
-      amount: parseFloat(newExpense.amount),
+    const { error } = await supabase.from('internal_expenses').insert([{
+      description: newExpense.description.trim(),
+      amount: parsePrice(newExpense.amount),
       due_date: newExpense.due_date,
       category: newExpense.category,
       status: 'pendente'
     }]);
+    if (error) return alert("Erro ao lançar despesa: " + error.message);
     setNewExpense({ description: '', amount: '', due_date: '', category: 'Servidores' });
+    fetchInternalData();
+  };
+
+  const handleUpdateExpense = async (e) => {
+    e.preventDefault();
+    if (!editingExpense) return;
+    const { error } = await supabase.from('internal_expenses').update({
+      description: editingExpense.description.trim(),
+      amount: parsePrice(editingExpense.amount),
+      due_date: editingExpense.due_date,
+      category: editingExpense.category
+    }).eq('id', editingExpense.id);
+
+    if (error) return alert("Erro ao atualizar despesa: " + error.message);
+    alert("Despesa atualizada com sucesso!");
+    setEditingExpense(null);
     fetchInternalData();
   };
 
@@ -487,21 +634,21 @@ export default function MasterAdmin() {
     window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // CÁLCULOS DO DRE INTERNO DA AGÊNCIA
+  // CÁLCULOS DO DRE INTERNO DA AGÊNCIA (INCLUINDO FOLHA SALARIAL FIXA)
   const totalInternalReceivables = internalServices.reduce((acc, s) => acc + (s.status === 'pago' ? Number(s.amount) : 0), 0);
   const totalInternalPayouts = internalServices.reduce((acc, s) => acc + (s.payout_status === 'pago' ? Number(s.payout_amount) : 0), 0);
+  const totalSalaries = internalTeam.reduce((acc, t) => acc + Number(t.salary || 0), 0);
   const totalInternalExpenses = internalExpenses.reduce((acc, e) => acc + (e.status === 'pago' ? Number(e.amount) : 0), 0);
-  const netInternalProfit = totalInternalReceivables - totalInternalPayouts - totalInternalExpenses;
+  const netInternalProfit = totalInternalReceivables - (totalInternalPayouts + totalSalaries + totalInternalExpenses);
 
   // FILTROS DE CLIENTES SAAS E CÁLCULO DE MRR PROJETADO
   const activeTenants = tenants.filter(t => t.active);
   
-  // CONVERSÃO DE CICLO PARA PROJEÇÃO MENSAL (MRR)
   const totalMRR = activeTenants.reduce((acc, t) => {
     const fee = parsePrice(t.monthly_fee, 0);
     const cycle = t.billing_cycle || 'monthly';
-    if (cycle === 'weekly') return acc + (fee * 4.33); // Média de semanas no mês
-    if (cycle === 'biweekly') return acc + (fee * 2.16); // Média de quinzenas no mês
+    if (cycle === 'weekly') return acc + (fee * 4.33);
+    if (cycle === 'biweekly') return acc + (fee * 2.16);
     return acc + fee;
   }, 0);
 
@@ -964,15 +1111,19 @@ export default function MasterAdmin() {
       {/* ========================================== */}
       {activeMainTab === 'internal' && (
         <div className="space-y-6">
-          {/* CARD DRE / RESUMO FINANCEIRO DA SUA AGÊNCIA */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-gray-900 p-4 rounded-2xl border border-gray-800 shadow-xl">
+          {/* CARD DRE / RESUMO FINANCEIRO COMPLETO DA SUA AGÊNCIA */}
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 bg-gray-900 p-4 rounded-2xl border border-gray-800 shadow-xl">
             <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
               <span className="text-[10px] text-gray-400 block font-bold">ENTRADAS (PAGAS)</span>
               <span className="text-base font-bold text-green-400">R$ {totalInternalReceivables.toFixed(2)}</span>
             </div>
             <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
-              <span className="text-[10px] text-gray-400 block font-bold">REPASSES EQUIPE</span>
+              <span className="text-[10px] text-gray-400 block font-bold">REPASSES PROJETOS</span>
               <span className="text-base font-bold text-purple-400">R$ {totalInternalPayouts.toFixed(2)}</span>
+            </div>
+            <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
+              <span className="text-[10px] text-gray-400 block font-bold">FOLHA SALARIAL (FIXA)</span>
+              <span className="text-base font-bold text-blue-400">R$ {totalSalaries.toFixed(2)}</span>
             </div>
             <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
               <span className="text-[10px] text-gray-400 block font-bold">DESPESAS FIXAS/VARIÁVEIS</span>
@@ -988,46 +1139,92 @@ export default function MasterAdmin() {
 
           {/* SUB-NAVEGAÇÃO INTERNA */}
           <div className="flex space-x-2 border-b border-gray-800 pb-2 text-xs font-bold flex-wrap gap-y-2">
-            <button onClick={() => setInternalSubTab('billing')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'billing' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>💰 Serviços & Cobranças</button>
+            <button onClick={() => setInternalSubTab('billing')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'billing' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>💰 Serviços & Pacotes</button>
             <button onClick={() => setInternalSubTab('expenses')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'expenses' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>📉 Contas a Pagar</button>
-            <button onClick={() => setInternalSubTab('team')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'team' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>👨‍💻 Equipe & Repasses</button>
+            <button onClick={() => setInternalSubTab('team')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'team' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>👨‍💻 Funcionários & Salários</button>
             <button onClick={() => setInternalSubTab('clients')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'clients' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>👥 Clientes Diretos</button>
           </div>
 
-          {/* SUB-ABA 1: SERVIÇOS E COBRANÇAS */}
+          {/* SUB-ABA 1: SERVIÇOS E COBRANÇAS / PACOTES */}
           {internalSubTab === 'billing' && (
             <div className="space-y-4">
               <form onSubmit={handleAddService} className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 text-xs shadow-lg">
-                <h4 className="font-bold text-orange-400">➕ Novo Serviço / Cobrança</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                  <select value={newService.client_id} onChange={(e) => setNewService({ ...newService, client_id: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white">
+                <h4 className="font-bold text-orange-400">➕ Novo Serviço / Pacote Fechado</h4>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <select value={newService.client_id} onChange={(e) => setNewService({ ...newService, client_id: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" required>
                     <option value="">-- Selecionar Cliente --</option>
                     {internalClients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
 
-                  <input type="text" placeholder="Título (Ex: Gestão de Anúncios - Mês 10)" value={newService.title} onChange={(e) => setNewService({ ...newService, title: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" />
+                  <input type="text" placeholder="Título (Ex: Criação de Site + Tráfego)" value={newService.title} onChange={(e) => setNewService({ ...newService, title: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" required />
 
-                  <select value={newService.billing_cycle} onChange={(e) => setNewService({ ...newService, billing_cycle: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white">
-                    <option value="monthly">📅 Mensal</option>
-                    <option value="biweekly">🗓️ Quinzenal</option>
-                    <option value="weekly">⚡ Semanal</option>
+                  <select value={newService.billing_type} onChange={(e) => setNewService({ ...newService, billing_type: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-orange-400 font-bold">
+                    <option value="recurrent">🔄 Valor Recorrente Fixo</option>
+                    <option value="package">📦 Pacote Fechado (Dividir Valor Total)</option>
                   </select>
-
-                  <input type="text" placeholder="Valor Cobrado R$" value={newService.amount} onChange={(e) => setNewService({ ...newService, amount: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" />
-
-                  <input type="date" value={newService.due_date} onChange={(e) => setNewService({ ...newService, due_date: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white cursor-pointer" style={{ colorScheme: 'dark' }} />
-
-                  <select value={newService.assigned_team_id} onChange={(e) => setNewService({ ...newService, assigned_team_id: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white">
-                    <option value="">-- Responsável da Equipe (Opcional) --</option>
-                    {internalTeam.map(t => <option key={t.id} value={t.id}>{t.name} ({t.role})</option>)}
-                  </select>
-
-                  <input type="text" placeholder="Valor Repasse Equipe R$" value={newService.payout_amount} onChange={(e) => setNewService({ ...newService, payout_amount: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" />
                 </div>
-                <button type="submit" className="bg-green-600 hover:bg-green-700 font-bold px-4 py-2.5 rounded-lg text-white shadow-md transition">Cadastrar Cobrança 🚀</button>
+
+                {/* DIVISÃO AUTOMÁTICA DE PACOTE FECHADO */}
+                {newService.billing_type === 'package' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-950 p-3 rounded-xl border border-orange-500/30">
+                    <div>
+                      <label className="text-gray-400 block mb-1">Valor Total do Pack (R$):</label>
+                      <input type="text" placeholder="Ex: 3000.00" value={newService.total_package_value} onChange={(e) => setNewService({ ...newService, total_package_value: e.target.value })} className="w-full bg-gray-900 border border-gray-800 p-2 rounded-lg text-white font-bold" required />
+                    </div>
+                    <div>
+                      <label className="text-gray-400 block mb-1">Nº de Parcelas/Ciclos:</label>
+                      <input type="number" min="1" value={newService.installments_count} onChange={(e) => setNewService({ ...newService, installments_count: e.target.value })} className="w-full bg-gray-900 border border-gray-800 p-2 rounded-lg text-white font-bold" required />
+                    </div>
+                    <div>
+                      <label className="text-gray-400 block mb-1">Calculado por Ciclo:</label>
+                      <div className="p-2 font-bold text-green-400 text-sm">
+                        R$ {((parsePrice(newService.total_package_value) / (parseInt(newService.installments_count) || 1)) || 0).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-gray-400 block mb-1">Valor Cobrado por Ciclo (R$):</label>
+                      <input type="text" placeholder="Ex: 500.00" value={newService.amount} onChange={(e) => setNewService({ ...newService, amount: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white font-bold" required />
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                  <div>
+                    <label className="text-gray-400 block mb-1">Frequência/Ciclo:</label>
+                    <select value={newService.billing_cycle} onChange={(e) => setNewService({ ...newService, billing_cycle: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white">
+                      <option value="monthly">📅 Mensal</option>
+                      <option value="biweekly">🗓️ Quinzenal</option>
+                      <option value="weekly">⚡ Semanal</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-gray-400 block mb-1">Data do Vencimento:</label>
+                    <input type="date" value={newService.due_date} onChange={(e) => setNewService({ ...newService, due_date: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white cursor-pointer" style={{ colorScheme: 'dark' }} required />
+                  </div>
+
+                  <div>
+                    <label className="text-gray-400 block mb-1">Responsável (Opcional):</label>
+                    <select value={newService.assigned_team_id} onChange={(e) => setNewService({ ...newService, assigned_team_id: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white">
+                      <option value="">-- Responsável da Equipe --</option>
+                      {internalTeam.map(t => <option key={t.id} value={t.id}>{t.name} ({t.role})</option>)}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-gray-400 block mb-1">Repasse do Projeto (R$):</label>
+                    <input type="text" placeholder="Ex: 150.00" value={newService.payout_amount} onChange={(e) => setNewService({ ...newService, payout_amount: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white font-bold text-purple-400" />
+                  </div>
+                </div>
+
+                <button type="submit" className="bg-green-600 hover:bg-green-700 font-bold px-4 py-2.5 rounded-lg text-white shadow-md transition">Cadastrar Cobrança / Pacote 🚀</button>
               </form>
 
-              {/* LISTA DE COBRANÇAS INTERNAS */}
+              {/* LISTA DE COBRANÇAS INTERNAS COM BOTAO DE EDICAO */}
               <div className="space-y-2">
                 {internalServices.length === 0 ? (
                   <div className="bg-gray-900 p-6 rounded-xl border border-gray-800 text-center text-xs text-gray-500">
@@ -1042,10 +1239,15 @@ export default function MasterAdmin() {
                           <span className="ml-2 text-[10px] bg-gray-800 border border-gray-700 px-2 py-0.5 rounded text-gray-300">
                             {getCycleLabel(srv.billing_cycle)}
                           </span>
+                          {srv.billing_type === 'package' && (
+                            <span className="ml-1.5 text-[10px] bg-purple-500/20 border border-purple-500/40 text-purple-300 px-2 py-0.5 rounded font-bold">
+                              📦 Pack: R$ {Number(srv.total_package_value).toFixed(2)} ({srv.installments_count}x)
+                            </span>
+                          )}
                         </span>
-                        <span className="text-gray-400 text-[10px]">Vencimento: {srv.due_date ? srv.due_date.split('-').reverse().join('/') : ''} • R$ {Number(srv.amount).toFixed(2)} ({getCycleText(srv.billing_cycle)})</span>
+                        <span className="text-gray-400 text-[10px]">Vencimento: {srv.due_date ? srv.due_date.split('-').reverse().join('/') : ''} • R$ {Number(srv.amount).toFixed(2)} / {getCycleText(srv.billing_cycle)}</span>
                         {srv.internal_team && (
-                          <span className="text-purple-400 text-[10px] block mt-0.5">Repasse: {srv.internal_team.name} (R$ {Number(srv.payout_amount).toFixed(2)}) — Status Repasse: <b>{srv.payout_status}</b></span>
+                          <span className="text-purple-400 text-[10px] block mt-0.5">Repasse Projeto: {srv.internal_team.name} (R$ {Number(srv.payout_amount).toFixed(2)}) — Status Repasse: <b>{srv.payout_status}</b></span>
                         )}
                       </div>
 
@@ -1059,6 +1261,7 @@ export default function MasterAdmin() {
                             {srv.payout_status === 'pago' ? '✓ Repasse Pago' : 'Repasse Pendente'}
                           </button>
                         )}
+                        <button onClick={() => setEditingService(srv)} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded-lg font-bold">✏️ Editar</button>
                         <button onClick={async () => { if (confirm('Excluir este serviço?')) { await supabase.from('internal_services').delete().eq('id', srv.id); fetchInternalData(); } }} className="text-red-400 hover:text-red-300 font-bold p-1">🗑</button>
                       </div>
                     </div>
@@ -1103,6 +1306,7 @@ export default function MasterAdmin() {
                         <button onClick={async () => { await supabase.from('internal_expenses').update({ status: exp.status === 'pago' ? 'pendente' : 'pago' }).eq('id', exp.id); fetchInternalData(); }} className={`px-2.5 py-1 rounded-lg font-bold ${exp.status === 'pago' ? 'bg-green-500 text-white' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
                           {exp.status === 'pago' ? '✓ Pago' : 'Pendente'}
                         </button>
+                        <button onClick={() => setEditingExpense(exp)} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded-lg font-bold">✏️ Editar</button>
                         <button onClick={async () => { if (confirm('Excluir despesa?')) { await supabase.from('internal_expenses').delete().eq('id', exp.id); fetchInternalData(); } }} className="text-red-400 hover:text-red-300 font-bold p-1">🗑</button>
                       </div>
                     </div>
@@ -1112,18 +1316,19 @@ export default function MasterAdmin() {
             </div>
           )}
 
-          {/* SUB-ABA 3: EQUIPE */}
+          {/* SUB-ABA 3: EQUIPE / FUNCIONÁRIOS & SALÁRIOS */}
           {internalSubTab === 'team' && (
             <div className="space-y-4">
               <form onSubmit={handleAddMember} className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 text-xs shadow-lg">
-                <h4 className="font-bold text-purple-400">➕ Cadastrar Membro / Freelancer</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                  <input type="text" placeholder="Nome Completo" value={newMember.name} onChange={(e) => setNewMember({ ...newMember, name: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" />
+                <h4 className="font-bold text-purple-400">➕ Cadastrar Funcionário / Colaborador</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                  <input type="text" placeholder="Nome Completo" value={newMember.name} onChange={(e) => setNewMember({ ...newMember, name: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" required />
                   <input type="text" placeholder="WhatsApp" value={newMember.phone} onChange={(e) => setNewMember({ ...newMember, phone: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" />
                   <input type="text" placeholder="Cargo/Função (Ex: Designer)" value={newMember.role} onChange={(e) => setNewMember({ ...newMember, role: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" />
+                  <input type="text" placeholder="Salário Fixo R$" value={newMember.salary} onChange={(e) => setNewMember({ ...newMember, salary: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white font-bold text-green-400" />
                   <input type="text" placeholder="Chave PIX para Repasse" value={newMember.pix_key} onChange={(e) => setNewMember({ ...newMember, pix_key: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" />
                 </div>
-                <button type="submit" className="bg-purple-600 hover:bg-purple-700 font-bold px-4 py-2.5 rounded-lg text-white shadow-md transition">Salvar Membro</button>
+                <button type="submit" className="bg-purple-600 hover:bg-purple-700 font-bold px-4 py-2.5 rounded-lg text-white shadow-md transition">Salvar Funcionário</button>
               </form>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -1132,9 +1337,13 @@ export default function MasterAdmin() {
                     <div>
                       <span className="font-bold text-white block">{t.name} <span className="text-purple-400 text-[10px]">({t.role || 'Membro'})</span></span>
                       <span className="text-gray-400 text-[10px] block">📱 {t.phone || 'Sem Zap'}</span>
-                      <span className="text-green-400 text-[10px] font-mono block">PIX: {t.pix_key || 'Não informada'}</span>
+                      <span className="text-green-400 text-[10px] font-bold block">Salário Fixo: R$ {Number(t.salary || 0).toFixed(2)}</span>
+                      <span className="text-gray-400 text-[10px] font-mono block">PIX: {t.pix_key || 'Não informada'}</span>
                     </div>
-                    <button onClick={async () => { if (confirm(`Remover ${t.name}?`)) { await supabase.from('internal_team').delete().eq('id', t.id); fetchInternalData(); } }} className="text-red-400 font-bold p-1">🗑</button>
+                    <div className="flex items-center space-x-1.5">
+                      <button onClick={() => setEditingMember(t)} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded-lg font-bold">✏️ Editar</button>
+                      <button onClick={async () => { if (confirm(`Remover ${t.name}?`)) { await supabase.from('internal_team').delete().eq('id', t.id); fetchInternalData(); } }} className="text-red-400 font-bold p-1">🗑</button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1161,7 +1370,10 @@ export default function MasterAdmin() {
                       <span className="font-bold text-white block">{c.name}</span>
                       <span className="text-gray-400 text-[10px] block">📱 {c.phone} {c.document && `• Doc: ${c.document}`}</span>
                     </div>
-                    <button onClick={async () => { if (confirm(`Remover cliente ${c.name}?`)) { await supabase.from('internal_clients').delete().eq('id', c.id); fetchInternalData(); } }} className="text-red-400 font-bold p-1">🗑</button>
+                    <div className="flex items-center space-x-1.5">
+                      <button onClick={() => setEditingInternalClient(c)} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded-lg font-bold">✏️ Editar</button>
+                      <button onClick={async () => { if (confirm(`Remover cliente ${c.name}?`)) { await supabase.from('internal_clients').delete().eq('id', c.id); fetchInternalData(); } }} className="text-red-400 font-bold p-1">🗑</button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1175,7 +1387,7 @@ export default function MasterAdmin() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleUpdateTenant} className="bg-gray-900 w-full max-w-xl rounded-3xl p-6 border border-blue-500/40 space-y-4 max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="flex justify-between items-center border-b border-gray-800 pb-3">
-              <h3 className="font-bold text-sm text-blue-400">✏️ Editar Cliente: <span className="text-white">{editingTenant.name}</span></h3>
+              <h3 className="font-bold text-sm text-blue-400">✏️ Editar Cliente SaaS: <span className="text-white">{editingTenant.name}</span></h3>
               <button type="button" onClick={() => setEditingTenant(null)} className="text-xs text-gray-400 hover:text-white font-bold">✕ Fechar</button>
             </div>
 
@@ -1311,6 +1523,201 @@ export default function MasterAdmin() {
           </form>
         </div>
       )}
+
+      {/* MODAL EDIÇÃO CLIENTE DIRETO INTERNO */}
+      {editingInternalClient && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <form onSubmit={handleUpdateInternalClient} className="bg-gray-900 p-6 rounded-2xl max-w-lg w-full space-y-3 border border-orange-500/40 text-xs">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="font-bold text-orange-400 text-sm">✏️ Editar Cliente Direto</h3>
+              <button type="button" onClick={() => setEditingInternalClient(null)} className="text-gray-400">✕</button>
+            </div>
+            <div>
+              <label className="text-gray-400 block mb-1">Nome:</label>
+              <input type="text" value={editingInternalClient.name || ''} onChange={(e) => setEditingInternalClient({ ...editingInternalClient, name: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white" required />
+            </div>
+            <div>
+              <label className="text-gray-400 block mb-1">WhatsApp:</label>
+              <input type="text" value={editingInternalClient.phone || ''} onChange={(e) => setEditingInternalClient({ ...editingInternalClient, phone: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white" required />
+            </div>
+            <div>
+              <label className="text-gray-400 block mb-1">CPF/CNPJ:</label>
+              <input type="text" value={editingInternalClient.document || ''} onChange={(e) => setEditingInternalClient({ ...editingInternalClient, document: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white" />
+            </div>
+            <div className="flex justify-end space-x-2 pt-2">
+              <button type="button" onClick={() => setEditingInternalClient(null)} className="bg-gray-800 text-gray-300 font-bold px-3 py-2 rounded-lg">Cancelar</button>
+              <button type="submit" className="bg-orange-500 text-white font-bold px-3 py-2 rounded-lg">Salvar Alterações</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL EDIÇÃO FUNCIONÁRIO / COLABORADOR */}
+      {editingMember && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <form onSubmit={handleUpdateMember} className="bg-gray-900 p-6 rounded-2xl max-w-lg w-full space-y-3 border border-purple-500/40 text-xs">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="font-bold text-purple-400 text-sm">✏️ Editar Funcionário / Colaborador</h3>
+              <button type="button" onClick={() => setEditingMember(null)} className="text-gray-400">✕</button>
+            </div>
+            <div>
+              <label className="text-gray-400 block mb-1">Nome:</label>
+              <input type="text" value={editingMember.name || ''} onChange={(e) => setEditingMember({ ...editingMember, name: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white" required />
+            </div>
+            <div>
+              <label className="text-gray-400 block mb-1">WhatsApp:</label>
+              <input type="text" value={editingMember.phone || ''} onChange={(e) => setEditingMember({ ...editingMember, phone: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white" />
+            </div>
+            <div>
+              <label className="text-gray-400 block mb-1">Cargo / Função:</label>
+              <input type="text" value={editingMember.role || ''} onChange={(e) => setEditingMember({ ...editingMember, role: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white" />
+            </div>
+            <div>
+              <label className="text-gray-400 block mb-1">Salário Fixo Mensal (R$):</label>
+              <input type="text" value={editingMember.salary || ''} onChange={(e) => setEditingMember({ ...editingMember, salary: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white font-bold text-green-400" />
+            </div>
+            <div>
+              <label className="text-gray-400 block mb-1">Chave PIX:</label>
+              <input type="text" value={editingMember.pix_key || ''} onChange={(e) => setEditingMember({ ...editingMember, pix_key: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white" />
+            </div>
+            <div className="flex justify-end space-x-2 pt-2">
+              <button type="button" onClick={() => setEditingMember(null)} className="bg-gray-800 text-gray-300 font-bold px-3 py-2 rounded-lg">Cancelar</button>
+              <button type="submit" className="bg-purple-600 text-white font-bold px-3 py-2 rounded-lg">Salvar Alterações</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL EDIÇÃO SERVIÇO / COBRANÇA / PACOTE */}
+      {editingService && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <form onSubmit={handleUpdateService} className="bg-gray-900 p-6 rounded-2xl max-w-lg w-full space-y-3 border border-blue-500/40 text-xs">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="font-bold text-blue-400 text-sm">✏️ Editar Serviço / Cobrança</h3>
+              <button type="button" onClick={() => setEditingService(null)} className="text-gray-400">✕</button>
+            </div>
+
+            <div>
+              <label className="text-gray-400 block mb-1">Cliente:</label>
+              <select value={editingService.client_id || ''} onChange={(e) => setEditingService({ ...editingService, client_id: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white">
+                {internalClients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-gray-400 block mb-1">Título do Serviço:</label>
+              <input type="text" value={editingService.title || ''} onChange={(e) => setEditingService({ ...editingService, title: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white" required />
+            </div>
+
+            <div>
+              <label className="text-gray-400 block mb-1">Tipo de Cobrança:</label>
+              <select value={editingService.billing_type || 'recurrent'} onChange={(e) => setEditingService({ ...editingService, billing_type: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-orange-400 font-bold">
+                <option value="recurrent">🔄 Valor Recorrente Fixo</option>
+                <option value="package">📦 Pacote Fechado (Dividir Valor Total)</option>
+              </select>
+            </div>
+
+            {editingService.billing_type === 'package' ? (
+              <div className="grid grid-cols-2 gap-2 bg-gray-950 p-2.5 rounded-lg border border-gray-800">
+                <div>
+                  <label className="text-gray-400 block mb-1">Valor Total Pack (R$):</label>
+                  <input type="text" value={editingService.total_package_value || ''} onChange={(e) => setEditingService({ ...editingService, total_package_value: e.target.value })} className="w-full bg-gray-900 p-2 rounded border border-gray-800 text-white font-bold" />
+                </div>
+                <div>
+                  <label className="text-gray-400 block mb-1">Nº Parcelas:</label>
+                  <input type="number" min="1" value={editingService.installments_count || '1'} onChange={(e) => setEditingService({ ...editingService, installments_count: e.target.value })} className="w-full bg-gray-900 p-2 rounded border border-gray-800 text-white font-bold" />
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="text-gray-400 block mb-1">Valor do Ciclo (R$):</label>
+                <input type="text" value={editingService.amount || ''} onChange={(e) => setEditingService({ ...editingService, amount: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white font-bold" />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-gray-400 block mb-1">Ciclo:</label>
+                <select value={editingService.billing_cycle || 'monthly'} onChange={(e) => setEditingService({ ...editingService, billing_cycle: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white">
+                  <option value="monthly">📅 Mensal</option>
+                  <option value="biweekly">🗓️ Quinzenal</option>
+                  <option value="weekly">⚡ Semanal</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-gray-400 block mb-1">Vencimento:</label>
+                <input type="date" value={editingService.due_date || ''} onChange={(e) => setEditingService({ ...editingService, due_date: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white" style={{ colorScheme: 'dark' }} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-gray-400 block mb-1">Responsável:</label>
+                <select value={editingService.assigned_team_id || ''} onChange={(e) => setEditingService({ ...editingService, assigned_team_id: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white">
+                  <option value="">-- Sem Responsável --</option>
+                  {internalTeam.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-gray-400 block mb-1">Repasse Projeto (R$):</label>
+                <input type="text" value={editingService.payout_amount || ''} onChange={(e) => setEditingService({ ...editingService, payout_amount: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-purple-400 font-bold" />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2">
+              <button type="button" onClick={() => setEditingService(null)} className="bg-gray-800 text-gray-300 font-bold px-3 py-2 rounded-lg">Cancelar</button>
+              <button type="submit" className="bg-blue-600 text-white font-bold px-3 py-2 rounded-lg">Salvar Alterações</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL EDIÇÃO DESPESA / CONTA A PAGAR */}
+      {editingExpense && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <form onSubmit={handleUpdateExpense} className="bg-gray-900 p-6 rounded-2xl max-w-lg w-full space-y-3 border border-red-500/40 text-xs">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="font-bold text-red-400 text-sm">✏️ Editar Despesa</h3>
+              <button type="button" onClick={() => setEditingExpense(null)} className="text-gray-400">✕</button>
+            </div>
+
+            <div>
+              <label className="text-gray-400 block mb-1">Descrição:</label>
+              <input type="text" value={editingExpense.description || ''} onChange={(e) => setEditingExpense({ ...editingExpense, description: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white" required />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-gray-400 block mb-1">Valor (R$):</label>
+                <input type="text" value={editingExpense.amount || ''} onChange={(e) => setEditingExpense({ ...editingExpense, amount: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white font-bold" required />
+              </div>
+
+              <div>
+                <label className="text-gray-400 block mb-1">Vencimento:</label>
+                <input type="date" value={editingExpense.due_date || ''} onChange={(e) => setEditingExpense({ ...editingExpense, due_date: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white" style={{ colorScheme: 'dark' }} required />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-gray-400 block mb-1">Categoria:</label>
+              <select value={editingExpense.category || 'Servidores'} onChange={(e) => setEditingExpense({ ...editingExpense, category: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white">
+                <option value="Servidores">Servidores / Infra</option>
+                <option value="Ferramentas">Ferramentas / SaaS</option>
+                <option value="Marketing">Marketing / Tráfego</option>
+                <option value="Outros">Outros</option>
+              </select>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2">
+              <button type="button" onClick={() => setEditingExpense(null)} className="bg-gray-800 text-gray-300 font-bold px-3 py-2 rounded-lg">Cancelar</button>
+              <button type="submit" className="bg-red-600 text-white font-bold px-3 py-2 rounded-lg">Salvar Alterações</button>
+            </div>
+          </form>
+        </div>
+      )}
+
     </div>
   );
 }
