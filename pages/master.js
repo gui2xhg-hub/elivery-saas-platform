@@ -79,6 +79,11 @@ export default function MasterAdmin() {
   const [internalServices, setInternalServices] = useState([]);
   const [internalExpenses, setInternalExpenses] = useState([]);
 
+  // FILTRO MENSAL DRE DE GESTÃO INTERNA
+  const today = new Date();
+  const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthStr);
+
   // FORMULÁRIOS DA GESTÃO INTERNA
   const [newInternalClient, setNewInternalClient] = useState({ name: '', phone: '', email: '', document: '', notes: '' });
   const [newMember, setNewMember] = useState({ name: '', phone: '', role: '', pix_key: '', salary: '' });
@@ -94,7 +99,13 @@ export default function MasterAdmin() {
     payout_amount: '',
     billing_cycle: 'monthly'
   });
-  const [newExpense, setNewExpense] = useState({ description: '', amount: '', due_date: '', category: 'Servidores' });
+  const [newExpense, setNewExpense] = useState({ 
+    description: '', 
+    amount: '', 
+    due_date: '', 
+    category: 'Servidores',
+    expense_type: 'unica' // 'unica' | 'fixa'
+  });
 
   // ESTADOS DE EDIÇÃO DA GESTÃO INTERNA (CRUD COMPLETO)
   const [editingInternalClient, setEditingInternalClient] = useState(null);
@@ -625,7 +636,7 @@ export default function MasterAdmin() {
     fetchInternalData();
   };
 
-  // HANDLERS CONTAS A PAGAR / DESPESAS
+  // HANDLERS CONTAS A PAGAR / DESPESAS (COM SUPORTE A FIXA E ÚNICA)
   const handleAddExpense = async (e) => {
     e.preventDefault();
     if (!newExpense.description || !newExpense.amount || !newExpense.due_date) return alert('Preencha os campos obrigatórios!');
@@ -634,10 +645,11 @@ export default function MasterAdmin() {
       amount: parsePrice(newExpense.amount),
       due_date: newExpense.due_date,
       category: newExpense.category,
+      expense_type: newExpense.expense_type || 'unica',
       status: 'pendente'
     }]);
     if (error) return alert("Erro ao lançar despesa: " + error.message);
-    setNewExpense({ description: '', amount: '', due_date: '', category: 'Servidores' });
+    setNewExpense({ description: '', amount: '', due_date: '', category: 'Servidores', expense_type: 'unica' });
     fetchInternalData();
   };
 
@@ -648,13 +660,45 @@ export default function MasterAdmin() {
       description: editingExpense.description.trim(),
       amount: parsePrice(editingExpense.amount),
       due_date: editingExpense.due_date,
-      category: editingExpense.category
+      category: editingExpense.category,
+      expense_type: editingExpense.expense_type || 'unica'
     }).eq('id', editingExpense.id);
 
     if (error) return alert("Erro ao atualizar despesa: " + error.message);
     alert("Despesa atualizada com sucesso!");
     setEditingExpense(null);
     fetchInternalData();
+  };
+
+  // HANDLER COPIAR DESPESAS FIXAS PARA O PRÓXIMO MÊS
+  const handleDuplicateFixedExpensesToNextMonth = async () => {
+    const fixed = internalExpenses.filter(e => e.expense_type === 'fixa');
+    if (fixed.length === 0) return alert('Nenhuma despesa fixa cadastrada para duplicar.');
+
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const nextMonthDate = new Date(year, month, 1);
+    const nextMonthStr = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}`;
+
+    const newRecords = fixed.map(e => {
+      const day = e.due_date ? e.due_date.split('-')[2] : '05';
+      return {
+        description: e.description,
+        amount: e.amount,
+        category: e.category,
+        expense_type: 'fixa',
+        status: 'pendente',
+        due_date: `${nextMonthStr}-${day}`
+      };
+    });
+
+    const { error } = await supabase.from('internal_expenses').insert(newRecords);
+    if (error) {
+      alert("Erro ao clonar despesas fixas: " + error.message);
+    } else {
+      alert(`Despesas fixas duplicadas com sucesso para o mês ${nextMonthStr}!`);
+      setSelectedMonth(nextMonthStr);
+      fetchInternalData();
+    }
   };
 
   const handleSendInternalChargeMessage = (srv) => {
@@ -687,25 +731,28 @@ export default function MasterAdmin() {
     window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // CÁLCULOS DO DRE INTERNO DA AGÊNCIA (EXATO COM PAGAMENTOS REALIZADOS E PENDENTES)
-  const totalInternalReceivables = internalServices.reduce((acc, s) => {
+  // CÁLCULOS DRE MENSAL DA AGÊNCIA (FILTRADO POR selectedMonth)
+  const monthlyServices = internalServices.filter(s => s.due_date && s.due_date.startsWith(selectedMonth));
+  const monthlyExpenses = internalExpenses.filter(e => e.due_date && e.due_date.startsWith(selectedMonth));
+
+  const totalInternalReceivables = monthlyServices.reduce((acc, s) => {
     if (s.status === 'pago') {
       return acc + (s.billing_type === 'package' ? Number(s.total_package_value || s.amount) : Number(s.amount));
     }
     return acc + Number(s.amount_paid || 0);
   }, 0);
 
-  const totalPendingReceivables = internalServices.reduce((acc, s) => {
+  const totalPendingReceivables = monthlyServices.reduce((acc, s) => {
     const total = s.billing_type === 'package' ? Number(s.total_package_value || s.amount) : Number(s.amount);
     const paid = Number(s.amount_paid || (s.status === 'pago' ? total : 0));
     return acc + Math.max(0, total - paid);
   }, 0);
 
-  const totalInternalPayoutsPaid = internalServices.reduce((acc, s) => acc + (s.payout_status === 'pago' ? Number(s.payout_amount || 0) : 0), 0);
-  const totalInternalPayoutsPending = internalServices.reduce((acc, s) => acc + (s.payout_status !== 'pago' ? Number(s.payout_amount || 0) : 0), 0);
+  const totalInternalPayoutsPaid = monthlyServices.reduce((acc, s) => acc + (s.payout_status === 'pago' ? Number(s.payout_amount || 0) : 0), 0);
+  const totalInternalPayoutsPending = monthlyServices.reduce((acc, s) => acc + (s.payout_status !== 'pago' ? Number(s.payout_amount || 0) : 0), 0);
   const totalSalaries = internalTeam.reduce((acc, t) => acc + Number(t.salary || 0), 0);
-  const totalInternalExpensesPaid = internalExpenses.reduce((acc, e) => acc + (e.status === 'pago' ? Number(e.amount || 0) : 0), 0);
-  const totalInternalExpensesPending = internalExpenses.reduce((acc, e) => acc + (e.status !== 'pago' ? Number(e.amount || 0) : 0), 0);
+  const totalInternalExpensesPaid = monthlyExpenses.reduce((acc, e) => acc + (e.status === 'pago' ? Number(e.amount || 0) : 0), 0);
+  const totalInternalExpensesPending = monthlyExpenses.reduce((acc, e) => acc + (e.status !== 'pago' ? Number(e.amount || 0) : 0), 0);
 
   const totalPaidOutflow = totalInternalPayoutsPaid + totalSalaries + totalInternalExpensesPaid;
   const totalPendingOutflow = totalInternalPayoutsPending + totalInternalExpensesPending;
@@ -1182,7 +1229,30 @@ export default function MasterAdmin() {
       {/* ========================================== */}
       {activeMainTab === 'internal' && (
         <div className="space-y-6">
-          {/* CARD DRE / RESUMO FINANCEIRO COMPLETO DA SUA AGÊNCIA */}
+          
+          {/* BARRA DE SELEÇÃO DE MÊS DRE */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-gray-900 p-4 rounded-2xl border border-gray-800">
+            <div>
+              <h3 className="font-bold text-sm text-white flex items-center space-x-2">
+                <span>📊 DRE Financeiro Mensal</span>
+                <span className="text-xs font-mono text-orange-400 bg-orange-500/10 border border-orange-500/30 px-2 py-0.5 rounded-lg">{selectedMonth}</span>
+              </h3>
+              <p className="text-[11px] text-gray-400">Visão consolidada de entradas, saídas, repasses e lucro líquido.</p>
+            </div>
+
+            <div className="flex items-center space-x-2 w-full sm:w-auto">
+              <label className="text-xs font-bold text-gray-400 shrink-0">Filtrar Mês:</label>
+              <input 
+                type="month" 
+                value={selectedMonth} 
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="bg-gray-950 border border-gray-800 p-2 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500 cursor-pointer w-full sm:w-auto"
+                style={{ colorScheme: 'dark' }}
+              />
+            </div>
+          </div>
+
+          {/* CARD DRE / RESUMO FINANCEIRO DO MÊS SELECIONADO */}
           <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5 bg-gray-900 p-4 rounded-2xl border border-gray-800 shadow-xl">
             <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
               <span className="text-[10px] text-gray-400 block font-bold uppercase">Recebido (Caixa Real)</span>
@@ -1219,7 +1289,7 @@ export default function MasterAdmin() {
             <button onClick={() => setInternalSubTab('billing')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'billing' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>💰 Serviços & Pacotes</button>
             <button onClick={() => setInternalSubTab('expenses')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'expenses' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>📉 Contas a Pagar</button>
             <button onClick={() => setInternalSubTab('team')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'team' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>👨‍💻 Funcionários & Salários</button>
-            <button onClick={() => setInternalSubTab('clients')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'clients' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>👥 Clientes Diretos</button>
+            <button onClick={() => setInternalSubTab('clients')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'clients' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>👥 Clientes Diretos & Rentabilidade</button>
           </div>
 
           {/* SUB-ABA 1: SERVIÇOS E COBRANÇAS / PACOTES */}
@@ -1301,14 +1371,14 @@ export default function MasterAdmin() {
                 <button type="submit" className="bg-green-600 hover:bg-green-700 font-bold px-4 py-2.5 rounded-lg text-white shadow-md transition">Cadastrar Cobrança / Pacote 🚀</button>
               </form>
 
-              {/* LISTA DE COBRANÇAS INTERNAS COM BAIXA DE ENTRADAS/ANTECIPAÇÕES */}
+              {/* LISTA DE COBRANÇAS INTERNAS DO MÊS SELECIONADO */}
               <div className="space-y-2">
-                {internalServices.length === 0 ? (
+                {monthlyServices.length === 0 ? (
                   <div className="bg-gray-900 p-6 rounded-xl border border-gray-800 text-center text-xs text-gray-500">
-                    Nenhum serviço ou cobrança cadastrado até o momento.
+                    Nenhum serviço ou cobrança cadastrado para o mês {selectedMonth}.
                   </div>
                 ) : (
-                  internalServices.map(srv => {
+                  monthlyServices.map(srv => {
                     const totalVal = srv.billing_type === 'package' ? Number(srv.total_package_value || srv.amount) : Number(srv.amount);
                     const paidVal = Number(srv.amount_paid || (srv.status === 'pago' ? totalVal : 0));
                     const remainingVal = Math.max(0, totalVal - paidVal);
@@ -1372,36 +1442,54 @@ export default function MasterAdmin() {
             </div>
           )}
 
-          {/* SUB-ABA 2: CONTAS A PAGAR */}
+          {/* SUB-ABA 2: CONTAS A PAGAR (COM DESPESAS FIXAS vs. ÚNICAS) */}
           {internalSubTab === 'expenses' && (
             <div className="space-y-4">
+              <div className="flex justify-between items-center bg-gray-900 p-3 rounded-xl border border-gray-800">
+                <span className="text-xs font-bold text-gray-300">📌 Gerenciamento de Saídas & Recorrência</span>
+                <button 
+                  onClick={handleDuplicateFixedExpensesToNextMonth}
+                  className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow transition">
+                  🔄 Duplicar Fixas para Próximo Mês
+                </button>
+              </div>
+
               <form onSubmit={handleAddExpense} className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 text-xs shadow-lg">
                 <h4 className="font-bold text-red-400">➕ Nova Conta / Despesa Interna</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                  <input type="text" placeholder="Descrição (Ex: Servidor Vercel/Supabase)" value={newExpense.description} onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" />
-                  <input type="text" placeholder="Valor R$" value={newExpense.amount} onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" />
-                  <input type="date" value={newExpense.due_date} onChange={(e) => setNewExpense({ ...newExpense, due_date: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white cursor-pointer" style={{ colorScheme: 'dark' }} />
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                  <input type="text" placeholder="Descrição (Ex: Servidor Supabase)" value={newExpense.description} onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white" required />
+                  <input type="text" placeholder="Valor R$" value={newExpense.amount} onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white font-bold" required />
+                  <input type="date" value={newExpense.due_date} onChange={(e) => setNewExpense({ ...newExpense, due_date: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white cursor-pointer" style={{ colorScheme: 'dark' }} required />
                   <select value={newExpense.category} onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white">
                     <option value="Servidores">Servidores / Infra</option>
                     <option value="Ferramentas">Ferramentas / SaaS</option>
                     <option value="Marketing">Marketing / Tráfego</option>
                     <option value="Outros">Outros</option>
                   </select>
+                  <select value={newExpense.expense_type} onChange={(e) => setNewExpense({ ...newExpense, expense_type: e.target.value })} className="bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-purple-400 font-bold">
+                    <option value="unica">💸 Pagamento Único</option>
+                    <option value="fixa">📌 Despesa Fixa (Mensal)</option>
+                  </select>
                 </div>
                 <button type="submit" className="bg-red-600 hover:bg-red-700 font-bold px-4 py-2.5 rounded-lg text-white shadow-md transition">Lançar Despesa 📉</button>
               </form>
 
               <div className="space-y-2">
-                {internalExpenses.length === 0 ? (
+                {monthlyExpenses.length === 0 ? (
                   <div className="bg-gray-900 p-6 rounded-xl border border-gray-800 text-center text-xs text-gray-500">
-                    Nenhuma conta a pagar cadastrada.
+                    Nenhuma conta a pagar cadastrada para o mês {selectedMonth}.
                   </div>
                 ) : (
-                  internalExpenses.map(exp => (
+                  monthlyExpenses.map(exp => (
                     <div key={exp.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
                       <div>
-                        <span className="font-bold text-white block">{exp.description} <span className="text-[10px] text-gray-400">({exp.category})</span></span>
-                        <span className="text-gray-400 text-[10px]">Vencimento: {exp.due_date ? exp.due_date.split('-').reverse().join('/') : ''} • R$ {Number(exp.amount).toFixed(2)}</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-white">{exp.description}</span>
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${exp.expense_type === 'fixa' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-gray-800 text-gray-400'}`}>
+                            {exp.expense_type === 'fixa' ? '📌 Fixa' : '💸 Única'}
+                          </span>
+                        </div>
+                        <span className="text-gray-400 text-[10px]">Vencimento: {exp.due_date ? exp.due_date.split('-').reverse().join('/') : ''} • R$ {Number(exp.amount).toFixed(2)} ({exp.category})</span>
                       </div>
                       <div className="flex items-center space-x-2">
                         <button onClick={async () => { await supabase.from('internal_expenses').update({ status: exp.status === 'pago' ? 'pendente' : 'pago' }).eq('id', exp.id); fetchInternalData(); }} className={`px-2.5 py-1 rounded-lg font-bold ${exp.status === 'pago' ? 'bg-green-500 text-white' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
@@ -1451,7 +1539,7 @@ export default function MasterAdmin() {
             </div>
           )}
 
-          {/* SUB-ABA 4: CLIENTES DIRETO */}
+          {/* SUB-ABA 4: CLIENTES DIRETO & UNIT ECONOMICS (LUCRO POR CLIENTE) */}
           {internalSubTab === 'clients' && (
             <div className="space-y-4">
               <form onSubmit={handleAddInternalClient} className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 text-xs shadow-lg">
@@ -1464,19 +1552,47 @@ export default function MasterAdmin() {
                 <button type="submit" className="bg-orange-500 hover:bg-orange-600 font-bold px-4 py-2.5 rounded-lg text-white shadow-md transition">Salvar Cliente</button>
               </form>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                {internalClients.map(c => (
-                  <div key={c.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center">
-                    <div>
-                      <span className="font-bold text-white block">{c.name}</span>
-                      <span className="text-gray-400 text-[10px] block">📱 {c.phone} {c.document && `• Doc: ${c.document}`}</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {internalClients.map(c => {
+                  const clientServices = internalServices.filter(s => s.client_id === c.id);
+                  const clientGross = clientServices.reduce((acc, s) => acc + (s.billing_type === 'package' ? Number(s.total_package_value || s.amount) : Number(s.amount)), 0);
+                  const clientPayouts = clientServices.reduce((acc, s) => acc + Number(s.payout_amount || 0), 0);
+                  const clientNetProfit = clientGross - clientPayouts;
+                  const marginPercent = clientGross > 0 ? ((clientNetProfit / clientGross) * 100) : 0;
+
+                  return (
+                    <div key={c.id} className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-2">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className="font-bold text-white text-sm block">{c.name}</span>
+                          <span className="text-gray-400 text-[10px] block">📱 {c.phone} {c.document && `• Doc: ${c.document}`}</span>
+                        </div>
+                        <div className="flex items-center space-x-1.5">
+                          <button onClick={() => setEditingInternalClient(c)} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded-lg font-bold">✏️ Editar</button>
+                          <button onClick={async () => { if (confirm(`Remover cliente ${c.name}?`)) { await supabase.from('internal_clients').delete().eq('id', c.id); fetchInternalData(); } }} className="text-red-400 font-bold p-1">🗑</button>
+                        </div>
+                      </div>
+
+                      {/* UNIT ECONOMICS / MARGEM LÍQUIDA POR CLIENTE */}
+                      <div className="bg-gray-950 p-2.5 rounded-lg border border-gray-800/80 grid grid-cols-3 gap-2 text-center text-[10px]">
+                        <div>
+                          <span className="text-gray-400 block uppercase">Faturamento</span>
+                          <span className="font-bold text-white text-xs">R$ {clientGross.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-purple-400 block uppercase">Repasses</span>
+                          <span className="font-bold text-purple-400 text-xs">R$ {clientPayouts.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-green-400 block uppercase">Lucro Líquido</span>
+                          <span className={`font-bold text-xs ${clientNetProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            R$ {clientNetProfit.toFixed(2)} ({marginPercent.toFixed(0)}%)
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-1.5">
-                      <button onClick={() => setEditingInternalClient(c)} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded-lg font-bold">✏️ Editar</button>
-                      <button onClick={async () => { if (confirm(`Remover cliente ${c.name}?`)) { await supabase.from('internal_clients').delete().eq('id', c.id); fetchInternalData(); } }} className="text-red-400 font-bold p-1">🗑</button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1841,14 +1957,24 @@ export default function MasterAdmin() {
               </div>
             </div>
 
-            <div>
-              <label className="text-gray-400 block mb-1">Categoria:</label>
-              <select value={editingExpense.category || 'Servidores'} onChange={(e) => setEditingExpense({ ...editingExpense, category: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white">
-                <option value="Servidores">Servidores / Infra</option>
-                <option value="Ferramentas">Ferramentas / SaaS</option>
-                <option value="Marketing">Marketing / Tráfego</option>
-                <option value="Outros">Outros</option>
-              </select>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-gray-400 block mb-1">Categoria:</label>
+                <select value={editingExpense.category || 'Servidores'} onChange={(e) => setEditingExpense({ ...editingExpense, category: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white">
+                  <option value="Servidores">Servidores / Infra</option>
+                  <option value="Ferramentas">Ferramentas / SaaS</option>
+                  <option value="Marketing">Marketing / Tráfego</option>
+                  <option value="Outros">Outros</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-gray-400 block mb-1">Tipo de Saída:</label>
+                <select value={editingExpense.expense_type || 'unica'} onChange={(e) => setEditingExpense({ ...editingExpense, expense_type: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-purple-400 font-bold">
+                  <option value="unica">💸 Pagamento Único</option>
+                  <option value="fixa">📌 Despesa Fixa (Mensal)</option>
+                </select>
+              </div>
             </div>
 
             <div className="flex justify-end space-x-2 pt-2">
