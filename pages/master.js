@@ -26,6 +26,32 @@ const getCycleLabel = (cycle) => {
   }
 };
 
+// CÁLCULO DE LTV (LIFETIME VALUE DO CONTRATO)
+const calculateServiceLTV = (srv) => {
+  if (srv.billing_type === 'package') {
+    return Number(srv.total_package_value || srv.amount || 0);
+  }
+  const monthlyFee = Number(srv.amount || 0);
+  const cycle = srv.billing_cycle || 'monthly';
+  let mrr = monthlyFee;
+  if (cycle === 'weekly') mrr = monthlyFee * 4.33;
+  if (cycle === 'biweekly') mrr = monthlyFee * 2.16;
+
+  const months = Number(srv.contract_months ?? 12);
+  if (months === 0) return mrr * 12; // Projetado para 12m se indeterminado
+  return mrr * months;
+};
+
+// CALCULA DATA ESTIMADA DE TÉRMINO DO CONTRATO
+const getContractEndDate = (startDateStr, months) => {
+  if (!startDateStr || !months || Number(months) === 0) return 'Indeterminado';
+  const parts = startDateStr.split('-');
+  if (parts.length !== 3) return 'Indeterminado';
+  const [y, m, d] = parts.map(Number);
+  const endDate = new Date(y, m - 1 + Number(months), d);
+  return endDate.toLocaleDateString('pt-BR');
+};
+
 export default function MasterAdmin() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [masterPassword, setMasterPassword] = useState('');
@@ -62,6 +88,7 @@ export default function MasterAdmin() {
     due_date: '',
     monthly_fee: '99.00',
     billing_cycle: 'monthly',
+    contract_months: '12',
     admin_password: '',
     business_type: 'delivery',
     has_tables: true
@@ -93,6 +120,7 @@ export default function MasterAdmin() {
     billing_type: 'recurrent', // 'recurrent' | 'package'
     total_package_value: '',
     installments_count: '1',
+    contract_months: '12', // Nova duração de plano
     amount: '',
     due_date: '',
     assigned_team_id: '',
@@ -323,6 +351,7 @@ export default function MasterAdmin() {
       due_date: newTenant.due_date || null,
       monthly_fee: parsePrice(newTenant.monthly_fee, 99.00),
       billing_cycle: newTenant.billing_cycle || 'monthly',
+      contract_months: parseInt(newTenant.contract_months || 12),
       active: true,
       has_delivery: isDelivery,
       has_agendamento: isAgendamento,
@@ -346,7 +375,7 @@ export default function MasterAdmin() {
         name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '',
         primary_color: '#FF8C00', button_text_color: '#FFFFFF',
         secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF',
-        price_color: '#FF8C00', due_date: '', monthly_fee: '99.00', billing_cycle: 'monthly', admin_password: '', business_type: 'delivery',
+        price_color: '#FF8C00', due_date: '', monthly_fee: '99.00', billing_cycle: 'monthly', contract_months: '12', admin_password: '', business_type: 'delivery',
         has_tables: true
       });
       fetchTenants();
@@ -364,6 +393,7 @@ export default function MasterAdmin() {
       admin_password: editingTenant.admin_password,
       monthly_fee: parsePrice(editingTenant.monthly_fee, 99.00),
       billing_cycle: editingTenant.billing_cycle || 'monthly',
+      contract_months: parseInt(editingTenant.contract_months || 12),
       due_date: editingTenant.due_date || null,
       logo_url: editingTenant.logo_url,
       banner_url: editingTenant.banner_url,
@@ -531,6 +561,7 @@ export default function MasterAdmin() {
       billing_type: newService.billing_type,
       total_package_value: totalVal,
       installments_count: installments,
+      contract_months: parseInt(newService.contract_months || 12),
       amount: calculatedCycleAmount,
       amount_paid: 0,
       due_date: newService.due_date,
@@ -553,6 +584,7 @@ export default function MasterAdmin() {
         billing_type: 'recurrent',
         total_package_value: '',
         installments_count: '1',
+        contract_months: '12',
         amount: '',
         due_date: '',
         assigned_team_id: '',
@@ -584,6 +616,7 @@ export default function MasterAdmin() {
       billing_type: editingService.billing_type,
       total_package_value: totalVal,
       installments_count: installments,
+      contract_months: parseInt(editingService.contract_months || 12),
       amount: calculatedCycleAmount,
       due_date: editingService.due_date,
       billing_cycle: editingService.billing_cycle,
@@ -687,6 +720,7 @@ export default function MasterAdmin() {
         billing_type: s.billing_type,
         total_package_value: s.total_package_value,
         installments_count: s.installments_count,
+        contract_months: s.contract_months || 12,
         amount: s.amount,
         amount_paid: 0,
         due_date: `${nextMonthStr}-${day}`,
@@ -1099,13 +1133,24 @@ export default function MasterAdmin() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                   <div>
                     <label className="text-[11px] text-gray-400 block mb-1">Ciclo de Pagamento:</label>
                     <select value={newTenant.billing_cycle} onChange={(e) => setNewTenant({ ...newTenant, billing_cycle: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none">
                       <option value="monthly">📅 Mensal</option>
                       <option value="biweekly">🗓️ Quinzenal</option>
                       <option value="weekly">⚡ Semanal</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Fidelidade do Plano:</label>
+                    <select value={newTenant.contract_months} onChange={(e) => setNewTenant({ ...newTenant, contract_months: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-orange-400 font-bold focus:outline-none">
+                      <option value="3">3 Meses (Trimestral)</option>
+                      <option value="6">6 Meses (Semestral)</option>
+                      <option value="9">9 Meses</option>
+                      <option value="12">12 Meses (Anual)</option>
+                      <option value="0">∞ Indeterminado / Sem Fidelidade</option>
                     </select>
                   </div>
 
@@ -1174,7 +1219,7 @@ export default function MasterAdmin() {
                               {isEcommerce ? '👕 E-commerce' : isAgendamento ? '✂️ Agendamento' : '🍔 Delivery'}
                             </span>
                             <span className="text-[9px] font-bold px-2 py-0.5 rounded-full uppercase bg-gray-800 text-gray-300 border border-gray-700">
-                              🔄 {getCycleLabel(t.billing_cycle)}
+                              🔄 {getCycleLabel(t.billing_cycle)} ({t.contract_months ? `${t.contract_months}m` : '12m'})
                             </span>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${dueInfo.isExpiring ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40 animate-pulse' : dueInfo.isExpired ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
                               {dueInfo.label}
@@ -1326,7 +1371,7 @@ export default function MasterAdmin() {
             <button onClick={() => setInternalSubTab('billing')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'billing' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>💰 Serviços & Pacotes</button>
             <button onClick={() => setInternalSubTab('expenses')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'expenses' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>📉 Contas a Pagar</button>
             <button onClick={() => setInternalSubTab('team')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'team' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>👨‍💻 Funcionários & Salários</button>
-            <button onClick={() => setInternalSubTab('clients')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'clients' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>👥 Clientes Diretos & Rentabilidade</button>
+            <button onClick={() => setInternalSubTab('clients')} className={`px-3 py-1.5 rounded-lg transition ${internalSubTab === 'clients' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}>👥 Clientes Diretos & Rentabilidade / LTV</button>
           </div>
 
           {/* SUB-ABA 1: SERVIÇOS E COBRANÇAS / PACOTES */}
@@ -1376,10 +1421,29 @@ export default function MasterAdmin() {
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <div>
                       <label className="text-gray-400 block mb-1">Valor Cobrado por Ciclo (R$):</label>
                       <input type="text" placeholder="Ex: 500.00" value={newService.amount} onChange={(e) => setNewService({ ...newService, amount: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-white font-bold" required />
+                    </div>
+
+                    <div>
+                      <label className="text-gray-400 block mb-1">Duração do Contrato (Fidelidade):</label>
+                      <select value={newService.contract_months} onChange={(e) => setNewService({ ...newService, contract_months: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-2.5 rounded-lg text-orange-400 font-bold">
+                        <option value="1">1 Mês (Avulso)</option>
+                        <option value="3">3 Meses (Trimestral)</option>
+                        <option value="6">6 Meses (Semestral)</option>
+                        <option value="9">9 Meses</option>
+                        <option value="12">12 Meses (Anual)</option>
+                        <option value="0">∞ Indeterminado / Contínuo</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-gray-400 block mb-1">LTV Total Calculado:</label>
+                      <div className="p-2.5 font-bold text-green-400 text-sm bg-gray-950 border border-gray-800 rounded-lg">
+                        R$ {calculateServiceLTV(newService).toFixed(2)}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1427,6 +1491,8 @@ export default function MasterAdmin() {
                     const totalVal = srv.billing_type === 'package' ? Number(srv.total_package_value || srv.amount) : Number(srv.amount);
                     const paidVal = Number(srv.amount_paid || (srv.status === 'pago' ? totalVal : 0));
                     const remainingVal = Math.max(0, totalVal - paidVal);
+                    const ltvVal = calculateServiceLTV(srv);
+                    const endDateStr = getContractEndDate(srv.due_date, srv.contract_months);
 
                     return (
                       <div key={srv.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs">
@@ -1435,6 +1501,9 @@ export default function MasterAdmin() {
                             {srv.title} — <b className="text-orange-400">{srv.internal_clients?.name || 'Sem Cliente'}</b>
                             <span className="ml-2 text-[10px] bg-gray-800 border border-gray-700 px-2 py-0.5 rounded text-gray-300">
                               {getCycleLabel(srv.billing_cycle)}
+                            </span>
+                            <span className="ml-1.5 text-[10px] bg-blue-500/20 border border-blue-500/40 text-blue-300 px-2 py-0.5 rounded font-bold">
+                              📜 {srv.contract_months ? `${srv.contract_months} Meses` : '12 Meses'} (LTV: R$ {ltvVal.toFixed(2)})
                             </span>
                             {srv.billing_type === 'package' && (
                               <span className="ml-1.5 text-[10px] bg-purple-500/20 border border-purple-500/40 text-purple-300 px-2 py-0.5 rounded font-bold">
@@ -1445,7 +1514,8 @@ export default function MasterAdmin() {
 
                           <div className="text-gray-400 text-[10px] space-x-2 mt-0.5">
                             <span>Vencimento: <b>{srv.due_date ? srv.due_date.split('-').reverse().join('/') : ''}</b></span>
-                            <span>Cobrança por ciclo: <b>R$ {Number(srv.amount).toFixed(2)}</b></span>
+                            <span>Fim Contrato: <b className="text-orange-300">{endDateStr}</b></span>
+                            <span>Cobrança p/ ciclo: <b>R$ {Number(srv.amount).toFixed(2)}</b></span>
                             <span>Já Pago: <b className="text-green-400">R$ {paidVal.toFixed(2)}</b></span>
                             {remainingVal > 0 && <span>Pendente: <b className="text-yellow-400">R$ {remainingVal.toFixed(2)}</b></span>}
                           </div>
@@ -1584,7 +1654,7 @@ export default function MasterAdmin() {
             </div>
           )}
 
-          {/* SUB-ABA 4: CLIENTES DIRETO & UNIT ECONOMICS */}
+          {/* SUB-ABA 4: CLIENTES DIRETO & UNIT ECONOMICS / LTV */}
           {internalSubTab === 'clients' && (
             <div className="space-y-4">
               <form onSubmit={handleAddInternalClient} className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 text-xs shadow-lg">
@@ -1601,6 +1671,7 @@ export default function MasterAdmin() {
                 {internalClients.map(c => {
                   const clientServices = internalServices.filter(s => s.client_id === c.id);
                   const clientGross = clientServices.reduce((acc, s) => acc + (s.billing_type === 'package' ? Number(s.total_package_value || s.amount) : Number(s.amount)), 0);
+                  const clientLTV = clientServices.reduce((acc, s) => acc + calculateServiceLTV(s), 0);
                   const clientPayouts = clientServices.reduce((acc, s) => acc + Number(s.payout_amount || 0), 0);
                   const clientNetProfit = clientGross - clientPayouts;
                   const marginPercent = clientGross > 0 ? ((clientNetProfit / clientGross) * 100) : 0;
@@ -1618,11 +1689,15 @@ export default function MasterAdmin() {
                         </div>
                       </div>
 
-                      {/* UNIT ECONOMICS */}
-                      <div className="bg-gray-950 p-2.5 rounded-lg border border-gray-800/80 grid grid-cols-3 gap-2 text-center text-[10px]">
+                      {/* UNIT ECONOMICS COM CÁLCULO DE LTV */}
+                      <div className="bg-gray-950 p-2.5 rounded-lg border border-gray-800/80 grid grid-cols-4 gap-2 text-center text-[10px]">
                         <div>
-                          <span className="text-gray-400 block uppercase">Faturamento</span>
+                          <span className="text-gray-400 block uppercase">Faturamento Mês</span>
                           <span className="font-bold text-white text-xs">R$ {clientGross.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-blue-400 block uppercase font-bold">LTV Contratos</span>
+                          <span className="font-bold text-blue-400 text-xs">R$ {clientLTV.toFixed(2)}</span>
                         </div>
                         <div>
                           <span className="text-purple-400 block uppercase">Repasses</span>
@@ -1723,13 +1798,24 @@ export default function MasterAdmin() {
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
               <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Ciclo de Pagamento:</label>
+                <label className="text-[11px] text-gray-400 block mb-1">Ciclo:</label>
                 <select value={editingTenant.billing_cycle || 'monthly'} onChange={(e) => setEditingTenant({ ...editingTenant, billing_cycle: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none">
                   <option value="monthly">📅 Mensal</option>
                   <option value="biweekly">🗓️ Quinzenal</option>
                   <option value="weekly">⚡ Semanal</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Fidelidade:</label>
+                <select value={editingTenant.contract_months || '12'} onChange={(e) => setEditingTenant({ ...editingTenant, contract_months: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-orange-400 font-bold focus:outline-none">
+                  <option value="3">3 Meses</option>
+                  <option value="6">6 Meses</option>
+                  <option value="9">9 Meses</option>
+                  <option value="12">12 Meses</option>
+                  <option value="0">∞ Indeterminado</option>
                 </select>
               </div>
 
@@ -1931,9 +2017,23 @@ export default function MasterAdmin() {
                 </div>
               </div>
             ) : (
-              <div>
-                <label className="text-gray-400 block mb-1">Valor do Ciclo (R$):</label>
-                <input type="text" value={editingService.amount || ''} onChange={(e) => setEditingService({ ...editingService, amount: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white font-bold" />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-gray-400 block mb-1">Valor do Ciclo (R$):</label>
+                  <input type="text" value={editingService.amount || ''} onChange={(e) => setEditingService({ ...editingService, amount: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-white font-bold" />
+                </div>
+
+                <div>
+                  <label className="text-gray-400 block mb-1">Plano / Fidelidade:</label>
+                  <select value={editingService.contract_months || '12'} onChange={(e) => setEditingService({ ...editingService, contract_months: e.target.value })} className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-orange-400 font-bold">
+                    <option value="1">1 Mês</option>
+                    <option value="3">3 Meses</option>
+                    <option value="6">6 Meses</option>
+                    <option value="9">9 Meses</option>
+                    <option value="12">12 Meses</option>
+                    <option value="0">∞ Indeterminado</option>
+                  </select>
+                </div>
               </div>
             )}
 
