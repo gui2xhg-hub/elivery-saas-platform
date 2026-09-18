@@ -636,7 +636,7 @@ export default function MasterAdmin() {
     fetchInternalData();
   };
 
-  // HANDLERS CONTAS A PAGAR / DESPESAS (COM SUPORTE A FIXA E ÚNICA)
+  // HANDLERS CONTAS A PAGAR / DESPESAS
   const handleAddExpense = async (e) => {
     e.preventDefault();
     if (!newExpense.description || !newExpense.amount || !newExpense.due_date) return alert('Preencha os campos obrigatórios!');
@@ -670,7 +670,44 @@ export default function MasterAdmin() {
     fetchInternalData();
   };
 
-  // HANDLER COPIAR DESPESAS FIXAS PARA O PRÓXIMO MÊS
+  // HANDLER COPIAR SERVIÇOS E DESPESAS RECORRENTES PARA O PRÓXIMO MÊS
+  const handleDuplicateServicesToNextMonth = async () => {
+    const activeServices = internalServices.filter(s => s.due_date && s.due_date.startsWith(selectedMonth));
+    if (activeServices.length === 0) return alert('Nenhum serviço encontrado no mês atual para duplicar.');
+
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const nextMonthDate = new Date(year, month, 1);
+    const nextMonthStr = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}`;
+
+    const newRecords = activeServices.map(s => {
+      const day = s.due_date ? s.due_date.split('-')[2] : '05';
+      return {
+        client_id: s.client_id,
+        title: s.title,
+        billing_type: s.billing_type,
+        total_package_value: s.total_package_value,
+        installments_count: s.installments_count,
+        amount: s.amount,
+        amount_paid: 0,
+        due_date: `${nextMonthStr}-${day}`,
+        assigned_team_id: s.assigned_team_id,
+        payout_amount: s.payout_amount,
+        billing_cycle: s.billing_cycle || 'monthly',
+        status: 'pendente',
+        payout_status: 'pendente'
+      };
+    });
+
+    const { error } = await supabase.from('internal_services').insert(newRecords);
+    if (error) {
+      alert("Erro ao clonar serviços: " + error.message);
+    } else {
+      alert(`Serviços e Pacotes duplicados com sucesso para o mês ${nextMonthStr}!`);
+      setSelectedMonth(nextMonthStr);
+      fetchInternalData();
+    }
+  };
+
   const handleDuplicateFixedExpensesToNextMonth = async () => {
     const fixed = internalExpenses.filter(e => e.expense_type === 'fixa');
     if (fixed.length === 0) return alert('Nenhuma despesa fixa cadastrada para duplicar.');
@@ -731,7 +768,7 @@ export default function MasterAdmin() {
     window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // CÁLCULOS DRE MENSAL DA AGÊNCIA (FILTRADO POR selectedMonth)
+  // CÁLCULOS DRE MENSAL DA AGÊNCIA
   const monthlyServices = internalServices.filter(s => s.due_date && s.due_date.startsWith(selectedMonth));
   const monthlyExpenses = internalExpenses.filter(e => e.due_date && e.due_date.startsWith(selectedMonth));
 
@@ -1095,7 +1132,7 @@ export default function MasterAdmin() {
             )}
           </section>
 
-          {/* LISTA DE CLIENTES E PESQUISA COM RECUO DE DETALHES */}
+          {/* LISTA DE CLIENTES E PESQUISA */}
           <section className="space-y-4">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-gray-900 p-4 rounded-2xl border border-gray-800">
               <h2 className="font-bold text-sm text-gray-200">🏢 Clientes Cadastrados ({filteredTenants.length})</h2>
@@ -1126,7 +1163,7 @@ export default function MasterAdmin() {
                 return (
                   <div key={t.id} className={`bg-gray-900 p-4 rounded-2xl border transition ${dueInfo.isExpiring ? 'border-yellow-500/80 shadow-lg shadow-yellow-500/10' : dueInfo.isExpired || !t.active ? 'border-red-500/50 bg-red-950/10' : 'border-gray-800'}`}>
                     
-                    {/* LINHA PRINCIPAL RESUMIDA DO CLIENTE */}
+                    {/* LINHA PRINCIPAL RESUMIDA */}
                     <div className="flex justify-between items-center flex-wrap gap-3">
                       <div className="flex items-center space-x-3">
                         <span className={`w-3 h-3 rounded-full shrink-0 ${t.active ? 'bg-green-500 shadow-lg shadow-green-500/50' : 'bg-red-500'}`}></span>
@@ -1149,7 +1186,7 @@ export default function MasterAdmin() {
                         </div>
                       </div>
 
-                      {/* AÇÕES RÁPIDAS NO TOPO */}
+                      {/* AÇÕES RÁPIDAS */}
                       <div className="flex items-center space-x-1.5 flex-wrap">
                         <button 
                           onClick={() => handleSendWhatsAppBilling(t, dueInfo.diffDays)}
@@ -1171,7 +1208,7 @@ export default function MasterAdmin() {
                       </div>
                     </div>
 
-                    {/* JANELA RETRÁTIL DE DETALHES / LINKS E AÇÕES AVANÇADAS */}
+                    {/* DETALHES RETRÁTEIS */}
                     {isExpanded && (
                       <div className="mt-3 pt-3 border-t border-gray-800/80 space-y-3 bg-gray-950/60 p-3 rounded-xl">
                         <div className="flex justify-between items-center text-xs flex-wrap gap-2">
@@ -1191,7 +1228,7 @@ export default function MasterAdmin() {
                           </div>
                         </div>
 
-                        {/* PAINEL DE LINKS RÁPIDOS POR NICHO */}
+                        {/* LINKS RÁPIDOS */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs pt-1">
                           {isEcommerce ? (
                             <>
@@ -1225,7 +1262,7 @@ export default function MasterAdmin() {
       )}
 
       {/* ========================================== */}
-      {/* CONTEÚDO DA ABA 2: GESTÃO INTERNA (AGÊNCIA)*/}
+      {/* CONTEÚDO DA ABA 2: GESTÃO INTERNA          */}
       {/* ========================================== */}
       {activeMainTab === 'internal' && (
         <div className="space-y-6">
@@ -1252,7 +1289,7 @@ export default function MasterAdmin() {
             </div>
           </div>
 
-          {/* CARD DRE / RESUMO FINANCEIRO DO MÊS SELECIONADO */}
+          {/* CARD DRE / RESUMO FINANCEIRO */}
           <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5 bg-gray-900 p-4 rounded-2xl border border-gray-800 shadow-xl">
             <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
               <span className="text-[10px] text-gray-400 block font-bold uppercase">Recebido (Caixa Real)</span>
@@ -1295,6 +1332,15 @@ export default function MasterAdmin() {
           {/* SUB-ABA 1: SERVIÇOS E COBRANÇAS / PACOTES */}
           {internalSubTab === 'billing' && (
             <div className="space-y-4">
+              <div className="flex justify-between items-center bg-gray-900 p-3 rounded-xl border border-gray-800 flex-wrap gap-2">
+                <span className="text-xs font-bold text-gray-300">📌 Automação de Recorrência Mensal</span>
+                <button 
+                  onClick={handleDuplicateServicesToNextMonth}
+                  className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow transition">
+                  🔄 Duplicar Pacotes/Serviços para Próximo Mês
+                </button>
+              </div>
+
               <form onSubmit={handleAddService} className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 text-xs shadow-lg">
                 <h4 className="font-bold text-orange-400">➕ Novo Serviço / Pacote Fechado</h4>
                 
@@ -1312,7 +1358,6 @@ export default function MasterAdmin() {
                   </select>
                 </div>
 
-                {/* DIVISÃO AUTOMÁTICA DE PACOTE FECHADO */}
                 {newService.billing_type === 'package' ? (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-950 p-3 rounded-xl border border-orange-500/30">
                     <div>
@@ -1442,7 +1487,7 @@ export default function MasterAdmin() {
             </div>
           )}
 
-          {/* SUB-ABA 2: CONTAS A PAGAR (COM DESPESAS FIXAS vs. ÚNICAS) */}
+          {/* SUB-ABA 2: CONTAS A PAGAR */}
           {internalSubTab === 'expenses' && (
             <div className="space-y-4">
               <div className="flex justify-between items-center bg-gray-900 p-3 rounded-xl border border-gray-800">
@@ -1505,7 +1550,7 @@ export default function MasterAdmin() {
             </div>
           )}
 
-          {/* SUB-ABA 3: EQUIPE / FUNCIONÁRIOS & SALÁRIOS */}
+          {/* SUB-ABA 3: EQUIPE & SALÁRIOS */}
           {internalSubTab === 'team' && (
             <div className="space-y-4">
               <form onSubmit={handleAddMember} className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 text-xs shadow-lg">
@@ -1539,7 +1584,7 @@ export default function MasterAdmin() {
             </div>
           )}
 
-          {/* SUB-ABA 4: CLIENTES DIRETO & UNIT ECONOMICS (LUCRO POR CLIENTE) */}
+          {/* SUB-ABA 4: CLIENTES DIRETO & UNIT ECONOMICS */}
           {internalSubTab === 'clients' && (
             <div className="space-y-4">
               <form onSubmit={handleAddInternalClient} className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3 text-xs shadow-lg">
@@ -1573,7 +1618,7 @@ export default function MasterAdmin() {
                         </div>
                       </div>
 
-                      {/* UNIT ECONOMICS / MARGEM LÍQUIDA POR CLIENTE */}
+                      {/* UNIT ECONOMICS */}
                       <div className="bg-gray-950 p-2.5 rounded-lg border border-gray-800/80 grid grid-cols-3 gap-2 text-center text-[10px]">
                         <div>
                           <span className="text-gray-400 block uppercase">Faturamento</span>
@@ -1599,7 +1644,7 @@ export default function MasterAdmin() {
         </div>
       )}
 
-      {/* MODAL PARA DAR BAIXA / REGISTRAR ENTRADA / ANTECIPAÇÃO */}
+      {/* MODAL PARA DAR BAIXA / ENTRADA */}
       {paymentModalService && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleRegisterPayment} className="bg-gray-900 p-6 rounded-2xl max-w-sm w-full space-y-4 border border-emerald-500/40 text-xs shadow-2xl">
@@ -1809,7 +1854,7 @@ export default function MasterAdmin() {
         </div>
       )}
 
-      {/* MODAL EDIÇÃO FUNCIONÁRIO / COLABORADOR */}
+      {/* MODAL EDIÇÃO FUNCIONÁRIO */}
       {editingMember && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <form onSubmit={handleUpdateMember} className="bg-gray-900 p-6 rounded-2xl max-w-lg w-full space-y-3 border border-purple-500/40 text-xs">
@@ -1845,7 +1890,7 @@ export default function MasterAdmin() {
         </div>
       )}
 
-      {/* MODAL EDIÇÃO SERVIÇO / COBRANÇA / PACOTE */}
+      {/* MODAL EDIÇÃO SERVIÇO / COBRANÇA */}
       {editingService && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <form onSubmit={handleUpdateService} className="bg-gray-900 p-6 rounded-2xl max-w-lg w-full space-y-3 border border-blue-500/40 text-xs">
@@ -1931,7 +1976,7 @@ export default function MasterAdmin() {
         </div>
       )}
 
-      {/* MODAL EDIÇÃO DESPESA / CONTA A PAGAR */}
+      {/* MODAL EDIÇÃO DESPESA */}
       {editingExpense && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <form onSubmit={handleUpdateExpense} className="bg-gray-900 p-6 rounded-2xl max-w-lg w-full space-y-3 border border-red-500/40 text-xs">
