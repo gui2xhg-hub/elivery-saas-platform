@@ -802,8 +802,38 @@ export default function MasterAdmin() {
     window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // CÁLCULOS DRE MENSAL DA AGÊNCIA
-  const monthlyServices = internalServices.filter(s => s.due_date && s.due_date.startsWith(selectedMonth));
+  // CÁLCULOS DRE MENSAL DA AGÊNCIA (PROJEÇÃO AUTOMÁTICA DE CONTRATOS RECORRENTES)
+  const monthlyServices = internalServices.filter(s => {
+    if (!s.due_date) return false;
+
+    // 1. Se existir um registro específico criado para este mês
+    if (s.due_date.startsWith(selectedMonth)) return true;
+
+    // 2. Se for serviço recorrente, projeta automaticamente dentro da vigência do contrato (ex: 12 ou 21 meses)
+    if (s.billing_type === 'recurrent') {
+      const [startYear, startMonth] = s.due_date.split('-').map(Number);
+      const [selYear, selMonth] = selectedMonth.split('-').map(Number);
+
+      const startTotalMonths = startYear * 12 + startMonth;
+      const selTotalMonths = selYear * 12 + selMonth;
+      const contractDuration = Number(s.contract_months || 12);
+
+      const isAfterStart = selTotalMonths >= startTotalMonths;
+      const isWithinContract = contractDuration === 0 || (selTotalMonths - startTotalMonths < contractDuration);
+
+      // Evita duplicar caso já exista um registro específico para o mês selecionado
+      const hasSpecificRecordForMonth = internalServices.some(item =>
+        item.client_id === s.client_id &&
+        item.title === s.title &&
+        item.due_date && item.due_date.startsWith(selectedMonth)
+      );
+
+      return isAfterStart && isWithinContract && !hasSpecificRecordForMonth;
+    }
+
+    return false;
+  });
+
   const monthlyExpenses = internalExpenses.filter(e => e.due_date && e.due_date.startsWith(selectedMonth));
 
   const totalInternalReceivables = monthlyServices.reduce((acc, s) => {
@@ -1435,6 +1465,7 @@ export default function MasterAdmin() {
                         <option value="6">6 Meses (Semestral)</option>
                         <option value="9">9 Meses</option>
                         <option value="12">12 Meses (Anual)</option>
+                        <option value="21">21 Meses</option>
                         <option value="0">∞ Indeterminado / Contínuo</option>
                       </select>
                     </div>
@@ -1815,6 +1846,7 @@ export default function MasterAdmin() {
                   <option value="6">6 Meses</option>
                   <option value="9">9 Meses</option>
                   <option value="12">12 Meses</option>
+                  <option value="21">21 Meses</option>
                   <option value="0">∞ Indeterminado</option>
                 </select>
               </div>
@@ -2031,6 +2063,7 @@ export default function MasterAdmin() {
                     <option value="6">6 Meses</option>
                     <option value="9">9 Meses</option>
                     <option value="12">12 Meses</option>
+                    <option value="21">21 Meses</option>
                     <option value="0">∞ Indeterminado</option>
                   </select>
                 </div>
