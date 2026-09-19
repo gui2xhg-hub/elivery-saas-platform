@@ -229,6 +229,8 @@ export default function MasterAdmin() {
       setNewTenant(prev => ({ ...prev, primary_color: '#A855F7', button_text_color: '#FFFFFF', secondary_color: '#0F172A', card_bg_color: '#1E293B', text_color: '#F8FAFC', price_color: '#A855F7' }));
     } else if (type === 'blue_ecommerce') {
       setNewTenant(prev => ({ ...prev, primary_color: '#3B82F6', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#3B82F6' }));
+    } else if (type === 'pink_agency') {
+      setNewTenant(prev => ({ ...prev, primary_color: '#EC4899', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#EC4899' }));
     }
   };
 
@@ -242,6 +244,8 @@ export default function MasterAdmin() {
       setEditingTenant(prev => ({ ...prev, primary_color: '#A855F7', button_text_color: '#FFFFFF', secondary_color: '#0F172A', card_bg_color: '#1E293B', text_color: '#F8FAFC', price_color: '#A855F7' }));
     } else if (type === 'blue_ecommerce') {
       setEditingTenant(prev => ({ ...prev, primary_color: '#3B82F6', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#3B82F6' }));
+    } else if (type === 'pink_agency') {
+      setEditingTenant(prev => ({ ...prev, primary_color: '#EC4899', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#EC4899' }));
     }
   };
 
@@ -255,6 +259,7 @@ export default function MasterAdmin() {
     const isDelivery = newTenant.business_type === 'delivery';
     const isAgendamento = newTenant.business_type === 'agendamento';
     const isEcommerce = newTenant.business_type === 'ecommerce';
+    const isAgencia = newTenant.business_type === 'agencia';
 
     const { data, error } = await supabase.from('tenants').insert([{
       name: newTenant.name.trim(),
@@ -277,6 +282,7 @@ export default function MasterAdmin() {
       has_delivery: isDelivery,
       has_agendamento: isAgendamento,
       has_ecommerce: isEcommerce,
+      has_agencia: isAgencia,
       has_tables: newTenant.has_tables,
       business_type: newTenant.business_type
     }]).select().single();
@@ -350,7 +356,8 @@ export default function MasterAdmin() {
 
   const handleCopyOnboardingMsg = (tenant) => {
     const isEcommerce = tenant.has_ecommerce || tenant.business_type === 'ecommerce';
-    const isAgendamento = tenant.has_agendamento && !tenant.has_delivery && !isEcommerce;
+    const isAgendamento = (tenant.has_agendamento || tenant.business_type === 'agendamento') && !tenant.has_delivery && !isEcommerce;
+    const isAgencia = tenant.has_agencia || tenant.business_type === 'agencia';
 
     let portalUrl = 'https://delivery.sinergemkt.com';
     let systemName = 'Sinerge Delivery';
@@ -364,6 +371,10 @@ export default function MasterAdmin() {
       portalUrl = 'https://agendamento.sinergemkt.com';
       systemName = 'Sinerge Agendamento';
       emoji = '✂️';
+    } else if (isAgencia) {
+      portalUrl = 'https://agencia.sinergemkt.com';
+      systemName = 'Sinerge ERP Agência & Social Media';
+      emoji = '🚀';
     }
 
     const text = `${emoji} *Seu Acesso ao ${systemName}!*\n\n` +
@@ -371,7 +382,7 @@ export default function MasterAdmin() {
       `🔗 *Acesse o Portal:* ${portalUrl}\n` +
       `🔑 *Seu Identificador (Slug):* \`${tenant.slug}\`\n` +
       `🔐 *Sua Senha Admin:* \`${tenant.admin_password}\`\n\n` +
-      `_Ao entrar, você poderá gerenciar seu painel, configurar seu catálogo/agenda e pegar o link público da sua loja!_`;
+      `_Ao entrar, você poderá gerenciar seu painel, configurar seus serviços/clientes e acompanhar tudo em tempo real!_`;
 
     navigator.clipboard.writeText(text);
     setCopiedTenantId(tenant.id);
@@ -389,9 +400,10 @@ export default function MasterAdmin() {
     return acc + fee;
   }, 0);
 
-  const deliveryCount = activeTenants.filter(t => (t.has_delivery || t.business_type === 'delivery' || (!t.has_agendamento && !t.has_ecommerce && t.business_type !== 'agendamento' && t.business_type !== 'ecommerce'))).length;
-  const agendamentoCount = activeTenants.filter(t => (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !t.has_ecommerce && t.business_type !== 'ecommerce').length;
-  const ecommerceCount = activeTenants.filter(t => t.has_ecommerce || t.business_type === 'ecommerce').length;
+  const deliveryCount = activeTenants.filter(t => (t.has_delivery || t.business_type === 'delivery') && !t.has_agendamento && !t.has_ecommerce && !t.has_agencia && t.business_type !== 'agendamento' && t.business_type !== 'ecommerce' && t.business_type !== 'agencia').length;
+  const agendamentoCount = activeTenants.filter(t => (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !t.has_ecommerce && !t.has_agencia && t.business_type !== 'ecommerce' && t.business_type !== 'agencia').length;
+  const ecommerceCount = activeTenants.filter(t => (t.has_ecommerce || t.business_type === 'ecommerce') && !t.has_agencia && t.business_type !== 'agencia').length;
+  const agenciaCount = activeTenants.filter(t => t.has_agencia || t.business_type === 'agencia').length;
 
   const totalGlobalOrders = Object.values(tenantStats).reduce((acc, s) => acc + (s.count || 0), 0);
   const totalGlobalVolume = Object.values(tenantStats).reduce((acc, s) => acc + (s.revenue || 0), 0);
@@ -403,14 +415,16 @@ export default function MasterAdmin() {
 
   const filteredTenants = tenants.filter(t => {
     const matchesSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase()) || t.slug.toLowerCase().includes(searchTerm.toLowerCase());
-    const isEcommerce = t.has_ecommerce || t.business_type === 'ecommerce';
-    const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce;
+    const isEcommerce = (t.has_ecommerce || t.business_type === 'ecommerce') && !t.has_agencia && t.business_type !== 'agencia';
+    const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce && !t.has_agencia && t.business_type !== 'agencia';
+    const isAgencia = t.has_agencia || t.business_type === 'agencia';
     const dueInfo = getDueDateInfo(t.due_date);
 
     if (!matchesSearch) return false;
-    if (filterType === 'DELIVERY') return !isAgendamento && !isEcommerce;
+    if (filterType === 'DELIVERY') return !isAgendamento && !isEcommerce && !isAgencia;
     if (filterType === 'AGENDAMENTO') return isAgendamento;
     if (filterType === 'ECOMMERCE') return isEcommerce;
+    if (filterType === 'AGENCIA') return isAgencia;
     if (filterType === 'EXPIRING') return t.active && dueInfo.isExpiring;
     if (filterType === 'EXPIRED') return dueInfo.isExpired || !t.active;
     return true;
@@ -467,7 +481,7 @@ export default function MasterAdmin() {
           <div className="w-10 h-10 rounded-2xl bg-orange-500 flex items-center justify-center font-bold text-xl text-white shadow-lg shadow-orange-500/20">⚡</div>
           <div>
             <h1 className="font-bold text-lg text-white leading-tight">Sinerge Multi-SaaS Master</h1>
-            <p className="text-xs text-gray-400">Plataformas SaaS</p>
+            <p className="text-xs text-gray-400">Plataformas SaaS Integradas</p>
           </div>
         </div>
 
@@ -499,7 +513,7 @@ export default function MasterAdmin() {
         )}
 
         {/* DASHBOARD DE MÉTRICAS */}
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-7 gap-3 mb-8">
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl col-span-2 sm:col-span-1">
             <span className="text-[10px] font-bold text-gray-400 uppercase block">Faturamento Projetado (MRR)</span>
             <span className="text-lg font-bold text-green-400">R$ {totalMRR.toFixed(2)}</span>
@@ -526,6 +540,11 @@ export default function MasterAdmin() {
           </div>
 
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
+            <span className="text-[10px] font-bold text-pink-400 uppercase block">Agência Ativos</span>
+            <span className="text-lg font-bold text-pink-400">{agenciaCount}</span>
+          </div>
+
+          <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
             <span className="text-[10px] font-bold text-yellow-400 uppercase block">Vendas Totais SaaS</span>
             <span className="text-lg font-bold text-yellow-400">{totalGlobalOrders} <span className="text-[10px] text-gray-400">(R$ {totalGlobalVolume.toFixed(0)})</span></span>
           </div>
@@ -549,20 +568,25 @@ export default function MasterAdmin() {
             <form onSubmit={handleCreateTenant} className="bg-gray-900 p-6 rounded-b-3xl border border-orange-500/30 border-t-0 space-y-4 shadow-2xl transition-all">
               <div className="bg-gray-950 p-3 rounded-2xl border border-gray-800 space-y-2">
                 <label className="text-[11px] font-bold text-gray-300 block uppercase tracking-wider">Selecione o Nicho do Cliente:</label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                   <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'delivery' ? 'bg-orange-500/20 text-orange-400 border-orange-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
                     <input type="radio" name="business_type" value="delivery" checked={newTenant.business_type === 'delivery'} onChange={() => setNewTenant({ ...newTenant, business_type: 'delivery' })} className="hidden" />
-                    <span>🍔 Delivery (Alimentação)</span>
+                    <span>🍔 Delivery</span>
                   </label>
 
                   <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'agendamento' ? 'bg-purple-500/20 text-purple-400 border-purple-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
                     <input type="radio" name="business_type" value="agendamento" checked={newTenant.business_type === 'agendamento'} onChange={() => setNewTenant({ ...newTenant, business_type: 'agendamento' })} className="hidden" />
-                    <span>✂️ Agendamento (Barbearia/Salão)</span>
+                    <span>✂️ Agendamento</span>
                   </label>
 
                   <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'ecommerce' ? 'bg-blue-500/20 text-blue-400 border-blue-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
                     <input type="radio" name="business_type" value="ecommerce" checked={newTenant.business_type === 'ecommerce'} onChange={() => setNewTenant({ ...newTenant, business_type: 'ecommerce' })} className="hidden" />
-                    <span>👕 E-commerce / Loja (Roupas)</span>
+                    <span>👕 E-commerce</span>
+                  </label>
+
+                  <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'agencia' ? 'bg-pink-500/20 text-pink-400 border-pink-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
+                    <input type="radio" name="business_type" value="agencia" checked={newTenant.business_type === 'agencia'} onChange={() => setNewTenant({ ...newTenant, business_type: 'agencia' })} className="hidden" />
+                    <span>🚀 Agência Mkt</span>
                   </label>
                 </div>
               </div>
@@ -583,14 +607,14 @@ export default function MasterAdmin() {
               )}
 
               <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
-                <input type="text" placeholder="Ex: Salão Lanna ou Hamburgueria Silva" value={newTenant.name} onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
+                <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento / Agência:</label>
+                <input type="text" placeholder="Ex: Agência Sinerge ou Hamburgueria Silva" value={newTenant.name} onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] text-gray-400 block mb-1">Slug / Identificador (Sem espaços):</label>
-                  <input type="text" placeholder="Ex: lannadesigner" value={newTenant.slug} onChange={(e) => setNewTenant({ ...newTenant, slug: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
+                  <input type="text" placeholder="Ex: agenciasinerge" value={newTenant.slug} onChange={(e) => setNewTenant({ ...newTenant, slug: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
                 </div>
 
                 <div>
@@ -604,9 +628,10 @@ export default function MasterAdmin() {
                   <label className="text-[11px] font-bold text-orange-400 uppercase tracking-wider block">🎨 Personalização das Cores do Tema:</label>
                   <div className="flex space-x-1.5 text-[10px] flex-wrap">
                     <button type="button" onClick={() => applyPreset('dark_orange')} className="bg-gray-900 border border-orange-500/50 text-orange-400 px-2.5 py-1 rounded-lg font-bold">Dark Laranja</button>
-                    <button type="button" onClick={() => applyPreset('light_pink')} className="bg-pink-500/20 border border-pink-500 text-pink-300 px-2.5 py-1 rounded-lg font-bold">Rosa / Claro</button>
+                    <button type="button" onClick={() => applyPreset('light_pink')} className="bg-pink-500/20 border border-pink-500 text-pink-300 px-2.5 py-1 rounded-lg font-bold">Rosa Claro</button>
                     <button type="button" onClick={() => applyPreset('purple_barber')} className="bg-purple-500/20 border border-purple-500 text-purple-300 px-2.5 py-1 rounded-lg font-bold">Roxo Barber</button>
                     <button type="button" onClick={() => applyPreset('blue_ecommerce')} className="bg-blue-500/20 border border-blue-500 text-blue-300 px-2.5 py-1 rounded-lg font-bold">Azul Loja</button>
+                    <button type="button" onClick={() => applyPreset('pink_agency')} className="bg-pink-500/20 border border-pink-500 text-pink-400 px-2.5 py-1 rounded-lg font-bold">Rosa Agência</button>
                   </div>
                 </div>
 
@@ -719,14 +744,16 @@ export default function MasterAdmin() {
                 <option value="DELIVERY">🍔 Delivery</option>
                 <option value="AGENDAMENTO">✂️ Agendamento</option>
                 <option value="ECOMMERCE">👕 E-commerce</option>
+                <option value="AGENCIA">🚀 Agência Mkt</option>
               </select>
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-3">
             {filteredTenants.map(t => {
-              const isEcommerce = t.has_ecommerce || t.business_type === 'ecommerce';
-              const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce;
+              const isEcommerce = (t.has_ecommerce || t.business_type === 'ecommerce') && !t.has_agencia && t.business_type !== 'agencia';
+              const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce && !t.has_agencia && t.business_type !== 'agencia';
+              const isAgencia = t.has_agencia || t.business_type === 'agencia';
               const isCopied = copiedTenantId === t.id;
 
               const stats = tenantStats[t.id] || { count: 0, revenue: 0, lastOrderAt: null };
@@ -743,8 +770,8 @@ export default function MasterAdmin() {
                       <div>
                         <div className="flex items-center space-x-2 flex-wrap">
                           <h3 className="font-bold text-sm text-white">{t.name}</h3>
-                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${isEcommerce ? 'bg-blue-500/20 text-blue-400' : isAgendamento ? 'bg-purple-500/20 text-purple-400' : 'bg-orange-500/20 text-orange-400'}`}>
-                            {isEcommerce ? '👕 E-commerce' : isAgendamento ? '✂️ Agendamento' : '🍔 Delivery'}
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${isEcommerce ? 'bg-blue-500/20 text-blue-400' : isAgendamento ? 'bg-purple-500/20 text-purple-400' : isAgencia ? 'bg-pink-500/20 text-pink-400' : 'bg-orange-500/20 text-orange-400'}`}>
+                            {isEcommerce ? '👕 E-commerce' : isAgendamento ? '✂️ Agendamento' : isAgencia ? '🚀 Agência Mkt' : '🍔 Delivery'}
                           </span>
                           <span className="text-[9px] font-bold px-2 py-0.5 rounded-full uppercase bg-gray-800 text-gray-300 border border-gray-700">
                             🔄 {getCycleLabel(t.billing_cycle)} ({t.contract_months ? `${t.contract_months}m` : '12m'})
@@ -787,7 +814,7 @@ export default function MasterAdmin() {
                       <div className="flex justify-between items-center text-xs flex-wrap gap-2">
                         <div className="text-gray-400 space-x-3">
                           <span>Senha Admin: <b className="font-mono text-white">{t.admin_password}</b></span>
-                          <span>Uso: <b className="text-green-400">{stats.count} pedidos/agendamentos</b></span>
+                          <span>Uso: <b className="text-green-400">{stats.count} registros</b></span>
                           <span>Vendas: <b className="text-green-400">R$ {stats.revenue.toFixed(2)}</b></span>
                           <span>Último: <b className="text-white">{formatLastActivity(stats.lastOrderAt)}</b></span>
                         </div>
@@ -814,6 +841,12 @@ export default function MasterAdmin() {
                             <a href={`https://agendamento.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-gray-300 font-bold hover:bg-gray-800">🛍️ Página Cliente</a>
                             <a href={`https://agendamento.sinergemkt.com/${t.slug}/agenda`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-purple-400 font-bold hover:bg-gray-800">📅 Painel Agenda</a>
                             <a href={`https://agendamento.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-blue-400 font-bold hover:bg-gray-800">⚙️ Admin Agenda</a>
+                          </>
+                        ) : isAgencia ? (
+                          <>
+                            <a href={`https://agencia.sinergemkt.com/${t.slug}/dashboard`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-pink-400 font-bold hover:bg-gray-800">📊 ERP Agência</a>
+                            <a href={`https://agencia.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-orange-400 font-bold hover:bg-gray-800">⚙️ Admin Agência</a>
+                            <a href={`https://agencia.sinergemkt.com/portal`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-gray-300 font-bold hover:bg-gray-800">🌐 Portal Clientes</a>
                           </>
                         ) : (
                           <>
@@ -925,6 +958,7 @@ export default function MasterAdmin() {
                   <button type="button" onClick={() => applyEditPreset('light_pink')} className="bg-pink-500/20 border border-pink-500 text-pink-300 px-2 py-0.5 rounded font-bold">Rosa</button>
                   <button type="button" onClick={() => applyEditPreset('purple_barber')} className="bg-purple-500/20 border border-purple-500 text-purple-300 px-2 py-0.5 rounded font-bold">Roxo</button>
                   <button type="button" onClick={() => applyEditPreset('blue_ecommerce')} className="bg-blue-500/20 border border-blue-500 text-blue-300 px-2 py-0.5 rounded font-bold">Azul</button>
+                  <button type="button" onClick={() => applyEditPreset('pink_agency')} className="bg-pink-500/20 border border-pink-500 text-pink-400 px-2 py-0.5 rounded font-bold">Agência</button>
                 </div>
               </div>
 
