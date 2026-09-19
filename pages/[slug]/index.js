@@ -24,6 +24,9 @@ export default function DeliveryCliente() {
   const [selectedCat, setSelectedCat] = useState('ALL');
   const [loading, setLoading] = useState(true);
 
+  // CARROSSEL DE BANNERS
+  const [currentBanner, setCurrentBanner] = useState(0);
+
   // DETECÇÃO DE MESA VIA URL (?mesa=05 ou ?m=05)
   const [tableNumber, setTableNumber] = useState('');
 
@@ -61,6 +64,8 @@ export default function DeliveryCliente() {
   const [pixCopySuccess, setPixCopySuccess] = useState(false);
   const [currentOrderId, setCurrentOrderId] = useState(null);
 
+  const promoBannerList = tenant?.promo_banners ? tenant.promo_banners.split(',').map(b => b.trim()).filter(Boolean) : [];
+
   useEffect(() => {
     if (router.isReady) {
       const currentMesa = mesa || m || '';
@@ -84,6 +89,15 @@ export default function DeliveryCliente() {
       if (savedAddr) setCustomerAddress(savedAddr);
     }
   }, [router.isReady, slug, mesa, m]);
+
+  // TEMPORIZADOR AUTOMÁTICO PARA O CARROSSEL DE BANNERS
+  useEffect(() => {
+    if (promoBannerList.length <= 1) return;
+    const interval = setInterval(() => {
+      setCurrentBanner((prev) => (prev + 1) % promoBannerList.length);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [promoBannerList.length]);
 
   // POLLING EM TEMPO REAL DO PIX DINÂMICO
   useEffect(() => {
@@ -187,13 +201,19 @@ export default function DeliveryCliente() {
     }
   };
 
-  // NORMAS DE LIMITAÇÃO PARA PRODUTOS NORMAIS
+  // NORMAS DE LIMITAÇÃO PARA PRODUTOS NORMAIS (CORRIGIDO PARA AVALIAR NOME + CATEGORIA)
   const toggleAddon = (addon) => {
-    const exists = selectedAddons.some(a => a.name === addon.name);
+    const exists = selectedAddons.some(a => 
+      a.name.toLowerCase().trim() === addon.name.toLowerCase().trim() && 
+      (a.category_type && addon.category_type ? a.category_type === addon.category_type : true)
+    );
     const maxAllowed = Number(selectedProduct?.max_addons || 0);
 
     if (exists) {
-      setSelectedAddons(selectedAddons.filter(a => a.name !== addon.name));
+      setSelectedAddons(selectedAddons.filter(a => !(
+        a.name.toLowerCase().trim() === addon.name.toLowerCase().trim() && 
+        (a.category_type && addon.category_type ? a.category_type === addon.category_type : true)
+      )));
     } else {
       if (maxAllowed > 0 && selectedAddons.length >= maxAllowed) {
         return alert(`Você pode escolher no máximo ${maxAllowed} sabores/opções para este item!`);
@@ -202,15 +222,21 @@ export default function DeliveryCliente() {
     }
   };
 
-  // NORMAS DE LIMITAÇÃO PARA ETAPAS DE COMBO
+  // NORMAS DE LIMITAÇÃO PARA ETAPAS DE COMBO (CORRIGIDO PARA AVALIAR NOME + CATEGORIA)
   const toggleComboAddon = (stepIdx, addon, stepMax) => {
     const currentStepSelected = comboSelections[stepIdx] || [];
-    const exists = currentStepSelected.some(a => a.name === addon.name);
+    const exists = currentStepSelected.some(a => 
+      a.name.toLowerCase().trim() === addon.name.toLowerCase().trim() && 
+      (a.category_type && addon.category_type ? a.category_type === addon.category_type : true)
+    );
 
     if (exists) {
       setComboSelections({
         ...comboSelections,
-        [stepIdx]: currentStepSelected.filter(a => a.name !== addon.name)
+        [stepIdx]: currentStepSelected.filter(a => !(
+          a.name.toLowerCase().trim() === addon.name.toLowerCase().trim() && 
+          (a.category_type && addon.category_type ? a.category_type === addon.category_type : true)
+        ))
       });
     } else {
       if (stepMax > 0 && currentStepSelected.length >= stepMax) {
@@ -487,7 +513,7 @@ export default function DeliveryCliente() {
     alert(`Pedido #${createdOrder.id} enviado com sucesso!`);
   };
 
-  // PARSER DE SABORES COM INGREDIENTES E CATEGORIA AGRUPADA
+  // PARSER DE SABORES COM INGREDIENTES E CATEGORIA AGRUPADA (CORRIGIDO)
   const getProductAddonsArray = (addonsStr) => {
     if (!addonsStr) return [];
 
@@ -503,17 +529,21 @@ export default function DeliveryCliente() {
           const parts = item.split(':');
           const name = parts[0] ? parts[0].trim() : item;
           const price = parts[1] ? parseFloat(parts[1].replace(',', '.')) : 0;
-          return { name, price: isNaN(price) ? 0 : price };
+          const category_type = parts[2] ? parts[2].trim() : '';
+          return { name, price: isNaN(price) ? 0 : price, category_type };
         });
       }
     }
 
     return list.map(item => {
-      const matched = globalAddons.find(g => g.name.toLowerCase().trim() === item.name.toLowerCase().trim());
+      const matched = globalAddons.find(g =>
+        g.name.toLowerCase().trim() === item.name.toLowerCase().trim() &&
+        (item.category_type ? g.category_type === item.category_type : true)
+      );
       return {
         ...item,
         description: item.description || matched?.description || '',
-        category_type: matched?.category_type || '🍕 Sabores Tradicionais'
+        category_type: item.category_type || matched?.category_type || '🍕 Sabores Tradicionais'
       };
     });
   };
@@ -562,7 +592,6 @@ export default function DeliveryCliente() {
   const total = subtotal + currentDeliveryFee;
 
   const filteredProducts = selectedCat === 'ALL' ? products : products.filter(p => String(p.category_id) === String(selectedCat));
-  const promoBannerList = tenant.promo_banners ? tenant.promo_banners.split(',').map(b => b.trim()).filter(Boolean) : [];
   const isOpen = isStoreOpen();
 
   // CÁLCULO DINÂMICO DE PREÇO NO MODAL DO PRODUTO
@@ -638,13 +667,53 @@ export default function DeliveryCliente() {
         </div>
       )}
 
+      {/* CARROSSEL AUTOMÁTICO DE BANNERS PROMOCIONAIS */}
       {promoBannerList.length > 0 && (
-        <div className="mt-6">
-          <div className="flex space-x-4 overflow-x-auto pb-2 scrollbar-none">
+        <div className="mt-6 relative group overflow-hidden rounded-2xl border border-white/10 shadow-2xl bg-gray-900">
+          <div className="relative h-40 sm:h-52 md:h-60 w-full overflow-hidden">
             {promoBannerList.map((bannerUrl, idx) => (
-              <img key={idx} src={bannerUrl} alt={`Promoção ${idx + 1}`} className="w-80 h-36 sm:w-96 sm:h-44 rounded-2xl object-cover border border-white/10 shrink-0 shadow-md hover:scale-105 transition" />
+              <img
+                key={idx}
+                src={bannerUrl}
+                alt={`Promoção ${idx + 1}`}
+                className={`absolute inset-0 w-full h-full object-cover transition-all duration-700 ease-in-out ${
+                  idx === currentBanner ? 'opacity-100 scale-100 z-10' : 'opacity-0 scale-95 z-0'
+                }`}
+              />
             ))}
           </div>
+
+          {promoBannerList.length > 1 && (
+            <>
+              {/* SETAS DE NAVEGAÇÃO LATERAL */}
+              <button
+                type="button"
+                onClick={() => setCurrentBanner((prev) => (prev - 1 + promoBannerList.length) % promoBannerList.length)}
+                className="absolute left-3 top-1/2 -translate-y-1/2 z-20 bg-black/60 hover:bg-black/80 text-white w-9 h-9 rounded-full backdrop-blur-md opacity-0 group-hover:opacity-100 transition flex items-center justify-center font-bold text-sm shadow">
+                ❮
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentBanner((prev) => (prev + 1) % promoBannerList.length)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 z-20 bg-black/60 hover:bg-black/80 text-white w-9 h-9 rounded-full backdrop-blur-md opacity-0 group-hover:opacity-100 transition flex items-center justify-center font-bold text-sm shadow">
+                ❯
+              </button>
+
+              {/* PONTOS INDICADORES DO CARROSSEL */}
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex space-x-2">
+                {promoBannerList.map((_, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setCurrentBanner(idx)}
+                    className={`h-2 rounded-full transition-all duration-300 ${
+                      idx === currentBanner ? 'bg-orange-500 w-6' : 'bg-white/50 w-2 hover:bg-white'
+                    }`}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -815,7 +884,11 @@ export default function DeliveryCliente() {
                           <p className="text-[10px] opacity-50 italic">Nenhum item cadastrado nesta categoria.</p>
                         ) : (
                           stepAddons.map((addon, idx) => {
-                            const isChecked = selectedInStep.some(a => a.name === addon.name);
+                            const isChecked = selectedInStep.some(a => 
+                              a.name.toLowerCase().trim() === addon.name.toLowerCase().trim() && 
+                              (a.category_type && addon.category_type ? a.category_type === addon.category_type : true)
+                            );
+
                             return (
                               <div
                                 key={idx}
@@ -887,7 +960,11 @@ export default function DeliveryCliente() {
 
                           <div className="space-y-1.5">
                             {groupAddons.map((addon, idx) => {
-                              const isChecked = selectedAddons.some(a => a.name === addon.name);
+                              const isChecked = selectedAddons.some(a => 
+                                a.name.toLowerCase().trim() === addon.name.toLowerCase().trim() && 
+                                (a.category_type && addon.category_type ? a.category_type === addon.category_type : true)
+                              );
+
                               return (
                                 <div
                                   key={idx}
