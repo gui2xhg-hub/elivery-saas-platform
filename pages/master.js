@@ -231,6 +231,8 @@ export default function MasterAdmin() {
       setNewTenant(prev => ({ ...prev, primary_color: '#3B82F6', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#3B82F6' }));
     } else if (type === 'pink_agency') {
       setNewTenant(prev => ({ ...prev, primary_color: '#EC4899', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#EC4899' }));
+    } else if (type === 'amber_church') {
+      setNewTenant(prev => ({ ...prev, primary_color: '#F59E0B', button_text_color: '#0F172A', secondary_color: '#020617', card_bg_color: '#0F172A', text_color: '#F8FAFC', price_color: '#F59E0B' }));
     }
   };
 
@@ -246,6 +248,8 @@ export default function MasterAdmin() {
       setEditingTenant(prev => ({ ...prev, primary_color: '#3B82F6', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#3B82F6' }));
     } else if (type === 'pink_agency') {
       setEditingTenant(prev => ({ ...prev, primary_color: '#EC4899', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#EC4899' }));
+    } else if (type === 'amber_church') {
+      setEditingTenant(prev => ({ ...prev, primary_color: '#F59E0B', button_text_color: '#0F172A', secondary_color: '#020617', card_bg_color: '#0F172A', text_color: '#F8FAFC', price_color: '#F59E0B' }));
     }
   };
 
@@ -260,6 +264,7 @@ export default function MasterAdmin() {
     const isAgendamento = newTenant.business_type === 'agendamento';
     const isEcommerce = newTenant.business_type === 'ecommerce';
     const isAgencia = newTenant.business_type === 'agencia';
+    const isIgreja = newTenant.business_type === 'igreja';
 
     const { data, error } = await supabase.from('tenants').insert([{
       name: newTenant.name.trim(),
@@ -283,6 +288,7 @@ export default function MasterAdmin() {
       has_agendamento: isAgendamento,
       has_ecommerce: isEcommerce,
       has_agencia: isAgencia,
+      has_igreja: isIgreja,
       has_tables: newTenant.has_tables,
       business_type: newTenant.business_type
     }]).select().single();
@@ -358,6 +364,7 @@ export default function MasterAdmin() {
     const isEcommerce = tenant.has_ecommerce || tenant.business_type === 'ecommerce';
     const isAgendamento = (tenant.has_agendamento || tenant.business_type === 'agendamento') && !tenant.has_delivery && !isEcommerce;
     const isAgencia = tenant.has_agencia || tenant.business_type === 'agencia';
+    const isIgreja = tenant.has_igreja || tenant.business_type === 'igreja';
 
     let portalUrl = 'https://delivery.sinergemkt.com';
     let systemName = 'Sinerge Delivery';
@@ -375,6 +382,10 @@ export default function MasterAdmin() {
       portalUrl = 'https://agencia.sinergemkt.com';
       systemName = 'Sinerge ERP Agência & Social Media';
       emoji = '🚀';
+    } else if (isIgreja) {
+      portalUrl = `${window.location.origin}/igreja/${tenant.slug}`;
+      systemName = 'Sinerge Agenda Igreja & Eventos';
+      emoji = '✝️';
     }
 
     const text = `${emoji} *Seu Acesso ao ${systemName}!*\n\n` +
@@ -382,7 +393,7 @@ export default function MasterAdmin() {
       `🔗 *Acesse o Portal:* ${portalUrl}\n` +
       `🔑 *Seu Identificador (Slug):* \`${tenant.slug}\`\n` +
       `🔐 *Sua Senha Admin:* \`${tenant.admin_password}\`\n\n` +
-      `_Ao entrar, você poderá gerenciar seu painel, configurar seus serviços/clientes e acompanhar tudo em tempo real!_`;
+      `_Ao entrar, você poderá gerenciar seu painel, cadastrar eventos e compartilhar com os membros em tempo real!_`;
 
     navigator.clipboard.writeText(text);
     setCopiedTenantId(tenant.id);
@@ -400,10 +411,11 @@ export default function MasterAdmin() {
     return acc + fee;
   }, 0);
 
-  const deliveryCount = activeTenants.filter(t => (t.has_delivery || t.business_type === 'delivery') && !t.has_agendamento && !t.has_ecommerce && !t.has_agencia && t.business_type !== 'agendamento' && t.business_type !== 'ecommerce' && t.business_type !== 'agencia').length;
-  const agendamentoCount = activeTenants.filter(t => (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !t.has_ecommerce && !t.has_agencia && t.business_type !== 'ecommerce' && t.business_type !== 'agencia').length;
-  const ecommerceCount = activeTenants.filter(t => (t.has_ecommerce || t.business_type === 'ecommerce') && !t.has_agencia && t.business_type !== 'agencia').length;
-  const agenciaCount = activeTenants.filter(t => t.has_agencia || t.business_type === 'agencia').length;
+  const deliveryCount = activeTenants.filter(t => (t.has_delivery || t.business_type === 'delivery') && !t.has_agendamento && !t.has_ecommerce && !t.has_agencia && !t.has_igreja && t.business_type !== 'agendamento' && t.business_type !== 'ecommerce' && t.business_type !== 'agencia' && t.business_type !== 'igreja').length;
+  const agendamentoCount = activeTenants.filter(t => (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !t.has_ecommerce && !t.has_agencia && !t.has_igreja && t.business_type !== 'ecommerce' && t.business_type !== 'agencia' && t.business_type !== 'igreja').length;
+  const ecommerceCount = activeTenants.filter(t => (t.has_ecommerce || t.business_type === 'ecommerce') && !t.has_agencia && !t.has_igreja && t.business_type !== 'agencia' && t.business_type !== 'igreja').length;
+  const agenciaCount = activeTenants.filter(t => (t.has_agencia || t.business_type === 'agencia') && !t.has_igreja && t.business_type !== 'igreja').length;
+  const igrejaCount = activeTenants.filter(t => t.has_igreja || t.business_type === 'igreja').length;
 
   const totalGlobalOrders = Object.values(tenantStats).reduce((acc, s) => acc + (s.count || 0), 0);
   const totalGlobalVolume = Object.values(tenantStats).reduce((acc, s) => acc + (s.revenue || 0), 0);
@@ -415,16 +427,18 @@ export default function MasterAdmin() {
 
   const filteredTenants = tenants.filter(t => {
     const matchesSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase()) || t.slug.toLowerCase().includes(searchTerm.toLowerCase());
-    const isEcommerce = (t.has_ecommerce || t.business_type === 'ecommerce') && !t.has_agencia && t.business_type !== 'agencia';
-    const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce && !t.has_agencia && t.business_type !== 'agencia';
-    const isAgencia = t.has_agencia || t.business_type === 'agencia';
+    const isIgreja = t.has_igreja || t.business_type === 'igreja';
+    const isAgencia = (t.has_agencia || t.business_type === 'agencia') && !isIgreja;
+    const isEcommerce = (t.has_ecommerce || t.business_type === 'ecommerce') && !isAgencia && !isIgreja;
+    const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce && !isAgencia && !isIgreja;
     const dueInfo = getDueDateInfo(t.due_date);
 
     if (!matchesSearch) return false;
-    if (filterType === 'DELIVERY') return !isAgendamento && !isEcommerce && !isAgencia;
+    if (filterType === 'DELIVERY') return !isAgendamento && !isEcommerce && !isAgencia && !isIgreja;
     if (filterType === 'AGENDAMENTO') return isAgendamento;
     if (filterType === 'ECOMMERCE') return isEcommerce;
     if (filterType === 'AGENCIA') return isAgencia;
+    if (filterType === 'IGREJA') return isIgreja;
     if (filterType === 'EXPIRING') return t.active && dueInfo.isExpiring;
     if (filterType === 'EXPIRED') return dueInfo.isExpired || !t.active;
     return true;
@@ -513,40 +527,40 @@ export default function MasterAdmin() {
         )}
 
         {/* DASHBOARD DE MÉTRICAS */}
-        <div className="grid grid-cols-2 sm:grid-cols-7 gap-3 mb-8">
-          <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl col-span-2 sm:col-span-1">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-8">
+          <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl col-span-2">
             <span className="text-[10px] font-bold text-gray-400 uppercase block">Faturamento Projetado (MRR)</span>
             <span className="text-lg font-bold text-green-400">R$ {totalMRR.toFixed(2)}</span>
           </div>
 
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
             <span className="text-[10px] font-bold text-gray-400 uppercase block">Total Clientes</span>
-            <span className="text-lg font-bold text-white">{tenants.length} <span className="text-[10px] text-green-400">({activeTenants.length} ativos)</span></span>
+            <span className="text-lg font-bold text-white">{tenants.length} <span className="text-[10px] text-green-400">({activeTenants.length})</span></span>
           </div>
 
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
-            <span className="text-[10px] font-bold text-orange-400 uppercase block">Delivery Ativos</span>
+            <span className="text-[10px] font-bold text-orange-400 uppercase block">Delivery</span>
             <span className="text-lg font-bold text-orange-400">{deliveryCount}</span>
           </div>
 
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
-            <span className="text-[10px] font-bold text-purple-400 uppercase block">Agendamento Ativos</span>
+            <span className="text-[10px] font-bold text-purple-400 uppercase block">Agenda</span>
             <span className="text-lg font-bold text-purple-400">{agendamentoCount}</span>
           </div>
 
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
-            <span className="text-[10px] font-bold text-blue-400 uppercase block">E-commerce Ativos</span>
+            <span className="text-[10px] font-bold text-blue-400 uppercase block">Loja</span>
             <span className="text-lg font-bold text-blue-400">{ecommerceCount}</span>
           </div>
 
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
-            <span className="text-[10px] font-bold text-pink-400 uppercase block">Agência Ativos</span>
+            <span className="text-[10px] font-bold text-pink-400 uppercase block">Agência</span>
             <span className="text-lg font-bold text-pink-400">{agenciaCount}</span>
           </div>
 
           <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
-            <span className="text-[10px] font-bold text-yellow-400 uppercase block">Vendas Totais SaaS</span>
-            <span className="text-lg font-bold text-yellow-400">{totalGlobalOrders} <span className="text-[10px] text-gray-400">(R$ {totalGlobalVolume.toFixed(0)})</span></span>
+            <span className="text-[10px] font-bold text-amber-400 uppercase block">Igreja</span>
+            <span className="text-lg font-bold text-amber-400">{igrejaCount}</span>
           </div>
         </div>
 
@@ -568,7 +582,7 @@ export default function MasterAdmin() {
             <form onSubmit={handleCreateTenant} className="bg-gray-900 p-6 rounded-b-3xl border border-orange-500/30 border-t-0 space-y-4 shadow-2xl transition-all">
               <div className="bg-gray-950 p-3 rounded-2xl border border-gray-800 space-y-2">
                 <label className="text-[11px] font-bold text-gray-300 block uppercase tracking-wider">Selecione o Nicho do Cliente:</label>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
                   <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'delivery' ? 'bg-orange-500/20 text-orange-400 border-orange-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
                     <input type="radio" name="business_type" value="delivery" checked={newTenant.business_type === 'delivery'} onChange={() => setNewTenant({ ...newTenant, business_type: 'delivery' })} className="hidden" />
                     <span>🍔 Delivery</span>
@@ -587,6 +601,11 @@ export default function MasterAdmin() {
                   <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'agencia' ? 'bg-pink-500/20 text-pink-400 border-pink-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
                     <input type="radio" name="business_type" value="agencia" checked={newTenant.business_type === 'agencia'} onChange={() => setNewTenant({ ...newTenant, business_type: 'agencia' })} className="hidden" />
                     <span>🚀 Agência Mkt</span>
+                  </label>
+
+                  <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'igreja' ? 'bg-amber-500/20 text-amber-400 border-amber-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
+                    <input type="radio" name="business_type" value="igreja" checked={newTenant.business_type === 'igreja'} onChange={() => setNewTenant({ ...newTenant, business_type: 'igreja' })} className="hidden" />
+                    <span>✝️ Igreja</span>
                   </label>
                 </div>
               </div>
@@ -607,14 +626,14 @@ export default function MasterAdmin() {
               )}
 
               <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento / Agência:</label>
-                <input type="text" placeholder="Ex: Agência Sinerge ou Hamburgueria Silva" value={newTenant.name} onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
+                <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento / Agência / Igreja:</label>
+                <input type="text" placeholder="Ex: Igreja Batista Viva ou Hamburgueria Silva" value={newTenant.name} onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] text-gray-400 block mb-1">Slug / Identificador (Sem espaços):</label>
-                  <input type="text" placeholder="Ex: agenciasinerge" value={newTenant.slug} onChange={(e) => setNewTenant({ ...newTenant, slug: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
+                  <input type="text" placeholder="Ex: igrejabatista" value={newTenant.slug} onChange={(e) => setNewTenant({ ...newTenant, slug: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
                 </div>
 
                 <div>
@@ -632,6 +651,7 @@ export default function MasterAdmin() {
                     <button type="button" onClick={() => applyPreset('purple_barber')} className="bg-purple-500/20 border border-purple-500 text-purple-300 px-2.5 py-1 rounded-lg font-bold">Roxo Barber</button>
                     <button type="button" onClick={() => applyPreset('blue_ecommerce')} className="bg-blue-500/20 border border-blue-500 text-blue-300 px-2.5 py-1 rounded-lg font-bold">Azul Loja</button>
                     <button type="button" onClick={() => applyPreset('pink_agency')} className="bg-pink-500/20 border border-pink-500 text-pink-400 px-2.5 py-1 rounded-lg font-bold">Rosa Agência</button>
+                    <button type="button" onClick={() => applyPreset('amber_church')} className="bg-amber-500/20 border border-amber-500 text-amber-400 px-2.5 py-1 rounded-lg font-bold">Dourado Igreja</button>
                   </div>
                 </div>
 
@@ -745,15 +765,17 @@ export default function MasterAdmin() {
                 <option value="AGENDAMENTO">✂️ Agendamento</option>
                 <option value="ECOMMERCE">👕 E-commerce</option>
                 <option value="AGENCIA">🚀 Agência Mkt</option>
+                <option value="IGREJA">✝️ Igreja</option>
               </select>
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-3">
             {filteredTenants.map(t => {
-              const isEcommerce = (t.has_ecommerce || t.business_type === 'ecommerce') && !t.has_agencia && t.business_type !== 'agencia';
-              const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce && !t.has_agencia && t.business_type !== 'agencia';
-              const isAgencia = t.has_agencia || t.business_type === 'agencia';
+              const isIgreja = t.has_igreja || t.business_type === 'igreja';
+              const isEcommerce = (t.has_ecommerce || t.business_type === 'ecommerce') && !t.has_agencia && !isIgreja && t.business_type !== 'agencia';
+              const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce && !t.has_agencia && !isIgreja && t.business_type !== 'agencia';
+              const isAgencia = (t.has_agencia || t.business_type === 'agencia') && !isIgreja;
               const isCopied = copiedTenantId === t.id;
 
               const stats = tenantStats[t.id] || { count: 0, revenue: 0, lastOrderAt: null };
@@ -770,8 +792,8 @@ export default function MasterAdmin() {
                       <div>
                         <div className="flex items-center space-x-2 flex-wrap">
                           <h3 className="font-bold text-sm text-white">{t.name}</h3>
-                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${isEcommerce ? 'bg-blue-500/20 text-blue-400' : isAgendamento ? 'bg-purple-500/20 text-purple-400' : isAgencia ? 'bg-pink-500/20 text-pink-400' : 'bg-orange-500/20 text-orange-400'}`}>
-                            {isEcommerce ? '👕 E-commerce' : isAgendamento ? '✂️ Agendamento' : isAgencia ? '🚀 Agência Mkt' : '🍔 Delivery'}
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${isIgreja ? 'bg-amber-500/20 text-amber-400' : isEcommerce ? 'bg-blue-500/20 text-blue-400' : isAgendamento ? 'bg-purple-500/20 text-purple-400' : isAgencia ? 'bg-pink-500/20 text-pink-400' : 'bg-orange-500/20 text-orange-400'}`}>
+                            {isIgreja ? '✝️ Igreja' : isEcommerce ? '👕 E-commerce' : isAgendamento ? '✂️ Agendamento' : isAgencia ? '🚀 Agência Mkt' : '🍔 Delivery'}
                           </span>
                           <span className="text-[9px] font-bold px-2 py-0.5 rounded-full uppercase bg-gray-800 text-gray-300 border border-gray-700">
                             🔄 {getCycleLabel(t.billing_cycle)} ({t.contract_months ? `${t.contract_months}m` : '12m'})
@@ -830,7 +852,12 @@ export default function MasterAdmin() {
 
                       {/* LINKS RÁPIDOS */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs pt-1">
-                        {isEcommerce ? (
+                        {isIgreja ? (
+                          <>
+                            <a href={`/igreja/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-amber-400 font-bold hover:bg-gray-800">✝️ Agenda Pública</a>
+                            <a href={`/igreja/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-orange-400 font-bold hover:bg-gray-800">⚙️ Admin Igreja</a>
+                          </>
+                        ) : isEcommerce ? (
                           <>
                             <a href={`https://loja.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-gray-300 font-bold hover:bg-gray-800">🛍️ Catálogo Público</a>
                             <a href={`https://loja.sinergemkt.com/${t.slug}/producao`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-blue-400 font-bold hover:bg-gray-800">👕 Fila Produção</a>
@@ -876,7 +903,7 @@ export default function MasterAdmin() {
             </div>
 
             <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
+              <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento / Igreja:</label>
               <input type="text" value={editingTenant.name || ''} onChange={(e) => setEditingTenant({ ...editingTenant, name: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
             </div>
 
@@ -890,19 +917,6 @@ export default function MasterAdmin() {
                 <label className="text-[11px] text-gray-400 block mb-1">Senha de Admin:</label>
                 <input type="text" value={editingTenant.admin_password || ''} onChange={(e) => setEditingTenant({ ...editingTenant, admin_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
               </div>
-            </div>
-
-            <div className="bg-gray-950 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center">
-              <div>
-                <span className="font-bold text-xs text-white block">🪑 Módulo de Mesas / Autoatendimento (QR Code)</span>
-                <span className="text-[10px] text-gray-400">Ativa a aba de gerenciamento de QR Codes no Admin do cliente.</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={editingTenant.has_tables ?? true}
-                onChange={(e) => setEditingTenant({ ...editingTenant, has_tables: e.target.checked })}
-                className="w-4 h-4 accent-orange-500 cursor-pointer"
-              />
             </div>
 
             <div className="grid grid-cols-4 gap-3">
@@ -959,6 +973,7 @@ export default function MasterAdmin() {
                   <button type="button" onClick={() => applyEditPreset('purple_barber')} className="bg-purple-500/20 border border-purple-500 text-purple-300 px-2 py-0.5 rounded font-bold">Roxo</button>
                   <button type="button" onClick={() => applyEditPreset('blue_ecommerce')} className="bg-blue-500/20 border border-blue-500 text-blue-300 px-2 py-0.5 rounded font-bold">Azul</button>
                   <button type="button" onClick={() => applyEditPreset('pink_agency')} className="bg-pink-500/20 border border-pink-500 text-pink-400 px-2 py-0.5 rounded font-bold">Agência</button>
+                  <button type="button" onClick={() => applyEditPreset('amber_church')} className="bg-amber-500/20 border border-amber-500 text-amber-400 px-2 py-0.5 rounded font-bold">Igreja</button>
                 </div>
               </div>
 
