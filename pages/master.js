@@ -383,7 +383,7 @@ export default function MasterAdmin() {
       systemName = 'Sinerge ERP Agência & Social Media';
       emoji = '🚀';
     } else if (isIgreja) {
-      portalUrl = `${window.location.origin}/igreja/${tenant.slug}`;
+      portalUrl = `https://agencia.sinergemkt.com/igreja/${tenant.slug}`;
       systemName = 'Sinerge Agenda Igreja & Eventos';
       emoji = '✝️';
     }
@@ -854,8 +854,8 @@ export default function MasterAdmin() {
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs pt-1">
                         {isIgreja ? (
                           <>
-                            <a href={`/igreja/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-amber-400 font-bold hover:bg-gray-800">✝️ Agenda Pública</a>
-                            <a href={`/igreja/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-orange-400 font-bold hover:bg-gray-800">⚙️ Admin Igreja</a>
+                            <a href={`https://agencia.sinergemkt.com/igreja/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-amber-400 font-bold hover:bg-gray-800">✝️ Agenda Pública</a>
+                            <a href={`https://agencia.sinergemkt.com/igreja/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-orange-400 font-bold hover:bg-gray-800">⚙️ Admin Igreja</a>
                           </>
                         ) : isEcommerce ? (
                           <>
