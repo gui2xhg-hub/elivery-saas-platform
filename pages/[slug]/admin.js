@@ -61,14 +61,44 @@ export default function AdminTenant() {
 
   // DIAS DA SEMANA
   const ALL_DAYS = [
-    { id: 1, label: 'Seg' },
-    { id: 2, label: 'Ter' },
-    { id: 3, label: 'Qua' },
-    { id: 4, label: 'Qui' },
-    { id: 5, label: 'Sex' },
-    { id: 6, label: 'Sáb' },
-    { id: 0, label: 'Dom' }
+    { id: 1, label: 'Segunda-feira', short: 'Seg' },
+    { id: 2, label: 'Terça-feira', short: 'Ter' },
+    { id: 3, label: 'Quarta-feira', short: 'Qua' },
+    { id: 4, label: 'Quinta-feira', short: 'Qui' },
+    { id: 5, label: 'Sexta-feira', short: 'Sex' },
+    { id: 6, label: 'Sábado', short: 'Sáb' },
+    { id: 0, label: 'Domingo', short: 'Dom' }
   ];
+
+  // AUXILIAR PARA ESTRUTURA DOS HORÁRIOS DA SEMANA
+  const getDefaultWeeklySchedule = (tData) => {
+    let parsed = null;
+    if (tData?.weekly_schedule) {
+      try {
+        parsed = typeof tData.weekly_schedule === 'string' ? JSON.parse(tData.weekly_schedule) : tData.weekly_schedule;
+      } catch (e) {
+        parsed = null;
+      }
+    }
+
+    if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+
+    const activeDays = tData?.work_days || [1, 2, 3, 4, 5, 6];
+    const schedule = {};
+    ALL_DAYS.forEach(day => {
+      schedule[day.id] = {
+        active: activeDays.includes(day.id),
+        has_lunch: tData?.has_lunch_break ?? false,
+        open1: tData?.lunch_opening_time || '11:00',
+        close1: tData?.lunch_closing_time || '14:30',
+        open2: tData?.opening_time || '18:00',
+        close2: tData?.closing_time || '23:30'
+      };
+    });
+    return schedule;
+  };
 
   // MONTA A LISTA DE TIPOS DE ADICIONAIS INCLUINDO AS CATEGORIAS PERSONALIZADAS
   const customTypesInAddons = Array.from(
@@ -113,7 +143,11 @@ export default function AdminTenant() {
       let updatedTenant = {
         ...tData,
         work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
-        auto_reset_orders: tData.auto_reset_orders ?? false
+        auto_reset_orders: tData.auto_reset_orders ?? false,
+        has_lunch_break: tData.has_lunch_break ?? false,
+        lunch_opening_time: tData.lunch_opening_time || '11:00',
+        lunch_closing_time: tData.lunch_closing_time || '14:30',
+        weekly_schedule: getDefaultWeeklySchedule(tData)
       };
 
       // VERIFICA SE O AUTO-ZERAR ESTÁ ATIVADO E SE JÁ MUDOU O DIA DO EXPEDIENTE
@@ -158,7 +192,11 @@ export default function AdminTenant() {
       setTenant({
         ...tData,
         work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
-        auto_reset_orders: tData.auto_reset_orders ?? false
+        auto_reset_orders: tData.auto_reset_orders ?? false,
+        has_lunch_break: tData.has_lunch_break ?? false,
+        lunch_opening_time: tData.lunch_opening_time || '11:00',
+        lunch_closing_time: tData.lunch_closing_time || '14:30',
+        weekly_schedule: getDefaultWeeklySchedule(tData)
       });
     }
     if (cData) {
@@ -184,14 +222,12 @@ export default function AdminTenant() {
       const orderDate = new Date(order.created_at);
 
       if (orderDate >= resetDate) {
-        // Pedidos posteriores ao ponto de reset recomeçam do #01
         const ordersAfterReset = allOrders
           .filter(o => new Date(o.created_at) >= resetDate)
           .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         const idx = ordersAfterReset.findIndex(o => o.id === order.id);
         if (idx !== -1) return `#${String(idx + 1).padStart(2, '0')}`;
       } else {
-        // Pedidos anteriores ao reset mantêm sua numeração histórica original
         const ordersBeforeReset = allOrders
           .filter(o => new Date(o.created_at) < resetDate)
           .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
@@ -200,7 +236,6 @@ export default function AdminTenant() {
       }
     }
 
-    // Sequência geral padrão
     const sortedAll = [...allOrders].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
     const globalIdx = sortedAll.findIndex(o => o.id === order.id);
     if (globalIdx !== -1) return `#${String(globalIdx + 1).padStart(2, '0')}`;
@@ -234,6 +269,51 @@ export default function AdminTenant() {
     } else {
       return [...arr, dayId].sort();
     }
+  };
+
+  // ATUALIZAÇÃO DA PROGRAMAÇÃO POR DIA DA SEMANA
+  const updateDaySchedule = (dayId, field, value) => {
+    setTenant(prev => {
+      const currentSched = prev.weekly_schedule || getDefaultWeeklySchedule(prev);
+      const daySched = currentSched[dayId] || { active: true, has_lunch: false, open1: '11:00', close1: '14:30', open2: '18:00', close2: '23:30' };
+      
+      const updatedDay = { ...daySched, [field]: value };
+      const updatedSched = { ...currentSched, [dayId]: updatedDay };
+
+      const activeDays = Object.keys(updatedSched)
+        .filter(d => updatedSched[d]?.active)
+        .map(Number);
+
+      return {
+        ...prev,
+        weekly_schedule: updatedSched,
+        work_days: activeDays
+      };
+    });
+  };
+
+  const copyDayScheduleToAll = (sourceDayId) => {
+    setTenant(prev => {
+      const currentSched = prev.weekly_schedule || getDefaultWeeklySchedule(prev);
+      const sourceData = currentSched[sourceDayId];
+      if (!sourceData) return prev;
+
+      const newSched = {};
+      ALL_DAYS.forEach(day => {
+        newSched[day.id] = { ...sourceData };
+      });
+
+      const activeDays = Object.keys(newSched)
+        .filter(d => newSched[d]?.active)
+        .map(Number);
+
+      return {
+        ...prev,
+        weekly_schedule: newSched,
+        work_days: activeDays
+      };
+    });
+    alert('Horários e turnos replicados para todos os dias da semana!');
   };
 
   const handleAddWaiter = async (e) => {
@@ -320,18 +400,83 @@ export default function AdminTenant() {
     }
   };
 
+  // --- LÓGICA DE VERIFICAÇÃO E SELEÇÃO DE ADICIONAIS SEM MISTURAR CATEGORIAS COM MESMO NOME ---
+  const isAddonInList = (addonsListStr, addon) => {
+    if (!addonsListStr || !addon) return false;
+    const items = addonsListStr.split(',').map(i => i.trim()).filter(Boolean);
+    
+    return items.some(item => {
+      const parts = item.split(':');
+      const itemName = parts[0];
+      const itemPrice = parsePrice(parts[1]);
+      const itemCat = parts[2];
+
+      if (itemName !== addon.name) return false;
+
+      // Se a categoria está salva no item, compara categoricamente
+      if (itemCat) {
+        return itemCat === addon.category_type;
+      }
+
+      // Legado (sem categoria salva no item): compara nome e preço
+      return Math.abs(itemPrice - parsePrice(addon.price)) < 0.01;
+    });
+  };
+
+  const handleSingleAddonToggle = (addon, currentAddonsList, isChecked, mode) => {
+    let currentArr = currentAddonsList ? currentAddonsList.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const formattedStr = `${addon.name}:${addon.price}:${addon.category_type || ''}`;
+
+    if (isChecked) {
+      if (!isAddonInList(currentAddonsList, addon)) {
+        currentArr.push(formattedStr);
+      }
+    } else {
+      currentArr = currentArr.filter(item => {
+        const parts = item.split(':');
+        const itemName = parts[0];
+        const itemPrice = parsePrice(parts[1]);
+        const itemCat = parts[2];
+
+        if (itemName !== addon.name) return true;
+
+        if (itemCat) {
+          return itemCat !== addon.category_type;
+        }
+
+        return Math.abs(itemPrice - parsePrice(addon.price)) >= 0.01;
+      });
+    }
+
+    const updatedStr = currentArr.join(',');
+    if (mode === 'new') {
+      setNewProd(prev => ({ ...prev, addons_list: updatedStr }));
+    } else if (mode === 'edit') {
+      setEditingProduct(prev => ({ ...prev, addons_list: updatedStr }));
+    }
+  };
+
   const handleToggleGroupAddons = (itemsGroup, currentAddonsList, mode) => {
-    let currentArr = currentAddonsList ? currentAddonsList.split(',').filter(Boolean) : [];
-    const allSelected = itemsGroup.every(a => (currentAddonsList || '').includes(a.name));
+    let currentArr = currentAddonsList ? currentAddonsList.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const allSelected = itemsGroup.every(a => isAddonInList(currentAddonsList, a));
 
     if (allSelected) {
       itemsGroup.forEach(a => {
-        currentArr = currentArr.filter(item => !item.startsWith(a.name));
+        currentArr = currentArr.filter(item => {
+          const parts = item.split(':');
+          const itemName = parts[0];
+          const itemPrice = parsePrice(parts[1]);
+          const itemCat = parts[2];
+
+          const matchesName = itemName === a.name;
+          const matchesCat = itemCat ? itemCat === a.category_type : Math.abs(itemPrice - parsePrice(a.price)) < 0.01;
+          return !(matchesName && matchesCat);
+        });
       });
     } else {
       itemsGroup.forEach(a => {
-        if (!currentArr.some(item => item.startsWith(a.name))) {
-          currentArr.push(`${a.name}:${a.price}`);
+        if (!isAddonInList(currentArr.join(','), a)) {
+          currentArr.push(`${a.name}:${a.price}:${a.category_type || ''}`);
         }
       });
     }
@@ -347,6 +492,13 @@ export default function AdminTenant() {
   const handleSaveTenantSettings = async (e) => {
     e.preventDefault();
     const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
+
+    const activeDaysFromSchedule = tenant.weekly_schedule
+      ? Object.keys(tenant.weekly_schedule)
+          .filter(dayId => tenant.weekly_schedule[dayId]?.active)
+          .map(Number)
+      : (tenant.work_days || [1, 2, 3, 4, 5, 6]);
+
     const { error } = await supabase.from('tenants').update({
       name: tenant.name,
       cnpj: tenant.cnpj || '',
@@ -360,7 +512,11 @@ export default function AdminTenant() {
       secondary_color: tenant.secondary_color || '#111827',
       opening_time: tenant.opening_time || '18:00',
       closing_time: tenant.closing_time || '23:30',
-      work_days: tenant.work_days || [1, 2, 3, 4, 5, 6],
+      has_lunch_break: tenant.has_lunch_break ?? false,
+      lunch_opening_time: tenant.lunch_opening_time || '11:00',
+      lunch_closing_time: tenant.lunch_closing_time || '14:30',
+      work_days: activeDaysFromSchedule,
+      weekly_schedule: typeof tenant.weekly_schedule === 'object' ? JSON.stringify(tenant.weekly_schedule) : tenant.weekly_schedule,
       pixel_id: tenant.pixel_id || '',
       custom_message: tenant.custom_message || '',
       admin_password: tenant.admin_password,
@@ -553,7 +709,6 @@ export default function AdminTenant() {
   const totalSubtotal = filteredOrders.reduce((sum, o) => sum + Number(o.subtotal || o.total || 0), 0);
   const totalDeliveryFees = filteredOrders.reduce((sum, o) => sum + Number(o.delivery_fee || 0), 0);
 
-  // FILTRO E IDENTIFICAÇÃO APENAS DE CLIENTES REAIS (COM NOME E WHATSAPP, SEM MESAS/BALCÃO ANÔNIMOS)
   const getCustomerList = () => {
     const customerMap = {};
     allOrders.forEach(order => {
@@ -562,7 +717,6 @@ export default function AdminTenant() {
       const orderType = (order.order_type || '').toLowerCase();
       const addr = (order.customer_address || '').toLowerCase();
 
-      // Exclui mesas, clientes sem telefone ou cadastros genéricos de mesa/balcão
       const isTable = orderType === 'mesa' || addr.includes('mesa') || order.table_number;
       const isGenericName = !rawName || rawName.toLowerCase().includes('mesa') || rawName.toLowerCase().includes('balcão') || rawName.toLowerCase().includes('balcao');
 
@@ -784,7 +938,7 @@ export default function AdminTenant() {
                     const itemsOfType = groupedAddons[type] || [];
                     if (itemsOfType.length === 0) return null;
 
-                    const isAllSelected = itemsOfType.every(a => (newProd.addons_list || '').includes(a.name));
+                    const isAllSelected = itemsOfType.every(a => isAddonInList(newProd.addons_list, a));
 
                     return (
                       <div key={type} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 space-y-1.5">
@@ -800,16 +954,14 @@ export default function AdminTenant() {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
                           {itemsOfType.map(a => {
-                            const formattedStr = `${a.name}:${a.price}`;
-                            const isSelected = (newProd.addons_list || '').includes(a.name);
+                            const isSelected = isAddonInList(newProd.addons_list, a);
                             return (
                               <label key={a.id} className="flex items-center space-x-1.5 bg-gray-800 p-1.5 rounded-lg text-[10px] cursor-pointer hover:bg-gray-750 transition">
-                                <input type="checkbox" checked={isSelected} onChange={(e) => {
-                                  let currentArr = newProd.addons_list ? newProd.addons_list.split(',').filter(Boolean) : [];
-                                  if (e.target.checked) currentArr.push(formattedStr);
-                                  else currentArr = currentArr.filter(item => !item.startsWith(a.name));
-                                  setNewProd({ ...newProd, addons_list: currentArr.join(',') });
-                                }} />
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => handleSingleAddonToggle(a, newProd.addons_list, e.target.checked, 'new')}
+                                />
                                 <span className="truncate">{a.name} (+R${Number(a.price).toFixed(2)})</span>
                               </label>
                             );
@@ -1319,6 +1471,7 @@ export default function AdminTenant() {
               )}
             </section>
 
+            {/* SEÇÃO ATUALIZADA: HORÁRIOS DE FUNCIONAMENTO SEMANAI E PAUSA ALMOÇO */}
             <section className="bg-gray-900 p-6 rounded-2xl border border-gray-800 space-y-4">
               <h3 className="font-bold text-base text-orange-400 border-b border-gray-800 pb-2">⏰ Horários de Funcionamento & Sequência de Pedidos</h3>
 
@@ -1335,33 +1488,123 @@ export default function AdminTenant() {
                 <p className="text-[10px] text-gray-400 pl-6">Quando ativado, os novos pedidos do próximo dia/expediente começarão automaticamente do #01 sem alterar o histórico anterior.</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Horário de Abertura:</label>
-                  <input type="time" value={tenant.opening_time || '18:00'} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, opening_time: e.target.value })} />
+              {/* PROGRAMAÇÃO DE HORÁRIOS DETALHADA POR DIA DA SEMANA */}
+              <div className="space-y-4 pt-2">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-xs font-bold text-gray-200">🗓️ Programação Semanal de Funcionamento:</h4>
+                  <span className="text-[10px] text-gray-400 italic">Configure horários e pausa para almoço por dia</span>
                 </div>
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Horário de Fechamento:</label>
-                  <input type="time" value={tenant.closing_time || '23:30'} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, closing_time: e.target.value })} />
-                </div>
-              </div>
 
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-2">Dias de Funcionamento:</label>
-                <div className="flex flex-wrap gap-2">
+                <div className="space-y-3">
                   {ALL_DAYS.map((day) => {
-                    const isSelected = (tenant.work_days || []).includes(day.id);
+                    const sched = tenant.weekly_schedule?.[day.id] || {
+                      active: (tenant.work_days || []).includes(day.id),
+                      has_lunch: tenant.has_lunch_break || false,
+                      open1: tenant.lunch_opening_time || '11:00',
+                      close1: tenant.lunch_closing_time || '14:30',
+                      open2: tenant.opening_time || '18:00',
+                      close2: tenant.closing_time || '23:30'
+                    };
+
                     return (
-                      <button
-                        key={day.id}
-                        type="button"
-                        onClick={() => setTenant({ ...tenant, work_days: toggleDaySelection(tenant.work_days, day.id) })}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${
-                          isSelected ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-800 text-gray-400 border-gray-700'
-                        }`}
-                      >
-                        {day.label}
-                      </button>
+                      <div key={day.id} className={`p-3.5 rounded-2xl border transition ${sched.active ? 'bg-gray-950 border-gray-800' : 'bg-gray-950/40 border-gray-900 opacity-60'}`}>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-800 pb-2 mb-3">
+                          <div className="flex items-center space-x-3">
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={sched.active}
+                                onChange={(e) => updateDaySchedule(day.id, 'active', e.target.checked)}
+                                className="w-4 h-4 accent-orange-500 rounded cursor-pointer"
+                              />
+                              <span className="font-bold text-xs text-white">{day.label}</span>
+                            </label>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${sched.active ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                              {sched.active ? 'Aberto' : 'Fechado / Folga'}
+                            </span>
+                          </div>
+
+                          {sched.active && (
+                            <div className="flex items-center space-x-3">
+                              <label className="flex items-center space-x-1.5 cursor-pointer text-xs text-purple-300">
+                                <input
+                                  type="checkbox"
+                                  checked={sched.has_lunch || false}
+                                  onChange={(e) => updateDaySchedule(day.id, 'has_lunch', e.target.checked)}
+                                  className="w-3.5 h-3.5 accent-purple-500 rounded cursor-pointer"
+                                />
+                                <span>Pausar para Almoço?</span>
+                              </label>
+
+                              <button
+                                type="button"
+                                onClick={() => copyDayScheduleToAll(day.id)}
+                                className="text-[10px] bg-gray-800 hover:bg-gray-700 text-orange-400 font-bold px-2.5 py-1 rounded-lg border border-gray-700 transition"
+                              >
+                                📋 Copiar para Todos
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {sched.active && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {/* TURNO DE ALMOÇO (SE ATIVADO) */}
+                            {sched.has_lunch ? (
+                              <div className="bg-purple-950/20 border border-purple-500/20 p-2.5 rounded-xl space-y-1.5">
+                                <span className="text-[10px] font-bold text-purple-300 block">☀️ 1º Turno (Almoço):</span>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="text-[9px] text-gray-400 block">Abertura:</label>
+                                    <input
+                                      type="time"
+                                      value={sched.open1 || '11:00'}
+                                      onChange={(e) => updateDaySchedule(day.id, 'open1', e.target.value)}
+                                      className="w-full bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-xs text-white focus:outline-none"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] text-gray-400 block">Fechamento:</label>
+                                    <input
+                                      type="time"
+                                      value={sched.close1 || '14:30'}
+                                      onChange={(e) => updateDaySchedule(day.id, 'close1', e.target.value)}
+                                      className="w-full bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-xs text-white focus:outline-none"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="hidden sm:block"></div>
+                            )}
+
+                            {/* TURNO DA NOITE / JANTAR / EXPEDIENTE PRINCIPAL */}
+                            <div className="bg-gray-900 border border-gray-800 p-2.5 rounded-xl space-y-1.5">
+                              <span className="text-[10px] font-bold text-orange-400 block">🌙 {sched.has_lunch ? '2º Turno (Jantar / Noite):' : 'Turno Único de Funcionamento:'}</span>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-[9px] text-gray-400 block">Abertura:</label>
+                                  <input
+                                    type="time"
+                                    value={sched.open2 || '18:00'}
+                                    onChange={(e) => updateDaySchedule(day.id, 'open2', e.target.value)}
+                                    className="w-full bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-xs text-white focus:outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] text-gray-400 block">Fechamento:</label>
+                                  <input
+                                    type="time"
+                                    value={sched.close2 || '23:30'}
+                                    onChange={(e) => updateDaySchedule(day.id, 'close2', e.target.value)}
+                                    className="w-full bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-xs text-white focus:outline-none"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
@@ -1760,7 +2003,7 @@ export default function AdminTenant() {
                   const itemsOfType = groupedAddons[type] || [];
                   if (itemsOfType.length === 0) return null;
 
-                  const isAllSelected = itemsOfType.every(a => (editingProduct.addons_list || '').includes(a.name));
+                  const isAllSelected = itemsOfType.every(a => isAddonInList(editingProduct.addons_list, a));
 
                   return (
                     <div key={type} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 space-y-1.5">
@@ -1776,16 +2019,14 @@ export default function AdminTenant() {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
                         {itemsOfType.map(a => {
-                          const formattedStr = `${a.name}:${a.price}`;
-                          const isSelected = (editingProduct.addons_list || '').includes(a.name);
+                          const isSelected = isAddonInList(editingProduct.addons_list, a);
                           return (
                             <label key={a.id} className="flex items-center space-x-1.5 bg-gray-800 p-1.5 rounded-lg text-[10px] cursor-pointer">
-                              <input type="checkbox" checked={isSelected} onChange={(e) => {
-                                let currentArr = editingProduct.addons_list ? editingProduct.addons_list.split(',').filter(Boolean) : [];
-                                if (e.target.checked) currentArr.push(formattedStr);
-                                else currentArr = currentArr.filter(item => !item.startsWith(a.name));
-                                setEditingProduct({ ...editingProduct, addons_list: currentArr.join(',') });
-                              }} />
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => handleSingleAddonToggle(a, editingProduct.addons_list, e.target.checked, 'edit')}
+                              />
                               <span className="truncate">{a.name} (+R${Number(a.price).toFixed(2)})</span>
                             </label>
                           );
