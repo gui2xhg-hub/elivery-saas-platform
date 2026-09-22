@@ -61,6 +61,7 @@ export default function MasterAdmin() {
     billing_cycle: 'monthly',
     contract_months: '12',
     admin_password: '',
+    financial_password: '',
     business_type: 'delivery',
     has_tables: true
   });
@@ -273,6 +274,7 @@ export default function MasterAdmin() {
       logo_url: newTenant.logo_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=150&auto=format&fit=crop&q=80',
       banner_url: newTenant.banner_url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80',
       admin_password: newTenant.admin_password || '123456',
+      financial_password: newTenant.financial_password || '',
       primary_color: newTenant.primary_color || '#FF8C00',
       button_text_color: newTenant.button_text_color || '#FFFFFF',
       secondary_color: newTenant.secondary_color || '#090D16',
@@ -308,7 +310,7 @@ export default function MasterAdmin() {
         name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '',
         primary_color: '#FF8C00', button_text_color: '#FFFFFF',
         secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF',
-        price_color: '#FF8C00', due_date: '', monthly_fee: '99.00', billing_cycle: 'monthly', contract_months: '12', admin_password: '', business_type: 'delivery',
+        price_color: '#FF8C00', due_date: '', monthly_fee: '99.00', billing_cycle: 'monthly', contract_months: '12', admin_password: '', financial_password: '', business_type: 'delivery',
         has_tables: true
       });
       fetchTenants();
@@ -324,6 +326,7 @@ export default function MasterAdmin() {
       name: editingTenant.name.trim(),
       whatsapp: cleanPhone,
       admin_password: editingTenant.admin_password,
+      financial_password: editingTenant.financial_password || '',
       monthly_fee: parsePrice(editingTenant.monthly_fee, 99.00),
       billing_cycle: editingTenant.billing_cycle || 'monthly',
       contract_months: parseInt(editingTenant.contract_months || 12),
@@ -392,7 +395,8 @@ export default function MasterAdmin() {
       `Olá! Seu sistema está pronto e liberado.\n\n` +
       `🔗 *Acesse o Portal:* ${portalUrl}\n` +
       `🔑 *Seu Identificador (Slug):* \`${tenant.slug}\`\n` +
-      `🔐 *Sua Senha Admin:* \`${tenant.admin_password}\`\n\n` +
+      `🔐 *Sua Senha Admin:* \`${tenant.admin_password}\`\n` +
+      (tenant.financial_password ? `💰 *Senha Relatório Financeiro:* \`${tenant.financial_password}\`\n\n` : `\n`) +
       `_Ao entrar, você poderá gerenciar seu painel, cadastrar eventos e compartilhar com os membros em tempo real!_`;
 
     navigator.clipboard.writeText(text);
@@ -416,9 +420,6 @@ export default function MasterAdmin() {
   const ecommerceCount = activeTenants.filter(t => (t.has_ecommerce || t.business_type === 'ecommerce') && !t.has_agencia && !t.has_igreja && t.business_type !== 'agencia' && t.business_type !== 'igreja').length;
   const agenciaCount = activeTenants.filter(t => (t.has_agencia || t.business_type === 'agencia') && !t.has_igreja && t.business_type !== 'igreja').length;
   const igrejaCount = activeTenants.filter(t => t.has_igreja || t.business_type === 'igreja').length;
-
-  const totalGlobalOrders = Object.values(tenantStats).reduce((acc, s) => acc + (s.count || 0), 0);
-  const totalGlobalVolume = Object.values(tenantStats).reduce((acc, s) => acc + (s.revenue || 0), 0);
 
   const expiringTenants = tenants.filter(t => {
     const dueInfo = getDueDateInfo(t.due_date);
@@ -706,7 +707,7 @@ export default function MasterAdmin() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
                 <div>
                   <label className="text-[11px] text-gray-400 block mb-1">Ciclo de Pagamento:</label>
                   <select value={newTenant.billing_cycle} onChange={(e) => setNewTenant({ ...newTenant, billing_cycle: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none">
@@ -740,6 +741,11 @@ export default function MasterAdmin() {
                 <div>
                   <label className="text-[11px] text-gray-400 block mb-1">Senha Admin:</label>
                   <input type="text" placeholder="123456" value={newTenant.admin_password} onChange={(e) => setNewTenant({ ...newTenant, admin_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-green-400 font-bold block mb-1">Senha Financeira:</label>
+                  <input type="text" placeholder="Ex: fin123" value={newTenant.financial_password} onChange={(e) => setNewTenant({ ...newTenant, financial_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
                 </div>
               </div>
 
@@ -836,6 +842,7 @@ export default function MasterAdmin() {
                       <div className="flex justify-between items-center text-xs flex-wrap gap-2">
                         <div className="text-gray-400 space-x-3">
                           <span>Senha Admin: <b className="font-mono text-white">{t.admin_password}</b></span>
+                          <span>Senha Fin: <b className="font-mono text-green-400">{t.financial_password || 'Não configurada'}</b></span>
                           <span>Uso: <b className="text-green-400">{stats.count} registros</b></span>
                           <span>Vendas: <b className="text-green-400">R$ {stats.revenue.toFixed(2)}</b></span>
                           <span>Último: <b className="text-white">{formatLastActivity(stats.lastOrderAt)}</b></span>
@@ -907,7 +914,7 @@ export default function MasterAdmin() {
               <input type="text" value={editingTenant.name || ''} onChange={(e) => setEditingTenant({ ...editingTenant, name: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="text-[11px] text-gray-400 block mb-1">WhatsApp (DDD + Número):</label>
                 <input type="text" value={editingTenant.whatsapp || ''} onChange={(e) => setEditingTenant({ ...editingTenant, whatsapp: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
@@ -916,6 +923,11 @@ export default function MasterAdmin() {
               <div>
                 <label className="text-[11px] text-gray-400 block mb-1">Senha de Admin:</label>
                 <input type="text" value={editingTenant.admin_password || ''} onChange={(e) => setEditingTenant({ ...editingTenant, admin_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-green-400 font-bold block mb-1">Senha Financeira:</label>
+                <input type="text" placeholder="Ex: fin123" value={editingTenant.financial_password || ''} onChange={(e) => setEditingTenant({ ...editingTenant, financial_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
               </div>
             </div>
 
