@@ -66,9 +66,9 @@ export default function DeliveryCliente() {
 
   const promoBannerList = tenant?.promo_banners ? tenant.promo_banners.split(',').map(b => b.trim()).filter(Boolean) : [];
 
-  // VERIFICAÇÃO FLEXÍVEL DE MÓDULOS ATIVOS (SUPORTA DIVERSAS NOMENCLATURAS DE COLUNAS NO SUPABASE)
-  const isDeliveryEnabled = tenant ? (tenant.delivery_enabled !== false && tenant.enable_delivery !== false) : true;
-  const isBalcaoEnabled = tenant ? (tenant.takeaway_enabled !== false && tenant.balcao_enabled !== false && tenant.enable_takeaway !== false) : true;
+  // LEITURA OFICIAL DAS COLUNAS DE MÓDULOS NO SUPABASE
+  const isDeliveryEnabled = tenant ? (tenant.has_delivery ?? true) : true;
+  const isBalcaoEnabled = tenant ? (tenant.has_balcao ?? true) : true;
 
   useEffect(() => {
     if (router.isReady) {
@@ -139,8 +139,8 @@ export default function DeliveryCliente() {
       // SINCRONIZA O MÓDULO DE ENTREGA/BALCÃO PADRÃO
       const currentMesa = mesa || m || '';
       if (!currentMesa) {
-        const delOn = tData.delivery_enabled !== false && tData.enable_delivery !== false;
-        const balcaoOn = tData.takeaway_enabled !== false && tData.balcao_enabled !== false && tData.enable_takeaway !== false;
+        const delOn = tData.has_delivery ?? true;
+        const balcaoOn = tData.has_balcao ?? true;
 
         if (delOn) {
           setDeliveryType('ENTREGA');
@@ -219,7 +219,7 @@ export default function DeliveryCliente() {
     }
   };
 
-  // NORMAS DE LIMITAÇÃO PARA PRODUTOS NORMAIS (CORRIGIDO PARA AVALIAR NOME + CATEGORIA)
+  // LIMITAÇÃO PARA PRODUTOS NORMAIS
   const toggleAddon = (addon) => {
     const exists = selectedAddons.some(a => 
       a.name.toLowerCase().trim() === addon.name.toLowerCase().trim() && 
@@ -234,13 +234,13 @@ export default function DeliveryCliente() {
       )));
     } else {
       if (maxAllowed > 0 && selectedAddons.length >= maxAllowed) {
-        return alert(`Você pode escolher no máximo ${maxAllowed} sabores/opções para este item!`);
+        return alert(`Pode escolher no máximo ${maxAllowed} sabores/opções para este item!`);
       }
       setSelectedAddons([...selectedAddons, addon]);
     }
   };
 
-  // NORMAS DE LIMITAÇÃO PARA ETAPAS DE COMBO (CORRIGIDO PARA AVALIAR NOME + CATEGORIA)
+  // LIMITAÇÃO PARA ETAPAS DE COMBO
   const toggleComboAddon = (stepIdx, addon, stepMax) => {
     const currentStepSelected = comboSelections[stepIdx] || [];
     const exists = currentStepSelected.some(a => 
@@ -258,7 +258,7 @@ export default function DeliveryCliente() {
       });
     } else {
       if (stepMax > 0 && currentStepSelected.length >= stepMax) {
-        return alert(`Nesta etapa você pode escolher no máximo ${stepMax} opção(ões)!`);
+        return alert(`Nesta etapa pode escolher no máximo ${stepMax} opção(ões)!`);
       }
       setComboSelections({
         ...comboSelections,
@@ -407,21 +407,21 @@ export default function DeliveryCliente() {
     e.preventDefault();
     const cleanPhone = customerPhone.replace(/\D/g, '');
 
-    if (cart.length === 0) return alert("Seu carrinho está vazio!");
-    if (!customerName) return alert("Preencha seu Nome!");
+    if (cart.length === 0) return alert("O seu carrinho está vazio!");
+    if (!customerName) return alert("Preencha o seu Nome!");
     
-    // VALIDAÇÃO RIGOROSA DO MÓDULO SELECIONADO
+    // VALIDAÇÃO DO MÓDULO SELECIONADO
     if (deliveryType === 'ENTREGA') {
       if (!isDeliveryEnabled) {
-        return alert("A opção de Entrega (Delivery) está desativada no momento neste estabelecimento.");
+        return alert("A opção de Entrega (Delivery) está desativada de momento neste estabelecimento.");
       }
       if (!tableNumber && !customerAddress) {
-        return alert("Preencha seu Endereço para entrega!");
+        return alert("Preencha o seu Endereço para entrega!");
       }
     }
 
     if (deliveryType === 'BALCAO' && !isBalcaoEnabled) {
-      return alert("A opção de Retirada no Balcão está desativada no momento neste estabelecimento.");
+      return alert("A opção de Retirada no Balcão está desativada de momento neste estabelecimento.");
     }
 
     setIsSubmitting(true);
@@ -544,7 +544,7 @@ export default function DeliveryCliente() {
     alert(`Pedido #${createdOrder.id} enviado com sucesso!`);
   };
 
-  // PARSER DE SABORES COM INGREDIENTES E CATEGORIA AGRUPADA (CORRIGIDO)
+  // PARSER DE SABORES COM INGREDIENTES E CATEGORIA AGRUPADA
   const getProductAddonsArray = (addonsStr) => {
     if (!addonsStr) return [];
 
@@ -716,7 +716,6 @@ export default function DeliveryCliente() {
 
           {promoBannerList.length > 1 && (
             <>
-              {/* SETAS DE NAVEGAÇÃO LATERAL */}
               <button
                 type="button"
                 onClick={() => setCurrentBanner((prev) => (prev - 1 + promoBannerList.length) % promoBannerList.length)}
@@ -730,7 +729,6 @@ export default function DeliveryCliente() {
                 ❯
               </button>
 
-              {/* PONTOS INDICADORES DO CARROSSEL */}
               <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex space-x-2">
                 {promoBannerList.map((_, idx) => (
                   <button
@@ -778,7 +776,7 @@ export default function DeliveryCliente() {
         </div>
       </div>
 
-      {/* LISTA DE PRODUTOS MODULAR (GRID RESPONSIVO) */}
+      {/* LISTA DE PRODUTOS */}
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredProducts.map(p => (
           <div 
@@ -868,7 +866,7 @@ export default function DeliveryCliente() {
         </div>
       )}
 
-      {/* MODAL DE DETALHES DO ITEM COM SABORES ORGANIZADOS POR CATEGORIA */}
+      {/* MODAL DE DETALHES DO ITEM */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-lg rounded-3xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -949,7 +947,7 @@ export default function DeliveryCliente() {
                 })}
               </div>
             ) : (
-              /* SEÇÃO DE ITEM SIMPLES / PIZZA COM SABORES CATEGORIZADOS */
+              /* ITEM SIMPLES / PIZZA COM SABORES CATEGORIZADOS */
               getProductAddonsArray(selectedProduct.addons_list).length > 0 && (
                 <div className="space-y-3 pt-2 border-t border-white/10">
                   <div className="flex justify-between items-center">
@@ -968,7 +966,6 @@ export default function DeliveryCliente() {
                     )}
                   </div>
 
-                  {/* CAMPO DE BUSCA DE SABORES */}
                   <input
                     type="text"
                     placeholder="🔍 Pesquisar sabor ou ingrediente..."
@@ -978,7 +975,6 @@ export default function DeliveryCliente() {
                     className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none focus:border-orange-500"
                   />
 
-                  {/* LISTA DE SABORES AGRUPADOS POR CATEGORIA (DOCES, SALGADAS, ETC) */}
                   <div className="space-y-4 max-h-56 overflow-y-auto pr-1">
                     {Object.keys(getGroupedAddons(selectedProduct.addons_list)).length === 0 ? (
                       <p className="text-xs opacity-50 text-center py-4">Nenhum sabor encontrado.</p>
@@ -1027,7 +1023,7 @@ export default function DeliveryCliente() {
               )
             )}
 
-            {/* SEÇÃO DE BORDAS RECHEADAS */}
+            {/* BORDAS RECHEADAS */}
             {getBordersArray(selectedProduct.borders_list).length > 0 && (
               <div className="space-y-2 pt-2 border-t border-white/10">
                 <label className="text-xs font-extrabold block opacity-90">🫓 Escolha a Borda:</label>
@@ -1084,7 +1080,7 @@ export default function DeliveryCliente() {
         </div>
       )}
 
-      {/* MODAL DO CARRINHO & CHECKOUT (SELETOR DE MÓDULOS DINÂMICO) */}
+      {/* MODAL DO CARRINHO & CHECKOUT */}
       {showCartModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-md rounded-3xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
