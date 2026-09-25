@@ -66,6 +66,10 @@ export default function DeliveryCliente() {
 
   const promoBannerList = tenant?.promo_banners ? tenant.promo_banners.split(',').map(b => b.trim()).filter(Boolean) : [];
 
+  // VERIFICAÇÃO FLEXÍVEL DE MÓDULOS ATIVOS (SUPORTA DIVERSAS NOMENCLATURAS DE COLUNAS NO SUPABASE)
+  const isDeliveryEnabled = tenant ? (tenant.delivery_enabled !== false && tenant.enable_delivery !== false) : true;
+  const isBalcaoEnabled = tenant ? (tenant.takeaway_enabled !== false && tenant.balcao_enabled !== false && tenant.enable_takeaway !== false) : true;
+
   useEffect(() => {
     if (router.isReady) {
       const currentMesa = mesa || m || '';
@@ -131,6 +135,20 @@ export default function DeliveryCliente() {
 
     if (tData) {
       setTenant(tData);
+
+      // SINCRONIZA O MÓDULO DE ENTREGA/BALCÃO PADRÃO
+      const currentMesa = mesa || m || '';
+      if (!currentMesa) {
+        const delOn = tData.delivery_enabled !== false && tData.enable_delivery !== false;
+        const balcaoOn = tData.takeaway_enabled !== false && tData.balcao_enabled !== false && tData.enable_takeaway !== false;
+
+        if (delOn) {
+          setDeliveryType('ENTREGA');
+        } else if (balcaoOn) {
+          setDeliveryType('BALCAO');
+          setSelectedNeighFee(0);
+        }
+      }
 
       if (tData.pixel_id && typeof window !== 'undefined') {
         !(function (f, b, e, v, n, t, s) {
@@ -332,18 +350,18 @@ export default function DeliveryCliente() {
         i.comboSteps.forEach(step => {
           const itemsStr = step.items.map(a => `${a.name}${Number(a.price) > 0 ? ` (+R$ ${Number(a.price).toFixed(2)})` : ''}`).join(', ');
           if (itemsStr) {
-            txt += `\n   └ *${step.title}:* ${itemsStr}`;
+            txt += `\n    └ *${step.title}:* ${itemsStr}`;
           }
         });
       } else if (i.selectedAddons && i.selectedAddons.length > 0) {
-        txt += `\n   + Sabores/Adicionais: ${i.selectedAddons.map(a => `${a.name}${Number(a.price) > 0 ? ` (+R$ ${Number(a.price).toFixed(2)})` : ''}`).join(', ')}`;
+        txt += `\n    + Sabores/Adicionais: ${i.selectedAddons.map(a => `${a.name}${Number(a.price) > 0 ? ` (+R$ ${Number(a.price).toFixed(2)})` : ''}`).join(', ')}`;
       }
 
       if (i.selectedBorder && i.selectedBorder.name !== 'Sem Borda') {
-        txt += `\n   + Borda: ${i.selectedBorder.name}${Number(i.selectedBorder.price) > 0 ? ` (+R$ ${Number(i.selectedBorder.price).toFixed(2)})` : ''}`;
+        txt += `\n    + Borda: ${i.selectedBorder.name}${Number(i.selectedBorder.price) > 0 ? ` (+R$ ${Number(i.selectedBorder.price).toFixed(2)})` : ''}`;
       }
       if (i.observation) {
-        txt += `\n   Obs: _"${i.observation}"_`;
+        txt += `\n    Obs: _"${i.observation}"_`;
       }
       return txt;
     }).join('\n\n');
@@ -391,7 +409,20 @@ export default function DeliveryCliente() {
 
     if (cart.length === 0) return alert("Seu carrinho está vazio!");
     if (!customerName) return alert("Preencha seu Nome!");
-    if (deliveryType === 'ENTREGA' && !tableNumber && !customerAddress) return alert("Preencha seu Endereço para entrega!");
+    
+    // VALIDAÇÃO RIGOROSA DO MÓDULO SELECIONADO
+    if (deliveryType === 'ENTREGA') {
+      if (!isDeliveryEnabled) {
+        return alert("A opção de Entrega (Delivery) está desativada no momento neste estabelecimento.");
+      }
+      if (!tableNumber && !customerAddress) {
+        return alert("Preencha seu Endereço para entrega!");
+      }
+    }
+
+    if (deliveryType === 'BALCAO' && !isBalcaoEnabled) {
+      return alert("A opção de Retirada no Balcão está desativada no momento neste estabelecimento.");
+    }
 
     setIsSubmitting(true);
 
@@ -1053,7 +1084,7 @@ export default function DeliveryCliente() {
         </div>
       )}
 
-      {/* MODAL DO CARRINHO & CHECKOUT */}
+      {/* MODAL DO CARRINHO & CHECKOUT (SELETOR DE MÓDULOS DINÂMICO) */}
       {showCartModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-md rounded-3xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -1104,29 +1135,35 @@ export default function DeliveryCliente() {
             <form onSubmit={handleFinishOrder} className="space-y-3 pt-2 border-t border-white/10">
               {!tableNumber ? (
                 <div className="flex space-x-2">
-                  <button
-                    type="button"
-                    onClick={() => setDeliveryType('ENTREGA')}
-                    style={{ 
-                      backgroundColor: deliveryType === 'ENTREGA' ? primaryColor : bgColor,
-                      color: deliveryType === 'ENTREGA' ? btnTextColor : textColor
-                    }}
-                    className="w-1/2 py-2 rounded-xl text-xs font-bold border border-white/10 transition">
-                    🛵 Entrega
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDeliveryType('BALCAO');
-                      setSelectedNeighFee(0);
-                    }}
-                    style={{ 
-                      backgroundColor: deliveryType === 'BALCAO' ? primaryColor : bgColor,
-                      color: deliveryType === 'BALCAO' ? btnTextColor : textColor
-                    }}
-                    className="w-1/2 py-2 rounded-xl text-xs font-bold border border-white/10 transition">
-                    🏪 Balcão
-                  </button>
+                  {/* EXIBIÇÃO DINÂMICA DE ACORDO COM OS MÓDULOS ATIVOS */}
+                  {isDeliveryEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => setDeliveryType('ENTREGA')}
+                      style={{ 
+                        backgroundColor: deliveryType === 'ENTREGA' ? primaryColor : bgColor,
+                        color: deliveryType === 'ENTREGA' ? btnTextColor : textColor
+                      }}
+                      className={`${isBalcaoEnabled ? 'w-1/2' : 'w-full'} py-2 rounded-xl text-xs font-bold border border-white/10 transition`}>
+                      🛵 Entrega
+                    </button>
+                  )}
+
+                  {isBalcaoEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeliveryType('BALCAO');
+                        setSelectedNeighFee(0);
+                      }}
+                      style={{ 
+                        backgroundColor: deliveryType === 'BALCAO' ? primaryColor : bgColor,
+                        color: deliveryType === 'BALCAO' ? btnTextColor : textColor
+                      }}
+                      className={`${isDeliveryEnabled ? 'w-1/2' : 'w-full'} py-2 rounded-xl text-xs font-bold border border-white/10 transition`}>
+                      🏪 Balcão
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="bg-orange-500/10 border border-orange-500/30 p-2.5 rounded-xl text-center">
