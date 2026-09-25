@@ -147,7 +147,9 @@ export default function AdminTenant() {
         has_lunch_break: tData.has_lunch_break ?? false,
         lunch_opening_time: tData.lunch_opening_time || '11:00',
         lunch_closing_time: tData.lunch_closing_time || '14:30',
-        weekly_schedule: getDefaultWeeklySchedule(tData)
+        weekly_schedule: getDefaultWeeklySchedule(tData),
+        has_delivery: tData.has_delivery ?? tData.delivery_enabled ?? tData.enable_delivery ?? true,
+        has_balcao: tData.has_balcao ?? tData.takeaway_enabled ?? tData.balcao_enabled ?? tData.enable_takeaway ?? true
       };
 
       // VERIFICA SE O AUTO-ZERAR ESTÁ ATIVADO E SE JÁ MUDOU O DIA DO EXPEDIENTE
@@ -196,7 +198,9 @@ export default function AdminTenant() {
         has_lunch_break: tData.has_lunch_break ?? false,
         lunch_opening_time: tData.lunch_opening_time || '11:00',
         lunch_closing_time: tData.lunch_closing_time || '14:30',
-        weekly_schedule: getDefaultWeeklySchedule(tData)
+        weekly_schedule: getDefaultWeeklySchedule(tData),
+        has_delivery: tData.has_delivery ?? tData.delivery_enabled ?? tData.enable_delivery ?? true,
+        has_balcao: tData.has_balcao ?? tData.takeaway_enabled ?? tData.balcao_enabled ?? tData.enable_takeaway ?? true
       });
     }
     if (cData) {
@@ -260,15 +264,6 @@ export default function AdminTenant() {
     setTenant(prev => ({ ...prev, auto_reset_orders: enabled }));
     const { error } = await supabase.from('tenants').update({ auto_reset_orders: enabled }).eq('id', tenant.id);
     if (error) alert("Erro ao salvar opção de auto-zerar: " + error.message);
-  };
-
-  const toggleDaySelection = (currentDays, dayId) => {
-    const arr = [...(currentDays || [])];
-    if (arr.includes(dayId)) {
-      return arr.filter(d => d !== dayId);
-    } else {
-      return [...arr, dayId].sort();
-    }
   };
 
   // ATUALIZAÇÃO DA PROGRAMAÇÃO POR DIA DA SEMANA
@@ -400,7 +395,7 @@ export default function AdminTenant() {
     }
   };
 
-  // --- LÓGICA DE VERIFICAÇÃO E SELEÇÃO DE ADICIONAIS SEM MISTURAR CATEGORIAS COM MESMO NOME ---
+  // --- LÓGICA DE VERIFICAÇÃO E SELEÇÃO DE ADICIONAIS ---
   const isAddonInList = (addonsListStr, addon) => {
     if (!addonsListStr || !addon) return false;
     const items = addonsListStr.split(',').map(i => i.trim()).filter(Boolean);
@@ -413,12 +408,10 @@ export default function AdminTenant() {
 
       if (itemName !== addon.name) return false;
 
-      // Se a categoria está salva no item, compara categoricamente
       if (itemCat) {
         return itemCat === addon.category_type;
       }
 
-      // Legado (sem categoria salva no item): compara nome e preço
       return Math.abs(itemPrice - parsePrice(addon.price)) < 0.01;
     });
   };
@@ -489,6 +482,7 @@ export default function AdminTenant() {
     }
   };
 
+  // SALVAR CONFIGURAÇÕES COM SINCRONIZAÇÃO COMPLETA DE COLUNAS
   const handleSaveTenantSettings = async (e) => {
     e.preventDefault();
     const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
@@ -498,6 +492,9 @@ export default function AdminTenant() {
           .filter(dayId => tenant.weekly_schedule[dayId]?.active)
           .map(Number)
       : (tenant.work_days || [1, 2, 3, 4, 5, 6]);
+
+    const isDeliveryActive = tenant.has_delivery ?? true;
+    const isBalcaoActive = tenant.has_balcao ?? true;
 
     const { error } = await supabase.from('tenants').update({
       name: tenant.name,
@@ -523,8 +520,13 @@ export default function AdminTenant() {
       pix_enabled: tenant.pix_enabled || false,
       pix_provider: tenant.pix_provider || 'mercadopago',
       pix_access_token: tenant.pix_access_token || '',
-      has_delivery: tenant.has_delivery ?? true,
-      has_balcao: tenant.has_balcao ?? true,
+      has_delivery: isDeliveryActive,
+      delivery_enabled: isDeliveryActive,
+      enable_delivery: isDeliveryActive,
+      has_balcao: isBalcaoActive,
+      takeaway_enabled: isBalcaoActive,
+      balcao_enabled: isBalcaoActive,
+      enable_takeaway: isBalcaoActive,
       has_tables: tenant.has_tables ?? true,
       has_waiters: tenant.has_waiters ?? false,
       auto_reset_orders: tenant.auto_reset_orders ?? false
@@ -781,7 +783,7 @@ export default function AdminTenant() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4 font-sans">
-        <form onSubmit={handleLogin} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 w-full max-w-sm space-y-4">
+        <form onSubmit={handleLogin} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 w-full max-w-sm space-y-4 shadow-2xl">
           <div className="text-center">
             <h2 className="text-xl font-bold text-orange-500">{tenant.name}</h2>
             <p className="text-xs text-gray-400">Painel Administrativo ERP</p>
@@ -1007,7 +1009,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA ADICIONAIS / SABORES COM OPÇÃO DE CATEGORIA PERSONALIZADA */}
+      {/* ABA ADICIONAIS / SABORES */}
       {activeTab === 'addons' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
           <section className="lg:col-span-1 bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 h-fit">
@@ -1172,7 +1174,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA CLIENTES (CRM) - SOMENTE CLIENTES REAIS */}
+      {/* ABA CLIENTES (CRM) */}
       {activeTab === 'clients' && (
         <div className="space-y-6 no-print">
           <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-1">
@@ -1471,7 +1473,7 @@ export default function AdminTenant() {
               )}
             </section>
 
-            {/* SEÇÃO ATUALIZADA: HORÁRIOS DE FUNCIONAMENTO SEMANAI E PAUSA ALMOÇO */}
+            {/* SEÇÃO DE HORÁRIOS E SEQUÊNCIA DE PEDIDOS */}
             <section className="bg-gray-900 p-6 rounded-2xl border border-gray-800 space-y-4">
               <h3 className="font-bold text-base text-orange-400 border-b border-gray-800 pb-2">⏰ Horários de Funcionamento & Sequência de Pedidos</h3>
 
@@ -1488,7 +1490,6 @@ export default function AdminTenant() {
                 <p className="text-[10px] text-gray-400 pl-6">Quando ativado, os novos pedidos do próximo dia/expediente começarão automaticamente do #01 sem alterar o histórico anterior.</p>
               </div>
 
-              {/* PROGRAMAÇÃO DE HORÁRIOS DETALHADA POR DIA DA SEMANA */}
               <div className="space-y-4 pt-2">
                 <div className="flex justify-between items-center">
                   <h4 className="text-xs font-bold text-gray-200">🗓️ Programação Semanal de Funcionamento:</h4>
@@ -1549,7 +1550,6 @@ export default function AdminTenant() {
 
                         {sched.active && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {/* TURNO DE ALMOÇO (SE ATIVADO) */}
                             {sched.has_lunch ? (
                               <div className="bg-purple-950/20 border border-purple-500/20 p-2.5 rounded-xl space-y-1.5">
                                 <span className="text-[10px] font-bold text-purple-300 block">☀️ 1º Turno (Almoço):</span>
@@ -1578,7 +1578,6 @@ export default function AdminTenant() {
                               <div className="hidden sm:block"></div>
                             )}
 
-                            {/* TURNO DA NOITE / JANTAR / EXPEDIENTE PRINCIPAL */}
                             <div className="bg-gray-900 border border-gray-800 p-2.5 rounded-xl space-y-1.5">
                               <span className="text-[10px] font-bold text-orange-400 block">🌙 {sched.has_lunch ? '2º Turno (Jantar / Noite):' : 'Turno Único de Funcionamento:'}</span>
                               <div className="grid grid-cols-2 gap-2">
@@ -1663,16 +1662,27 @@ export default function AdminTenant() {
               </div>
             </section>
 
+            {/* SEÇÃO DE MÓDULOS ATIVOS */}
             <section className="bg-gray-900 p-6 rounded-2xl border border-gray-800 space-y-3">
               <h3 className="font-bold text-base text-orange-400 border-b border-gray-800 pb-2">🧩 Módulos Ativos no Sistema</h3>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
                 <label className="flex items-center space-x-2 cursor-pointer bg-gray-950 p-3 rounded-xl border border-gray-800">
-                  <input type="checkbox" checked={tenant.has_delivery ?? true} onChange={(e) => setTenant({ ...tenant, has_delivery: e.target.checked })} className="accent-orange-500 w-4 h-4" />
+                  <input 
+                    type="checkbox" 
+                    checked={tenant.has_delivery ?? true} 
+                    onChange={(e) => setTenant({ ...tenant, has_delivery: e.target.checked })} 
+                    className="accent-orange-500 w-4 h-4" 
+                  />
                   <span className="font-bold">🛵 Delivery</span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer bg-gray-950 p-3 rounded-xl border border-gray-800">
-                  <input type="checkbox" checked={tenant.has_balcao ?? true} onChange={(e) => setTenant({ ...tenant, has_balcao: e.target.checked })} className="accent-orange-500 w-4 h-4" />
+                  <input 
+                    type="checkbox" 
+                    checked={tenant.has_balcao ?? true} 
+                    onChange={(e) => setTenant({ ...tenant, has_balcao: e.target.checked })} 
+                    className="accent-orange-500 w-4 h-4" 
+                  />
                   <span className="font-bold">🛍️ Balcão</span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer bg-gray-950 p-3 rounded-xl border border-gray-800">
@@ -1693,10 +1703,10 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* MODAL DE RECIBO NÃO-FISCAL */}
+      {/* MODAL DE RECIBO */}
       {selectedReceiptOrder && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
-          <div className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-orange-500/40 space-y-4">
+          <div className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-orange-500/40 space-y-4 shadow-2xl">
             <h3 className="font-bold text-sm text-orange-400">📄 Comprovante Recibo do Cliente</h3>
 
             <div className="bg-white text-black p-4 rounded-xl font-mono text-xs space-y-2 border border-gray-300">
@@ -1734,14 +1744,14 @@ export default function AdminTenant() {
             </div>
 
             <div className="flex space-x-2">
-              <button onClick={() => setSelectedReceiptOrder(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Fechar</button>
-              <button onClick={() => window.print()} className="w-1/2 bg-orange-500 hover:bg-orange-600 py-2.5 rounded-xl text-xs font-bold text-white">🖨️ Imprimir</button>
+              <button onClick={() => setSelectedReceiptOrder(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs font-bold text-gray-300">Fechar</button>
+              <button onClick={() => window.print()} className="w-1/2 bg-orange-500 hover:bg-orange-600 py-2.5 rounded-xl text-xs font-bold text-white shadow">🖨️ Imprimir</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ÁREA INVISÍVEL PARA IMPRESSORA TÉRMICA 80MM */}
+      {/* IMPRESSORA TÉRMICA 80MM */}
       {selectedReceiptOrder && (
         <div className="print-area hidden print:block">
           <div style={{ textAlign: 'center', borderBottom: '1px dashed #000', paddingBottom: '5px' }}>
@@ -1808,7 +1818,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* MODAL DISPARO DE PROMOÇÃO WHATSAPP */}
+      {/* MODAL PROMOÇÃO WHATSAPP */}
       {selectedPromoClient && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-green-500/40 space-y-3">
@@ -1823,8 +1833,8 @@ export default function AdminTenant() {
             />
 
             <div className="flex space-x-2">
-              <button type="button" onClick={() => setSelectedPromoClient(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Cancelar</button>
-              <button type="button" onClick={handleSendPromoWhatsapp} className="w-1/2 bg-green-600 hover:bg-green-700 py-2.5 rounded-xl text-xs font-bold text-white">Enviar 🚀</button>
+              <button type="button" onClick={() => setSelectedPromoClient(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs font-bold text-gray-300">Cancelar</button>
+              <button type="button" onClick={handleSendPromoWhatsapp} className="w-1/2 bg-green-600 hover:bg-green-700 py-2.5 rounded-xl text-xs font-bold text-white shadow">Enviar 🚀</button>
             </div>
           </div>
         </div>
@@ -1839,14 +1849,14 @@ export default function AdminTenant() {
             <input type="text" maxLength={6} value={editingWaiter.pin} onChange={(e) => setEditingWaiter({ ...editingWaiter, pin: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold" />
             <input type="text" placeholder="WhatsApp do Garçom" value={editingWaiter.phone || ''} onChange={(e) => setEditingWaiter({ ...editingWaiter, phone: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             <div className="flex space-x-2">
-              <button type="button" onClick={() => setEditingWaiter(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Cancelar</button>
+              <button type="button" onClick={() => setEditingWaiter(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs font-bold text-gray-300">Cancelar</button>
               <button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-xl text-xs font-bold text-white">Salvar</button>
             </div>
           </form>
         </div>
       )}
 
-      {/* MODAL EDITAR ADICIONAL OU SABOR */}
+      {/* MODAL EDITAR ADICIONAL */}
       {editingAddon && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <form onSubmit={handleUpdateAddon} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
@@ -1886,7 +1896,7 @@ export default function AdminTenant() {
             <input type="text" value={editingAddon.name} onChange={(e) => setEditingAddon({ ...editingAddon, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             <input type="text" placeholder="Ingredientes / Descrição" value={editingAddon.description || ''} onChange={(e) => setEditingAddon({ ...editingAddon, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             <input type="text" value={editingAddon.price} onChange={(e) => setEditingAddon({ ...editingAddon, price: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
-            <div className="flex space-x-2"><button type="button" onClick={() => setEditingAddon(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-xl text-xs font-bold text-white">Salvar</button></div>
+            <div className="flex space-x-2"><button type="button" onClick={() => setEditingAddon(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs font-bold text-gray-300">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-xl text-xs font-bold text-white">Salvar</button></div>
           </form>
         </div>
       )}
@@ -1897,7 +1907,7 @@ export default function AdminTenant() {
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Bairro</h3>
             <input type="text" value={editingNeigh.name} onChange={(e) => setEditingNeigh({ ...editingNeigh, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             <input type="text" value={editingNeigh.fee} onChange={(e) => setEditingNeigh({ ...editingNeigh, fee: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
-            <div className="flex space-x-2"><button type="button" onClick={() => setEditingNeigh(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-xl text-xs font-bold text-white">Salvar</button></div>
+            <div className="flex space-x-2"><button type="button" onClick={() => setEditingNeigh(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs font-bold text-gray-300">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-xl text-xs font-bold text-white">Salvar</button></div>
           </form>
         </div>
       )}
@@ -1907,7 +1917,7 @@ export default function AdminTenant() {
           <form onSubmit={handleUpdateCategory} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Categoria</h3>
             <input type="text" value={editingCategory.name} onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
-            <div className="flex space-x-2"><button type="button" onClick={() => setEditingCategory(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-xl text-xs font-bold text-white">Salvar</button></div>
+            <div className="flex space-x-2"><button type="button" onClick={() => setEditingCategory(null)} className="w-1/2 bg-gray-800 py-2.5 rounded-xl text-xs font-bold text-gray-300">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2.5 rounded-xl text-xs font-bold text-white">Salvar</button></div>
           </form>
         </div>
       )}
@@ -1915,7 +1925,7 @@ export default function AdminTenant() {
       {/* MODAL DE EDIÇÃO DE PRODUTO / COMBO */}
       {editingProduct && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
-          <form onSubmit={handleUpdateProduct} className="bg-gray-900 w-full max-w-md rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
+          <form onSubmit={handleUpdateProduct} className="bg-gray-900 w-full max-w-md rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto shadow-2xl">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Produto / Combo</h3>
             <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
             <input type="text" value={editingProduct.description || ''} onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
