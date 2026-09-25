@@ -148,8 +148,8 @@ export default function AdminTenant() {
         lunch_opening_time: tData.lunch_opening_time || '11:00',
         lunch_closing_time: tData.lunch_closing_time || '14:30',
         weekly_schedule: getDefaultWeeklySchedule(tData),
-        has_delivery: tData.has_delivery ?? tData.delivery_enabled ?? tData.enable_delivery ?? true,
-        has_balcao: tData.has_balcao ?? tData.takeaway_enabled ?? tData.balcao_enabled ?? tData.enable_takeaway ?? true
+        has_delivery: tData.has_delivery ?? true,
+        has_balcao: tData.has_balcao ?? true
       };
 
       // VERIFICA SE O AUTO-ZERAR ESTÁ ATIVADO E SE JÁ MUDOU O DIA DO EXPEDIENTE
@@ -199,8 +199,8 @@ export default function AdminTenant() {
         lunch_opening_time: tData.lunch_opening_time || '11:00',
         lunch_closing_time: tData.lunch_closing_time || '14:30',
         weekly_schedule: getDefaultWeeklySchedule(tData),
-        has_delivery: tData.has_delivery ?? tData.delivery_enabled ?? tData.enable_delivery ?? true,
-        has_balcao: tData.has_balcao ?? tData.takeaway_enabled ?? tData.balcao_enabled ?? tData.enable_takeaway ?? true
+        has_delivery: tData.has_delivery ?? true,
+        has_balcao: tData.has_balcao ?? true
       });
     }
     if (cData) {
@@ -482,7 +482,7 @@ export default function AdminTenant() {
     }
   };
 
-  // SALVAR CONFIGURAÇÕES COM SINCRONIZAÇÃO COMPLETA DE COLUNAS
+  // SALVAR CONFIGURAÇÕES (APENAS COM AS COLUNAS OFICIAIS DO SCHEMA SUPABASE)
   const handleSaveTenantSettings = async (e) => {
     e.preventDefault();
     const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
@@ -492,9 +492,6 @@ export default function AdminTenant() {
           .filter(dayId => tenant.weekly_schedule[dayId]?.active)
           .map(Number)
       : (tenant.work_days || [1, 2, 3, 4, 5, 6]);
-
-    const isDeliveryActive = tenant.has_delivery ?? true;
-    const isBalcaoActive = tenant.has_balcao ?? true;
 
     const { error } = await supabase.from('tenants').update({
       name: tenant.name,
@@ -520,13 +517,8 @@ export default function AdminTenant() {
       pix_enabled: tenant.pix_enabled || false,
       pix_provider: tenant.pix_provider || 'mercadopago',
       pix_access_token: tenant.pix_access_token || '',
-      has_delivery: isDeliveryActive,
-      delivery_enabled: isDeliveryActive,
-      enable_delivery: isDeliveryActive,
-      has_balcao: isBalcaoActive,
-      takeaway_enabled: isBalcaoActive,
-      balcao_enabled: isBalcaoActive,
-      enable_takeaway: isBalcaoActive,
+      has_delivery: tenant.has_delivery ?? true,
+      has_balcao: tenant.has_balcao ?? true,
       has_tables: tenant.has_tables ?? true,
       has_waiters: tenant.has_waiters ?? false,
       auto_reset_orders: tenant.auto_reset_orders ?? false
