@@ -203,7 +203,7 @@ export default function PdvKdsTenant() {
       .order('created_at', { ascending: false });
 
     if (oData) {
-      const activeRecebidos = oData.filter(o => (!o.status || o.status === 'recebido' || o.status === 'pendente' || o.status === 'novo') && !o.archived).length;
+      const activeRecebidos = oData.filter(o => (!o.status || o.status === 'recebido' || o.status === 'pendente' || o.status === 'novo') && !o.archived && !isUnpaidDynamicOrder(o)).length;
       if (isInterval && activeRecebidos > prevOrdersCountRef.current && soundEnabledRef.current) playBeepSound();
       prevOrdersCountRef.current = activeRecebidos;
       setOrders(oData);
@@ -249,9 +249,9 @@ export default function PdvKdsTenant() {
     }
   };
 
-  // ENVIO DE NOTIFICAÇÕES VIA WHATSAPP (CORRIGIDO E UNIFICADO)
+  // ENVIO DE NOTIFICAÇÕES VIA WHATSAPP
   const sendWhatsAppStatus = (order, msgType) => {
-    if (!order.customer_phone) return; // Se não tem telefone, apenas ignora o envio sem travar o status
+    if (!order.customer_phone) return;
     const cleanPhone = order.customer_phone.replace(/\D/g, '');
     if (!cleanPhone || cleanPhone === '00000000000') return;
 
@@ -262,10 +262,8 @@ export default function PdvKdsTenant() {
     const orderNum = getOrderDisplayNumber(order);
 
     if (msgType === 'producao') {
-      // ETAPA 1: Em preparo / Produção
       msg = `Olá ${order.customer_name}! 👨‍🍳 Seu pedido ${orderNum} no *${tenant.name}* já está em preparo!`;
     } else if (msgType === 'entrega') {
-      // ETAPA 2: Finalização / Entrega / Balcão
       if (isDelivery) {
         msg = `Olá ${order.customer_name}! 🛵 Seu pedido ${orderNum} no *${tenant.name}* saiu para entrega!`;
       } else if (isBalcao) {
@@ -281,7 +279,6 @@ export default function PdvKdsTenant() {
     if (isMobile) {
       window.open(`https://wa.me/55${cleanPhone}?text=${encodedMsg}`, '_blank');
     } else {
-      // Prioriza abrir o App Desktop (whatsapp://), se não abrir em 1.5s cai pro WhatsApp Web
       const appUrl = `whatsapp://send?phone=55${cleanPhone}&text=${encodedMsg}`;
       const webUrl = `https://web.whatsapp.com/send?phone=55${cleanPhone}&text=${encodedMsg}`;
 
@@ -390,7 +387,7 @@ export default function PdvKdsTenant() {
     const match = desc.match(/(?:sabores|quantidade de sabores):\s*0*(\d+)/i);
     if (match && match[1]) return parseInt(match[1], 10);
 
-    return 99; // Se não for pizza com limite, permite múltiplos adicionais livres
+    return 99;
   };
 
   const isPizzaProduct = (prod) => {
@@ -444,7 +441,6 @@ export default function PdvKdsTenant() {
 
     const unitPrice = parsePrice(selectedProdForPdv.price) + addonsTotal + borderPrice;
     
-    // FORMATAÇÃO IGUAL AO CARDÁPIO (1/2, 1/3, 1/4)
     let detailsFormatted = '';
     const addonCount = selectedAddonsForProd.length;
 
@@ -612,7 +608,7 @@ export default function PdvKdsTenant() {
 
   const handlePrintOrder = (order, mode) => {
     setPrintConfig({ order, mode });
-    setTimeout(() => { window.print(); }, 200);
+    setTimeout(() => { window.print(); }, 250);
   };
 
   const getElapsedTime = (createdAt) => {
@@ -621,6 +617,79 @@ export default function PdvKdsTenant() {
     if (diffMins < 1) return { text: 'Agora', minutes: 0 };
     if (diffMins < 60) return { text: `${diffMins} min`, minutes: diffMins };
     return { text: `${Math.floor(diffMins / 60)}h ${diffMins % 60}m`, minutes: diffMins };
+  };
+
+  // VERIFICA SE O PEDIDO ESTÁ AGUARDANDO PAGAMENTO DINÂMICO
+  const isUnpaidDynamicOrder = (o) => {
+    if (!o) return false;
+    const status = (o.status || '').toLowerCase();
+    if (status === 'aguardando_pagamento' || status === 'pendente_pagamento') return true;
+
+    const pay = (o.payment_method || '').toUpperCase();
+    const isDynamic = pay.includes('PIX') || pay.includes('ONLINE');
+    
+    if (isDynamic && !o.is_paid && (status === 'pendente' || status === 'novo' || status === 'recebido')) {
+      return true;
+    }
+    return false;
+  };
+
+  // HELPER DE IMPRESSÃO COMPLETA DOS ITENS COM SABORES, COMBOS, BORDAS E OBSERVAÇÕES
+  const renderPrintItemDetails = (it) => {
+    const elements = [];
+
+    if (it.is_combo && it.comboSteps && Array.isArray(it.comboSteps)) {
+      it.comboSteps.forEach((step, sIdx) => {
+        const itemNames = step.items?.map(i => i.name).join(', ');
+        if (itemNames) {
+          elements.push(
+            <div key={`step-${sIdx}`} className="pl-3 text-[12px] font-bold">
+              • {step.title}: {itemNames}
+            </div>
+          );
+        }
+      });
+    }
+
+    if (it.details) {
+      elements.push(
+        <div key="details" className="pl-3 text-[12px] font-bold">
+          ↳ {it.details}
+        </div>
+      );
+    }
+
+    if (it.selectedAddons && Array.isArray(it.selectedAddons) && it.selectedAddons.length > 0) {
+      const addonStr = it.selectedAddons.map(a => a.name).join(', ');
+      if (!it.details || !it.details.includes(addonStr)) {
+        elements.push(
+          <div key="addons" className="pl-3 text-[12px] font-bold">
+            + Adicionais: {addonStr}
+          </div>
+        );
+      }
+    }
+
+    if (it.selectedBorder) {
+      const borderName = typeof it.selectedBorder === 'string' ? it.selectedBorder.split(':')[0] : it.selectedBorder.name;
+      if (borderName && borderName !== 'Sem Borda') {
+        elements.push(
+          <div key="border" className="pl-3 text-[12px] font-bold">
+            + Borda: {borderName}
+          </div>
+        );
+      }
+    }
+
+    if (it.observation) {
+      elements.push(
+        <div key="obs" className="pl-3 text-[13px] font-black uppercase text-black">
+          ⚠️ OBS: {it.observation}
+        </div>
+      );
+    }
+
+    return elements;
   };
 
   if (loading) return <div className="p-4 text-white text-center font-sans">Carregando Painel...</div>;
@@ -639,15 +708,18 @@ export default function PdvKdsTenant() {
     return 'DELIVERY';
   };
 
-  const activeOrders = orders.filter(o => !o.archived && o.status !== 'concluido' && o.status !== 'arquivado').filter(o => {
-    const cat = getOrderCategory(o);
-    if (filterType === 'DELIVERY') return cat === 'DELIVERY';
-    if (filterType === 'BALCAO') return cat === 'BALCAO';
-    if (filterType === 'MESA') return cat === 'MESA';
-    return true;
-  });
+  const activeOrders = orders
+    .filter(o => !o.archived && o.status !== 'concluido' && o.status !== 'arquivado')
+    .filter(o => !isUnpaidDynamicOrder(o))
+    .filter(o => {
+      const cat = getOrderCategory(o);
+      if (filterType === 'DELIVERY') return cat === 'DELIVERY';
+      if (filterType === 'BALCAO') return cat === 'BALCAO';
+      if (filterType === 'MESA') return cat === 'MESA';
+      return true;
+    });
 
-  const tableOrders = orders.filter(o => getOrderCategory(o) === 'MESA' && !o.archived && o.status !== 'concluido');
+  const tableOrders = orders.filter(o => getOrderCategory(o) === 'MESA' && !o.archived && o.status !== 'concluido' && !isUnpaidDynamicOrder(o));
   const archivedOrders = orders.filter(o => o.archived === true || o.status === 'arquivado' || o.status === 'concluido');
 
   const filteredGlobalAddons = globalAddons.filter(a => 
@@ -748,7 +820,7 @@ export default function PdvKdsTenant() {
 
         <div className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs space-y-1">
           <div className="flex justify-between items-center">
-            <span className="text-gray-400 font-bold text-[11px]">Pagamento:</span>
+            <span className="text-gray-400 font-bold text-[11px]">Pagamento: {order.payment_method}</span>
             {openBalance === 0 && (order.is_paid || isCardOnline || paidAmount >= totalAmount) ? (
               <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2.5 py-1 rounded-lg font-extrabold text-[11px]">
                 🟢 PAGO (R$ {totalAmount.toFixed(2)})
@@ -763,6 +835,12 @@ export default function PdvKdsTenant() {
               </span>
             )}
           </div>
+
+          {(order.change_for || order.change_value) && (
+            <p className="text-yellow-400 font-extrabold text-[11px]">
+              💵 Troco para R$ {parsePrice(order.change_for || order.change_value).toFixed(2)}
+            </p>
+          )}
 
           {openBalance > 0 && paidAmount > 0 && (
             <div className="bg-orange-500/20 border border-orange-500/50 p-1.5 rounded-lg text-center mt-1">
@@ -891,6 +969,7 @@ export default function PdvKdsTenant() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 sm:p-6 font-sans max-w-7xl mx-auto pb-12">
+      {/* CSS DE IMPRESSÃO TÉRMICA ESTILO ANOTA AI (48 CARACTERES - 80MM) */}
       <style jsx global>{`
         @media print {
           @page {
@@ -903,131 +982,156 @@ export default function PdvKdsTenant() {
             padding: 0 !important;
             background: #fff !important;
             color: #000 !important;
+            font-family: 'Courier New', Courier, monospace !important;
           }
-          body * { 
-            visibility: hidden !important; 
+          body * {
+            visibility: hidden !important;
           }
-          #print-area, #print-area * { 
-            visibility: visible !important; 
+          #print-area, #print-area * {
+            visibility: visible !important;
           }
-          #print-area { 
-            position: absolute !important; 
-            left: 0 !important; 
-            top: 0 !important; 
-            width: 78mm !important; 
-            padding: 4px !important; 
-            color: #000 !important; 
-            background: #fff !important; 
-            font-family: Arial, sans-serif !important; 
-            font-size: 11px !important;
-            line-height: 1.3 !important;
+          #print-area {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 48ch !important;
+            max-width: 80mm !important;
+            padding: 2mm !important;
+            color: #000 !important;
+            background: #fff !important;
+            font-family: 'Courier New', Courier, monospace !important;
+            font-size: 13px !important;
+            line-height: 1.25 !important;
+            font-weight: bold !important;
+            word-break: break-word !important;
           }
-          .no-print { 
-            display: none !important; 
+          .no-print {
+            display: none !important;
           }
         }
       `}</style>
 
-      {/* ÁREA DE IMPRESSÃO */}
+      {/* ÁREA DE IMPRESSÃO TÉRMICA 48 COLUNAS */}
       {printConfig?.order && (
         <div id="print-area" className="hidden print:block text-black">
           {printConfig.mode === 'kitchen' ? (
-            <div className="font-mono">
-              <div className="text-center border-b border-dashed border-black pb-2 mb-2">
-                <h2 className="font-extrabold text-sm uppercase">{tenant.name}</h2>
-                <p className="text-[10px] font-bold mt-0.5">*** VIA DE PRODUÇÃO COZINHA ***</p>
-                <p className="text-[12px] font-black mt-1">PEDIDO {getOrderDisplayNumber(printConfig.order)}</p>
-                <p className="text-[9px] mt-0.5">{new Date(printConfig.order.created_at || Date.now()).toLocaleString('pt-BR')}</p>
+            <div className="font-mono text-[13px] leading-tight font-bold">
+              <div className="text-center pb-2 mb-2">
+                <h2 className="font-black text-base uppercase">{tenant.name}</h2>
+                <p className="text-[11px] font-black mt-0.5">*** VIA DE PRODUÇÃO COZINHA ***</p>
+                <p className="text-[18px] font-black my-1">PEDIDO {getOrderDisplayNumber(printConfig.order)}</p>
+                <p className="text-[11px]">{new Date(printConfig.order.created_at || Date.now()).toLocaleString('pt-BR')}</p>
               </div>
 
-              <div className="border-b border-dashed border-black pb-2 mb-2 text-[10px] space-y-0.5">
-                <p><b>CLIENTE:</b> {printConfig.order.customer_name}</p>
-                <p><b>LOCAL:</b> {printConfig.order.customer_address}</p>
+              <p className="text-[11px]">------------------------------------------------</p>
+
+              <div className="py-1 space-y-1 text-[12px]">
+                <p><b>CLIENTE:</b> {printConfig.order.customer_name || 'Cliente Balcão'}</p>
+                <p><b>TIPO/LOCAL:</b> {getOrderCategory(printConfig.order)} - {printConfig.order.customer_address}</p>
+                {printConfig.order.neighborhood && <p><b>BAIRRO:</b> {printConfig.order.neighborhood}</p>}
                 {printConfig.order.waiter_name && <p><b>GARÇOM:</b> {printConfig.order.waiter_name}</p>}
-                {printConfig.order.customer_phone && <p><b>TEL:</b> {printConfig.order.customer_phone}</p>}
+                {printConfig.order.customer_phone && <p><b>TEL/WA:</b> {printConfig.order.customer_phone}</p>}
+                <p><b>PAGAMENTO:</b> {printConfig.order.payment_method || 'Não Informado'}</p>
+                {(printConfig.order.change_for || printConfig.order.change_value) && (
+                  <p><b>TROCO PARA:</b> R$ {parsePrice(printConfig.order.change_for || printConfig.order.change_value).toFixed(2)}</p>
+                )}
               </div>
 
-              <div className="border-b border-dashed border-black pb-2 mb-2 text-[10px]">
-                <p className="font-bold border-b border-black pb-1 mb-1">ITENS DO PEDIDO:</p>
+              <p className="text-[11px]">------------------------------------------------</p>
+
+              <div className="py-1">
+                <p className="font-black text-[14px] uppercase mb-1">ITENS DO PEDIDO:</p>
                 {printConfig.order.items?.map((it, idx) => (
-                  <div key={idx} className="mb-1.5">
-                    <div className="flex justify-between font-bold">
+                  <div key={idx} className="mb-2 pb-1 border-b border-dotted border-black">
+                    <div className="flex justify-between font-black text-[14px]">
                       <span>{it.quantity}x {it.name}</span>
+                      <span>R$ {(parsePrice(it.price) * it.quantity).toFixed(2)}</span>
                     </div>
-                    {it.details && <p className="pl-2 text-[9px]">↳ {it.details}</p>}
-                    {it.observation && <p className="pl-2 text-[9px] font-bold">↳ OBS: {it.observation}</p>}
+                    {renderPrintItemDetails(it)}
                   </div>
                 ))}
               </div>
 
+              <p className="text-[11px]">------------------------------------------------</p>
+
               {printConfig.order.notes && (
-                <div className="text-[10px]">
-                  <p><b>OBS. PEDIDO:</b> {printConfig.order.notes}</p>
+                <div className="py-1 text-[12px]">
+                  <p className="font-black"><b>OBS. GERAL DO PEDIDO:</b></p>
+                  <p className="text-[12px]">{printConfig.order.notes}</p>
+                  <p className="text-[11px]">------------------------------------------------</p>
                 </div>
               )}
+
+              <div className="pt-1 text-right text-[15px] font-black">
+                <span>TOTAL: R$ {Number(printConfig.order.total || 0).toFixed(2)}</span>
+              </div>
             </div>
           ) : (
-            <div className="border-2 border-black p-2 font-sans text-black">
-              <div className="flex justify-between items-start border-b-2 border-black pb-2 mb-2">
-                <div>
-                  <h2 className="font-black text-sm uppercase tracking-wide">{tenant.name}</h2>
-                  <p className="text-[9px] font-bold">Lanchonete e Alimentos</p>
-                  {tenant.phone && <p className="text-[8px]">Tel: {tenant.phone}</p>}
-                </div>
-                <div className="text-right bg-gray-200 border border-black p-1 rounded">
-                  <span className="block text-[8px] font-bold uppercase">RECIBO Nº {getOrderDisplayNumber(printConfig.order)}</span>
-                  <span className="block text-xs font-black">R$ {Number(printConfig.order.total || 0).toFixed(2)}</span>
-                </div>
+            <div className="font-mono text-[12px] leading-tight font-bold">
+              <div className="text-center pb-2 mb-2">
+                <h2 className="font-black text-base uppercase">{tenant.name}</h2>
+                <p className="text-[10px]">Lanchonete e Alimentos</p>
+                {tenant.phone && <p className="text-[10px]">Tel: {tenant.phone}</p>}
+                <p className="text-[14px] font-black mt-1">COMPROVANTE / RECIBO DE CLIENTE</p>
+                <p className="text-[11px]">PEDIDO {getOrderDisplayNumber(printConfig.order)}</p>
               </div>
 
-              <div className="text-[10px] space-y-1.5 leading-snug">
-                <p className="border-b border-dotted border-gray-600 pb-0.5">
-                  <b>Recebi(emos) de:</b> {printConfig.order.customer_name || 'Cliente Balcão'}
-                </p>
+              <p className="text-[11px]">------------------------------------------------</p>
 
-                {(printConfig.order.customer_phone || printConfig.order.customer_address) && (
-                  <p className="border-b border-dotted border-gray-600 pb-0.5">
-                    <b>Contato/End:</b> {[printConfig.order.customer_phone, printConfig.order.customer_address].filter(Boolean).join(' - ')}
-                  </p>
+              <div className="py-1 space-y-1 text-[11px]">
+                <p><b>CLIENTE:</b> {printConfig.order.customer_name || 'Cliente Balcão'}</p>
+                {printConfig.order.customer_phone && <p><b>TEL:</b> {printConfig.order.customer_phone}</p>}
+                {printConfig.order.customer_address && <p><b>END:</b> {printConfig.order.customer_address}</p>}
+                <p><b>DATA:</b> {new Date(printConfig.order.created_at || Date.now()).toLocaleString('pt-BR')}</p>
+              </div>
+
+              <p className="text-[11px]">------------------------------------------------</p>
+
+              <div className="py-1">
+                <p className="font-bold text-[12px] uppercase mb-1">DETALHAMENTO DOS ITENS:</p>
+                {printConfig.order.items?.map((it, idx) => (
+                  <div key={idx} className="mb-1.5 pb-1 border-b border-dotted border-black">
+                    <div className="flex justify-between font-bold text-[12px]">
+                      <span>{it.quantity}x {it.name}</span>
+                      <span>R$ {(parsePrice(it.price) * it.quantity).toFixed(2)}</span>
+                    </div>
+                    {renderPrintItemDetails(it)}
+                  </div>
+                ))}
+                {Number(printConfig.order.delivery_fee) > 0 && (
+                  <div className="flex justify-between font-bold text-[12px] mt-1">
+                    <span>1x Taxa de Entrega</span>
+                    <span>R$ {Number(printConfig.order.delivery_fee).toFixed(2)}</span>
+                  </div>
                 )}
-
-                <p className="border-b border-dotted border-gray-600 pb-0.5">
-                  <b>A quantia de:</b> {valorPorExtenso(printConfig.order.total)}
-                </p>
-
-                <div className="border-b border-dotted border-gray-600 pb-1">
-                  <b>Referente a:</b> Consumo de lanchonete/pedidos:
-                  <ul className="pl-2 mt-0.5 space-y-0.5 text-[9px]">
-                    {printConfig.order.items?.map((it, idx) => (
-                      <li key={idx}>
-                        • {it.quantity}x {it.name} {it.details ? `(${it.details})` : ''} - R$ {(it.price * it.quantity).toFixed(2)}
-                      </li>
-                    ))}
-                    {Number(printConfig.order.delivery_fee) > 0 && (
-                      <li>• 1x Taxa de Entrega - R$ {Number(printConfig.order.delivery_fee).toFixed(2)}</li>
-                    )}
-                  </ul>
-                </div>
-
-                <p className="border-b border-dotted border-gray-600 pb-0.5">
-                  <b>Forma de Pagamento:</b> {printConfig.order.payment_method || 'Dinheiro / Outro'}
-                </p>
               </div>
 
-              <div className="mt-4 pt-2 text-center text-[9px] space-y-3">
-                <p>Data: {new Date(printConfig.order.created_at || Date.now()).toLocaleDateString('pt-BR')}</p>
+              <p className="text-[11px]">------------------------------------------------</p>
 
-                <div className="pt-4 border-t border-black w-3/4 mx-auto">
-                  <p className="font-bold text-[8px] uppercase">{tenant.name}</p>
-                  <p className="text-[7px]">Assinatura / Carimbo do Emissor</p>
-                </div>
+              <div className="py-1 space-y-1 text-[12px]">
+                <p><b>PAGAMENTO:</b> {printConfig.order.payment_method || 'Dinheiro'}</p>
+                {(printConfig.order.change_for || printConfig.order.change_value) && (
+                  <p><b>TROCO PARA:</b> R$ {parsePrice(printConfig.order.change_for || printConfig.order.change_value).toFixed(2)}</p>
+                )}
+                <p className="text-[10px] italic">Valor por extenso: {valorPorExtenso(printConfig.order.total)}</p>
+              </div>
+
+              <p className="text-[11px]">------------------------------------------------</p>
+
+              <div className="pt-2 text-center text-[14px] font-black">
+                <span>TOTAL PAGO: R$ {Number(printConfig.order.total || 0).toFixed(2)}</span>
+              </div>
+
+              <div className="mt-4 text-center text-[10px]">
+                <p>Obrigado pela preferência!</p>
+                <p>Volte Sempre!</p>
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* CABEÇALHO */}
+      {/* CABEÇALHO DA TELA */}
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6 no-print flex-wrap gap-3">
         <div>
           <h1 className="font-extrabold text-xl sm:text-2xl text-orange-500">🖥️ PDV & KDS Operacional — {tenant.name}</h1>
@@ -1375,7 +1479,7 @@ export default function PdvKdsTenant() {
         </div>
       )}
 
-      {/* MODAL DE ADIÇÃO DE ITEM PDV IGUAL AO CARDÁPIO */}
+      {/* MODAL DE ADIÇÃO DE ITEM PDV */}
       {selectedProdForPdv && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-gray-900 w-full max-w-lg rounded-2xl p-5 border border-orange-500/40 space-y-4 max-h-[90vh] overflow-y-auto shadow-2xl">
@@ -1389,7 +1493,6 @@ export default function PdvKdsTenant() {
               <button onClick={() => setSelectedProdForPdv(null)} className="text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded-lg text-gray-300 font-bold">Fechar</button>
             </div>
 
-            {/* SELEÇÃO DE BORDA RECHEADA */}
             {selectedProdForPdv.borders_list && (
               <div className="space-y-1.5 bg-gray-950 p-3 rounded-xl border border-gray-800">
                 <label className="text-xs font-bold text-gray-200 block">🫓 Escolha a Borda:</label>
@@ -1402,7 +1505,6 @@ export default function PdvKdsTenant() {
               </div>
             )}
 
-            {/* SELEÇÃO DE SABORES / ADICIONAIS COM LIMITE DO CARDÁPIO */}
             <div className="space-y-2">
               {(() => {
                 const maxF = getMaxFlavorsForProduct(selectedProdForPdv);
@@ -1424,7 +1526,7 @@ export default function PdvKdsTenant() {
 
               <input
                 type="text"
-                placeholder="🔍 Pesquisar sabor ou adicional (Ex: Calabresa, Frango...)"
+                placeholder="🔍 Pesquisar sabor ou adicional..."
                 value={addonSearch}
                 onChange={(e) => setAddonSearch(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500 font-medium"
@@ -1469,16 +1571,14 @@ export default function PdvKdsTenant() {
               </div>
             </div>
 
-            {/* OBSERVAÇÃO DO ITEM */}
             <input 
               type="text" 
-              placeholder="📝 Observações do item (Ex: Tirar cebola, maionese à parte)" 
+              placeholder="📝 Observações do item..." 
               value={prodObservation} 
               onChange={(e) => setProdObservation(e.target.value)} 
               className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" 
             />
 
-            {/* VALOR CALCULADO & QUANTIDADE */}
             <div className="flex items-center justify-between border-t border-gray-800 pt-3">
               <div className="flex items-center space-x-2">
                 <button onClick={() => setProdQuantity(Math.max(1, prodQuantity - 1))} className="w-8 h-8 bg-gray-800 hover:bg-gray-700 rounded-lg font-black text-red-400 border border-gray-700">-</button>
