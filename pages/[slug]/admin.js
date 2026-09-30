@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
 
 // FUNÇÃO AUXILIAR PARA PARSE DE PREÇOS (ACEITA VÍRGULA E PONTO)
 const parsePrice = (val) => {
-  if (!val) return 0;
+  if (val === null || val === undefined) return 0;
   const clean = String(val).replace(',', '.');
   const num = parseFloat(clean);
   return isNaN(num) ? 0 : num;
@@ -18,6 +18,51 @@ const DEFAULT_ADDON_TYPES = [
   '🥤 Molhos & Acompanhamentos',
   '📌 Outros'
 ];
+
+const ALL_DAYS = [
+  { id: 1, label: 'Segunda-feira', short: 'Seg' },
+  { id: 2, label: 'Terça-feira', short: 'Ter' },
+  { id: 3, label: 'Quarta-feira', short: 'Qua' },
+  { id: 4, label: 'Quinta-feira', short: 'Qui' },
+  { id: 5, label: 'Sexta-feira', short: 'Sex' },
+  { id: 6, label: 'Sábado', short: 'Sáb' },
+  { id: 0, label: 'Domingo', short: 'Dom' }
+];
+
+const INITIAL_PROD_STATE = {
+  name: '',
+  price: '',
+  category_id: '',
+  description: '',
+  image: '',
+  addons_list: '',
+  max_addons: 0,
+  borders_list: '',
+  is_combo: false,
+  combo_steps: []
+};
+
+// COMPONENTE AUXILIAR PARA IMAGENS COM FALLBACK SEGURO
+const ImageWithFallback = ({ src, alt, className }) => {
+  const [hasError, setHasError] = useState(false);
+
+  if (hasError || !src) {
+    return (
+      <div className={`${className} bg-gray-800 flex items-center justify-center text-[10px] text-gray-500 font-bold border border-gray-700`}>
+        Sem foto
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      onError={() => setHasError(true)}
+    />
+  );
+};
 
 export default function AdminTenant() {
   const router = useRouter();
@@ -59,19 +104,18 @@ export default function AdminTenant() {
   const [isCustomCategoryEdit, setIsCustomCategoryEdit] = useState(false);
   const [customCategoryInputEdit, setCustomCategoryInputEdit] = useState('');
 
-  // DIAS DA SEMANA
-  const ALL_DAYS = [
-    { id: 1, label: 'Segunda-feira', short: 'Seg' },
-    { id: 2, label: 'Terça-feira', short: 'Ter' },
-    { id: 3, label: 'Quarta-feira', short: 'Qua' },
-    { id: 4, label: 'Quinta-feira', short: 'Qui' },
-    { id: 5, label: 'Sexta-feira', short: 'Sex' },
-    { id: 6, label: 'Sábado', short: 'Sáb' },
-    { id: 0, label: 'Domingo', short: 'Dom' }
-  ];
+  const [newProd, setNewProd] = useState(INITIAL_PROD_STATE);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [editingCategory, setEditingCategory] = useState(null);
+  const [editingAddon, setEditingAddon] = useState(null);
+  const [editingNeigh, setEditingNeigh] = useState(null);
 
-  // AUXILIAR PARA ESTRUTURA DOS HORÁRIOS DA SEMANA
-  const getDefaultWeeklySchedule = (tData) => {
+  const [newCatName, setNewCatName] = useState('');
+  const [newAddon, setNewAddon] = useState({ name: '', price: '', description: '', category_type: '🍕 Pizza Salgada' });
+  const [newNeigh, setNewNeigh] = useState({ name: '', fee: '' });
+
+  // ESTRUTURA PADRÃO DOS HORÁRIOS DA SEMANA
+  const getDefaultWeeklySchedule = useCallback((tData) => {
     let parsed = null;
     if (tData?.weekly_schedule) {
       try {
@@ -81,9 +125,7 @@ export default function AdminTenant() {
       }
     }
 
-    if (parsed && typeof parsed === 'object') {
-      return parsed;
-    }
+    if (parsed && typeof parsed === 'object') return parsed;
 
     const activeDays = tData?.work_days || [1, 2, 3, 4, 5, 6];
     const schedule = {};
@@ -98,77 +140,127 @@ export default function AdminTenant() {
       };
     });
     return schedule;
-  };
+  }, []);
 
-  // MONTA A LISTA DE TIPOS DE ADICIONAIS INCLUINDO AS CATEGORIAS PERSONALIZADAS
-  const customTypesInAddons = Array.from(
-    new Set((globalAddons || []).map(a => a.category_type).filter(Boolean))
-  ).filter(t => !DEFAULT_ADDON_TYPES.includes(t));
+  // MONTA A LISTA DE TIPOS DE ADICIONAIS COM MEMOIZAÇÃO
+  const addonTypesList = useMemo(() => {
+    const customTypesInAddons = Array.from(
+      new Set((globalAddons || []).map(a => a.category_type).filter(Boolean))
+    ).filter(t => !DEFAULT_ADDON_TYPES.includes(t));
 
-  const ADDON_TYPES = [...DEFAULT_ADDON_TYPES, ...customTypesInAddons];
+    return [...DEFAULT_ADDON_TYPES, ...customTypesInAddons];
+  }, [globalAddons]);
 
-  const INITIAL_PROD_STATE = {
-    name: '',
-    price: '',
-    category_id: '',
-    description: '',
-    image: '',
-    addons_list: '',
-    max_addons: 0,
-    borders_list: '',
-    is_combo: false,
-    combo_steps: []
-  };
+  const groupedAddons = useMemo(() => {
+    const grouped = {};
+    addonTypesList.forEach(type => { grouped[type] = []; });
 
-  const [newProd, setNewProd] = useState(INITIAL_PROD_STATE);
-  const [editingProduct, setEditingProduct] = useState(null);
-  const [editingCategory, setEditingCategory] = useState(null);
-  const [editingAddon, setEditingAddon] = useState(null);
-  const [editingNeigh, setEditingNeigh] = useState(null);
+    (globalAddons || []).forEach(addon => {
+      const type = addon.category_type || '🍕 Pizza Salgada';
+      if (!grouped[type]) grouped[type] = [];
+      grouped[type].push(addon);
+    });
 
-  const [newCatName, setNewCatName] = useState('');
-  const [newAddon, setNewAddon] = useState({ name: '', price: '', description: '', category_type: '🍕 Pizza Salgada' });
-  const [newNeigh, setNewNeigh] = useState({ name: '', fee: '' });
+    return grouped;
+  }, [globalAddons, addonTypesList]);
+
+  // BUSCA COMPLETA DE DADOS EM PARALELO (PROMISE.ALL)
+  const fetchData = useCallback(async (tenantId = tenant?.id) => {
+    if (!tenantId) return;
+
+    try {
+      const [
+        { data: tData },
+        { data: cData },
+        { data: pData },
+        { data: aData },
+        { data: nData },
+        { data: oData },
+        { data: wData }
+      ] = await Promise.all([
+        supabase.from('tenants').select('*').eq('id', tenantId).single(),
+        supabase.from('categories').select('*').eq('tenant_id', tenantId).order('id', { ascending: true }),
+        supabase.from('products').select('*').eq('tenant_id', tenantId).order('id', { ascending: true }),
+        supabase.from('global_addons').select('*').eq('tenant_id', tenantId).order('id', { ascending: true }),
+        supabase.from('neighborhoods').select('*').eq('tenant_id', tenantId).order('id', { ascending: true }),
+        supabase.from('orders').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false }),
+        supabase.from('waiters').select('*').eq('tenant_id', tenantId).order('id', { ascending: true })
+      ]);
+
+      if (tData) {
+        setTenant({
+          ...tData,
+          work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
+          auto_reset_orders: tData.auto_reset_orders ?? false,
+          has_lunch_break: tData.has_lunch_break ?? false,
+          lunch_opening_time: tData.lunch_opening_time || '11:00',
+          lunch_closing_time: tData.lunch_closing_time || '14:30',
+          weekly_schedule: getDefaultWeeklySchedule(tData),
+          has_delivery: tData.has_delivery ?? true,
+          has_balcao: tData.has_balcao ?? true
+        });
+      }
+
+      if (cData) {
+        setCategories(cData);
+        if (cData.length > 0 && !newProd.category_id) {
+          setNewProd(prev => ({ ...prev, category_id: cData[0].id }));
+        }
+      }
+
+      if (pData) setProducts(pData);
+      if (aData) setGlobalAddons(aData);
+      if (nData) setNeighborhoods(nData);
+      if (oData) setAllOrders(oData);
+      if (wData) setWaitersList(wData);
+    } catch (err) {
+      console.error("Erro ao carregar dados do painel:", err);
+    }
+  }, [tenant?.id, getDefaultWeeklySchedule, newProd.category_id]);
+
+  const fetchTenant = useCallback(async () => {
+    try {
+      const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
+      if (tData) {
+        let updatedTenant = {
+          ...tData,
+          work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
+          auto_reset_orders: tData.auto_reset_orders ?? false,
+          has_lunch_break: tData.has_lunch_break ?? false,
+          lunch_opening_time: tData.lunch_opening_time || '11:00',
+          lunch_closing_time: tData.lunch_closing_time || '14:30',
+          weekly_schedule: getDefaultWeeklySchedule(tData),
+          has_delivery: tData.has_delivery ?? true,
+          has_balcao: tData.has_balcao ?? true
+        };
+
+        if (updatedTenant.auto_reset_orders) {
+          const lastReset = updatedTenant.order_reset_at ? new Date(updatedTenant.order_reset_at) : new Date(0);
+          const now = new Date();
+          const isDifferentDay = now.toDateString() !== lastReset.toDateString();
+
+          if (isDifferentDay) {
+            const nowIso = now.toISOString();
+            await supabase.from('tenants').update({ order_reset_at: nowIso }).eq('id', updatedTenant.id);
+            updatedTenant.order_reset_at = nowIso;
+          }
+        }
+
+        setTenant(updatedTenant);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar tenant:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [slug, getDefaultWeeklySchedule]);
 
   useEffect(() => {
     if (slug) fetchTenant();
     if (typeof window !== 'undefined') {
       setBaseUrl(`${window.location.protocol}//${window.location.host}`);
     }
-  }, [slug]);
-
-  const fetchTenant = async () => {
-    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
-    if (tData) {
-      let updatedTenant = {
-        ...tData,
-        work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
-        auto_reset_orders: tData.auto_reset_orders ?? false,
-        has_lunch_break: tData.has_lunch_break ?? false,
-        lunch_opening_time: tData.lunch_opening_time || '11:00',
-        lunch_closing_time: tData.lunch_closing_time || '14:30',
-        weekly_schedule: getDefaultWeeklySchedule(tData),
-        has_delivery: tData.has_delivery ?? true,
-        has_balcao: tData.has_balcao ?? true
-      };
-
-      // VERIFICA SE O AUTO-ZERAR ESTÁ ATIVADO E SE JÁ MUDOU O DIA DO EXPEDIENTE
-      if (updatedTenant.auto_reset_orders) {
-        const lastReset = updatedTenant.order_reset_at ? new Date(updatedTenant.order_reset_at) : new Date(0);
-        const now = new Date();
-        const isDifferentDay = now.toDateString() !== lastReset.toDateString();
-
-        if (isDifferentDay) {
-          const nowIso = now.toISOString();
-          await supabase.from('tenants').update({ order_reset_at: nowIso }).eq('id', updatedTenant.id);
-          updatedTenant.order_reset_at = nowIso;
-        }
-      }
-
-      setTenant(updatedTenant);
-    }
-    setLoading(false);
-  };
+  }, [slug, fetchTenant]);
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -180,41 +272,7 @@ export default function AdminTenant() {
     }
   };
 
-  const fetchData = async (tenantId = tenant?.id) => {
-    if (!tenantId) return;
-    const { data: tData } = await supabase.from('tenants').select('*').eq('id', tenantId).single();
-    const { data: cData } = await supabase.from('categories').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
-    const { data: pData } = await supabase.from('products').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
-    const { data: aData } = await supabase.from('global_addons').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
-    const { data: nData } = await supabase.from('neighborhoods').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
-    const { data: oData } = await supabase.from('orders').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
-    const { data: wData } = await supabase.from('waiters').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
-
-    if (tData) {
-      setTenant({
-        ...tData,
-        work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
-        auto_reset_orders: tData.auto_reset_orders ?? false,
-        has_lunch_break: tData.has_lunch_break ?? false,
-        lunch_opening_time: tData.lunch_opening_time || '11:00',
-        lunch_closing_time: tData.lunch_closing_time || '14:30',
-        weekly_schedule: getDefaultWeeklySchedule(tData),
-        has_delivery: tData.has_delivery ?? true,
-        has_balcao: tData.has_balcao ?? true
-      });
-    }
-    if (cData) {
-      setCategories(cData);
-      if (cData.length > 0 && !newProd.category_id) setNewProd(prev => ({ ...prev, category_id: cData[0].id }));
-    }
-    if (pData) setProducts(pData);
-    if (aData) setGlobalAddons(aData);
-    if (nData) setNeighborhoods(nData);
-    if (oData) setAllOrders(oData);
-    if (wData) setWaitersList(wData);
-  };
-
-  // CÁLCULO INTELIGENTE DA NUMERAÇÃO DE PEDIDO
+  // NUMERAÇÃO INTELIGENTE DO PEDIDO
   const getOrderDisplayNumber = (order) => {
     if (order.daily_number) {
       return `#${String(order.daily_number).padStart(2, '0')}`;
@@ -266,12 +324,12 @@ export default function AdminTenant() {
     if (error) alert("Erro ao salvar opção de auto-zerar: " + error.message);
   };
 
-  // ATUALIZAÇÃO DA PROGRAMAÇÃO POR DIA DA SEMANA
+  // ATUALIZAÇÃO DA PROGRAMAÇÃO SEMANAL
   const updateDaySchedule = (dayId, field, value) => {
     setTenant(prev => {
       const currentSched = prev.weekly_schedule || getDefaultWeeklySchedule(prev);
       const daySched = currentSched[dayId] || { active: true, has_lunch: false, open1: '11:00', close1: '14:30', open2: '18:00', close2: '23:30' };
-      
+
       const updatedDay = { ...daySched, [field]: value };
       const updatedSched = { ...currentSched, [dayId]: updatedDay };
 
@@ -367,7 +425,7 @@ export default function AdminTenant() {
   };
 
   const addComboStep = (mode) => {
-    const defaultStep = { title: '', category_type: ADDON_TYPES[0], max: 1 };
+    const defaultStep = { title: '', category_type: addonTypesList[0], max: 1 };
     if (mode === 'new') {
       setNewProd(prev => ({ ...prev, combo_steps: [...(prev.combo_steps || []), defaultStep] }));
     } else {
@@ -395,11 +453,11 @@ export default function AdminTenant() {
     }
   };
 
-  // --- LÓGICA DE VERIFICAÇÃO E SELEÇÃO DE ADICIONAIS ---
+  // GERENCIAMENTO DE SELEÇÃO DE ADICIONAIS
   const isAddonInList = (addonsListStr, addon) => {
     if (!addonsListStr || !addon) return false;
     const items = addonsListStr.split(',').map(i => i.trim()).filter(Boolean);
-    
+
     return items.some(item => {
       const parts = item.split(':');
       const itemName = parts[0];
@@ -482,7 +540,6 @@ export default function AdminTenant() {
     }
   };
 
-  // SALVAR CONFIGURAÇÕES (APENAS COM AS COLUNAS OFICIAIS DO SCHEMA SUPABASE)
   const handleSaveTenantSettings = async (e) => {
     e.preventDefault();
     const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
@@ -682,7 +739,8 @@ export default function AdminTenant() {
     fetchData();
   };
 
-  const getFilteredOrders = () => {
+  // CÁLCULO MEMOIZADO DE PEDIDOS FILTRADOS E TOTAIS
+  const filteredOrders = useMemo(() => {
     const now = new Date();
     return allOrders.filter(o => {
       if (o.status === 'cancelado') return false;
@@ -696,14 +754,14 @@ export default function AdminTenant() {
       if (reportFilter === '30days') return diffDays <= 30;
       return true;
     });
-  };
+  }, [allOrders, reportFilter]);
 
-  const filteredOrders = getFilteredOrders();
-  const totalRevenue = filteredOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
-  const totalSubtotal = filteredOrders.reduce((sum, o) => sum + Number(o.subtotal || o.total || 0), 0);
-  const totalDeliveryFees = filteredOrders.reduce((sum, o) => sum + Number(o.delivery_fee || 0), 0);
+  const totalRevenue = useMemo(() => filteredOrders.reduce((sum, o) => sum + Number(o.total || 0), 0), [filteredOrders]);
+  const totalSubtotal = useMemo(() => filteredOrders.reduce((sum, o) => sum + Number(o.subtotal || o.total || 0), 0), [filteredOrders]);
+  const totalDeliveryFees = useMemo(() => filteredOrders.reduce((sum, o) => sum + Number(o.delivery_fee || 0), 0), [filteredOrders]);
 
-  const getCustomerList = () => {
+  // CÁLCULO MEMOIZADO DO RANKING DE CLIENTES (CRM)
+  const customerList = useMemo(() => {
     const customerMap = {};
     allOrders.forEach(order => {
       const rawPhone = order.customer_phone ? order.customer_phone.replace(/\D/g, '') : '';
@@ -741,9 +799,7 @@ export default function AdminTenant() {
     });
 
     return Object.values(customerMap).sort((a, b) => b.totalSpent - a.totalSpent);
-  };
-
-  const customerList = getCustomerList();
+  }, [allOrders]);
 
   const handleOpenPromoModal = (client) => {
     setSelectedPromoClient(client);
@@ -756,21 +812,21 @@ export default function AdminTenant() {
     setSelectedPromoClient(null);
   };
 
-  const groupAddonsByType = (addonsArray) => {
-    const grouped = {};
-    ADDON_TYPES.forEach(type => { grouped[type] = []; });
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans">
+        <p className="text-sm text-gray-400">Carregando painel de administração...</p>
+      </div>
+    );
+  }
 
-    addonsArray.forEach(addon => {
-      const type = addon.category_type || '🍕 Pizza Salgada';
-      if (!grouped[type]) grouped[type] = [];
-      grouped[type].push(addon);
-    });
-
-    return grouped;
-  };
-
-  if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-sm text-gray-400">Carregando admin...</p></div>;
-  if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Restaurante não encontrado</h1></div>;
+  if (!tenant) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans">
+        <h1 className="text-xl font-bold text-orange-500">Restaurante não encontrado</h1>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return (
@@ -780,14 +836,20 @@ export default function AdminTenant() {
             <h2 className="text-xl font-bold text-orange-500">{tenant.name}</h2>
             <p className="text-xs text-gray-400">Painel Administrativo ERP</p>
           </div>
-          <input type="password" placeholder="Senha de acesso..." className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-sm text-white focus:outline-none" onChange={(e) => setPassword(e.target.value)} />
-          <button type="submit" className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl text-sm hover:bg-orange-600 transition">Entrar no Painel</button>
+          <input
+            type="password"
+            placeholder="Senha de acesso..."
+            className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-sm text-white focus:outline-none"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button type="submit" className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl text-sm hover:bg-orange-600 transition">
+            Entrar no Painel
+          </button>
         </form>
       </div>
     );
   }
-
-  const groupedAddons = groupAddonsByType(globalAddons);
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto font-sans pb-12">
@@ -817,10 +879,12 @@ export default function AdminTenant() {
           <h1 className="font-bold text-xl sm:text-2xl text-orange-500">{tenant.name}</h1>
           <p className="text-xs sm:text-sm text-gray-400">Painel ERP & Gestão do Restaurante</p>
         </div>
-        <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-xl text-red-400 font-bold transition">Sair</button>
+        <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-xl text-red-400 font-bold transition">
+          Sair
+        </button>
       </header>
 
-      {/* ABAS DE NAVEGAÇÃO COMPATÍVEIS COM MÓDULOS ATIVOS */}
+      {/* ABAS DE NAVEGAÇÃO */}
       <div className="flex space-x-2 bg-gray-900 p-1.5 rounded-xl border border-gray-800 mb-6 text-xs font-bold overflow-x-auto no-print scrollbar-none">
         <button onClick={() => setActiveTab('products')} className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'products' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>🍔 Itens</button>
         <button onClick={() => setActiveTab('addons')} className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-lg text-center transition ${activeTab === 'addons' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}>➕ Adicionais/Sabores</button>
@@ -882,7 +946,7 @@ export default function AdminTenant() {
                           <div>
                             <label className="text-[9px] text-gray-400 block mb-0.5">Grupo do Item:</label>
                             <select value={step.category_type} onChange={(e) => updateComboStep(idx, 'category_type', e.target.value, 'new')} className="w-full bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-[11px] text-white focus:outline-none">
-                              {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                              {addonTypesList.map(t => <option key={t} value={t}>{t}</option>)}
                             </select>
                           </div>
 
@@ -918,7 +982,7 @@ export default function AdminTenant() {
                 <input type="text" placeholder="URL da Foto (https://...)" value={newProd.image} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setNewProd({ ...newProd, image: e.target.value })} />
                 {newProd.image && (
                   <div className="mt-2 flex items-center space-x-2 bg-gray-950 p-2 rounded-lg border border-gray-800">
-                    <img src={newProd.image} alt="Prévia" className="w-10 h-10 rounded-md object-cover border border-gray-700" onError={(e) => e.target.style.display = 'none'} />
+                    <ImageWithFallback src={newProd.image} alt="Prévia" className="w-10 h-10 rounded-md object-cover" />
                     <span className="text-[10px] text-gray-400">Prévia da foto</span>
                   </div>
                 )}
@@ -928,7 +992,7 @@ export default function AdminTenant() {
                 <div className="border-t border-gray-800 pt-3 space-y-3">
                   <label className="text-[11px] text-gray-300 font-bold block">Vincular Adicionais / Sabores Habilitados:</label>
 
-                  {ADDON_TYPES.map(type => {
+                  {addonTypesList.map(type => {
                     const itemsOfType = groupedAddons[type] || [];
                     if (itemsOfType.length === 0) return null;
 
@@ -967,7 +1031,9 @@ export default function AdminTenant() {
                 </div>
               )}
 
-              <button type="submit" className="w-full bg-green-600 font-bold py-3 rounded-xl text-xs hover:bg-green-700 transition shadow-lg">Salvar Produto 🚀</button>
+              <button type="submit" className="w-full bg-green-600 font-bold py-3 rounded-xl text-xs hover:bg-green-700 transition shadow-lg">
+                Salvar Produto 🚀
+              </button>
             </form>
           </section>
 
@@ -977,7 +1043,7 @@ export default function AdminTenant() {
               {products.map((item) => (
                 <div key={item.id} className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center space-x-3">
                   <div className="flex items-center space-x-3 flex-1 min-w-0">
-                    <img src={item.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'} alt={item.name} className="w-14 h-14 rounded-xl object-cover border border-gray-800 bg-gray-800 shrink-0" />
+                    <ImageWithFallback src={item.image} alt={item.name} className="w-14 h-14 rounded-xl object-cover shrink-0" />
                     <div className="truncate">
                       <span className={`font-bold text-xs flex items-center space-x-1 truncate ${!item.active ? 'line-through text-gray-500' : 'text-white'}`}>
                         <span className="truncate">{item.name}</span>
@@ -1021,7 +1087,7 @@ export default function AdminTenant() {
                   }} 
                   className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold"
                 >
-                  {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  {addonTypesList.map(t => <option key={t} value={t}>{t}</option>)}
                   <option value="CUSTOM">✨ + Categoria Personalizada...</option>
                 </select>
               </div>
@@ -1047,7 +1113,7 @@ export default function AdminTenant() {
           </section>
 
           <section className="lg:col-span-2 space-y-4 h-fit">
-            {ADDON_TYPES.map(type => {
+            {addonTypesList.map(type => {
               const list = groupedAddons[type] || [];
               if (list.length === 0) return null;
 
@@ -1375,7 +1441,7 @@ export default function AdminTenant() {
                   <span className="text-orange-400 font-bold">Taxa: R$ {Number(n.fee).toFixed(2)}</span>
                 </div>
                 <div className="flex space-x-1.5">
-                  <button onClick={() => setEditingNeigh(n)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️</button>
+                  <button onClick={() => setEditingNeigh(n)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️️</button>
                   <button onClick={async () => { if (confirm("Excluir?")) { const { error } = await supabase.from('neighborhoods').delete().eq('id', n.id); if (error) alert(error.message); else fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
                 </div>
               </div>
@@ -1867,7 +1933,7 @@ export default function AdminTenant() {
                 }}
                 className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none font-bold"
               >
-                {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                {addonTypesList.map(t => <option key={t} value={t}>{t}</option>)}
                 <option value="CUSTOM">✨ + Categoria Personalizada...</option>
               </select>
             </div>
@@ -1957,7 +2023,7 @@ export default function AdminTenant() {
                         <div>
                           <label className="text-[9px] text-gray-400 block mb-0.5">Grupo do Item:</label>
                           <select value={step.category_type} onChange={(e) => updateComboStep(idx, 'category_type', e.target.value, 'edit')} className="w-full bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-[11px] text-white focus:outline-none">
-                            {ADDON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                            {addonTypesList.map(t => <option key={t} value={t}>{t}</option>)}
                           </select>
                         </div>
 
@@ -1992,7 +2058,7 @@ export default function AdminTenant() {
               <input type="text" placeholder="URL da Foto" value={editingProduct.image || ''} onChange={(e) => setEditingProduct({ ...editingProduct, image: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none" />
               {editingProduct.image && (
                 <div className="mt-2 flex items-center space-x-2 bg-gray-950 p-2 rounded-lg border border-gray-800">
-                  <img src={editingProduct.image} alt="Prévia" className="w-10 h-10 rounded-md object-cover border border-gray-700" onError={(e) => e.target.style.display = 'none'} />
+                  <ImageWithFallback src={editingProduct.image} alt="Prévia" className="w-10 h-10 rounded-md object-cover" />
                   <span className="text-[10px] text-gray-400">Prévia da imagem</span>
                 </div>
               )}
@@ -2001,7 +2067,7 @@ export default function AdminTenant() {
             {globalAddons.length > 0 && (
               <div className="border-t border-gray-800 pt-3 space-y-3">
                 <label className="text-[11px] text-gray-300 font-bold block">Adicionais / Sabores Vinculados:</label>
-                {ADDON_TYPES.map(type => {
+                {addonTypesList.map(type => {
                   const itemsOfType = groupedAddons[type] || [];
                   if (itemsOfType.length === 0) return null;
 
