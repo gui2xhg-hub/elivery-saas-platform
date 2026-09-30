@@ -250,7 +250,7 @@ export default function AdminTenant() {
       }
     } catch (err) {
       console.error("Erro ao carregar tenant:", err);
-    } fontally {
+    } finally {
       setLoading(false);
     }
   }, [slug, getDefaultWeeklySchedule]);
