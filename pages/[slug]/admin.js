@@ -250,7 +250,7 @@ export default function AdminTenant() {
       }
     } catch (err) {
       console.error("Erro ao carregar tenant:", err);
-    } finally {
+    } fontally {
       setLoading(false);
     }
   }, [slug, getDefaultWeeklySchedule]);
@@ -1287,98 +1287,283 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA RELATÓRIOS E FINANCEIRO */}
-      {activeTab === 'reports' && (
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row justify-between items-center bg-gray-900 p-4 rounded-2xl border border-gray-800 gap-3 no-print">
-            <div className="flex items-center space-x-2">
-              <span className="text-gray-400 text-xs font-bold">Filtrar Período:</span>
-              <div className="flex space-x-1 overflow-x-auto">
-                <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>Tudo</button>
-                <button onClick={() => setReportFilter('today')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'today' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>Hoje</button>
-                <button onClick={() => setReportFilter('7days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '7days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>7 Dias</button>
-                <button onClick={() => setReportFilter('30days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '30days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>30 Dias</button>
+      {/* ABA RELATÓRIOS E FINANCEIRO - ESTILO ANOTA AI */}
+      {activeTab === 'reports' && (() => {
+        // 1. CÁLCULOS FINANCEIROS E KPIS
+        const totalOrdersCount = filteredOrders.length;
+        const avgTicket = totalOrdersCount > 0 ? totalRevenue / totalOrdersCount : 0;
+
+        // 2. RANKING DE PRODUTOS MAIS VENDIDOS
+        const productSalesMap = {};
+        filteredOrders.forEach(order => {
+          (order.items || []).forEach(item => {
+            const name = item.name || 'Item não identificado';
+            const qty = Number(item.quantity || 1);
+            const price = Number(item.price || 0);
+
+            if (!productSalesMap[name]) {
+              productSalesMap[name] = { name, quantity: 0, revenue: 0 };
+            }
+            productSalesMap[name].quantity += qty;
+            productSalesMap[name].revenue += price * qty;
+          });
+        });
+
+        const topProducts = Object.values(productSalesMap)
+          .sort((a, b) => b.quantity - a.quantity)
+          .slice(0, 5); // Top 5 produtos
+
+        const maxProductQty = topProducts[0]?.quantity || 1;
+
+        // 3. DESEMPENHO DOS GARÇONS
+        const waiterSalesMap = {};
+        filteredOrders.forEach(order => {
+          if (order.waiter_name) {
+            const wName = order.waiter_name;
+            if (!waiterSalesMap[wName]) {
+              waiterSalesMap[wName] = { name: wName, count: 0, total: 0 };
+            }
+            waiterSalesMap[wName].count += 1;
+            waiterSalesMap[wName].total += Number(order.total || 0);
+          }
+        });
+
+        const topWaiters = Object.values(waiterSalesMap).sort((a, b) => b.total - a.total);
+        const maxWaiterTotal = topWaiters[0]?.total || 1;
+
+        // 4. DISTRIBUIÇÃO POR MÉTODO DE PAGAMENTO
+        const paymentMap = {};
+        filteredOrders.forEach(order => {
+          const method = order.payment_method || 'Outro';
+          if (!paymentMap[method]) {
+            paymentMap[method] = { method, count: 0, total: 0 };
+          }
+          paymentMap[method].count += 1;
+          paymentMap[method].total += Number(order.total || 0);
+        });
+
+        const paymentStats = Object.values(paymentMap).sort((a, b) => b.total - a.total);
+
+        // 5. DISTRIBUIÇÃO POR CANAL (DELIVERY / BALCÃO / MESA)
+        const channelMap = { delivery: 0, balcao: 0, mesa: 0 };
+        filteredOrders.forEach(order => {
+          const type = (order.order_type || 'delivery').toLowerCase();
+          if (type.includes('mesa')) channelMap.mesa += Number(order.total || 0);
+          else if (type.includes('balc') || type.includes('retirada')) channelMap.balcao += Number(order.total || 0);
+          else channelMap.delivery += Number(order.total || 0);
+        });
+
+        return (
+          <div className="space-y-6">
+            {/* FILTROS E AÇÕES RÁPIDAS */}
+            <div className="flex flex-col sm:flex-row justify-between items-center bg-gray-900 p-4 rounded-2xl border border-gray-800 gap-3 no-print">
+              <div className="flex items-center space-x-2">
+                <span className="text-gray-400 text-xs font-bold">Período:</span>
+                <div className="flex space-x-1 overflow-x-auto">
+                  {['all', 'today', '7days', '15days', '30days'].map((filterKey) => (
+                    <button
+                      key={filterKey}
+                      onClick={() => setReportFilter(filterKey)}
+                      className={`px-3 py-1.5 rounded-lg font-bold text-xs capitalize transition ${
+                        reportFilter === filterKey ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {filterKey === 'all' ? 'Tudo' : filterKey === 'today' ? 'Hoje' : filterKey.replace('days', ' Dias')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <label className="flex items-center space-x-2 cursor-pointer bg-gray-800 border border-gray-700 px-3 py-2 rounded-xl text-xs text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={tenant.auto_reset_orders || false}
+                    onChange={(e) => handleToggleAutoReset(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-orange-500 rounded cursor-pointer"
+                  />
+                  <span>Auto-zerar a cada dia</span>
+                </label>
+
+                <button onClick={handleResetOrderCounter} className="bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/40 font-bold px-3 py-2 rounded-xl text-xs transition">
+                  🔄 Zerar (#01)
+                </button>
+                <button onClick={() => window.print()} className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-2 rounded-xl text-xs transition shadow">
+                  🖨️ Imprimir Relatório
+                </button>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-              <label className="flex items-center space-x-2 cursor-pointer bg-gray-800 border border-gray-700 px-3 py-2 rounded-xl text-xs text-gray-300">
-                <input
-                  type="checkbox"
-                  checked={tenant.auto_reset_orders || false}
-                  onChange={(e) => handleToggleAutoReset(e.target.checked)}
-                  className="w-3.5 h-3.5 accent-orange-500 rounded cursor-pointer"
-                />
-                <span>Auto-zerar a cada dia</span>
-              </label>
+            <div className="print-area space-y-6">
+              {/* CARDS DE KPIS FINANCEIROS (ESTILO ANOTA AI) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 print:border-black print:bg-white print:text-black">
+                  <span className="text-xs text-gray-400 block mb-1 print:text-black font-semibold">💰 Faturamento Total</span>
+                  <span className="text-2xl font-extrabold text-green-400 print:text-black">R$ {totalRevenue.toFixed(2)}</span>
+                  <span className="text-[10px] text-gray-500 block mt-1">Líquido de vendas finalizadas</span>
+                </div>
 
-              <button onClick={handleResetOrderCounter} className="bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/40 font-bold px-3 py-2 rounded-xl text-xs transition">
-                🔄 Zerar Agora (#01)
-              </button>
-              <button onClick={() => window.print()} className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-2 rounded-xl text-xs transition shadow">
-                🖨️ Imprimir
-              </button>
-            </div>
-          </div>
+                <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 print:border-black print:bg-white print:text-black">
+                  <span className="text-xs text-gray-400 block mb-1 print:text-black font-semibold">📦 Total de Pedidos</span>
+                  <span className="text-2xl font-extrabold text-orange-400 print:text-black">{totalOrdersCount}</span>
+                  <span className="text-[10px] text-gray-500 block mt-1">Pedidos entregues / fechados</span>
+                </div>
 
-          <div className="print-area space-y-6">
-            <div className="hidden print:block text-center border-b border-black pb-2 mb-2">
-              <h2 className="font-bold text-base">{tenant.name}</h2>
-              <p className="text-xs">RELATÓRIO FINANCEIRO DE VENDAS</p>
-              <p className="text-[10px]">Data: {new Date().toLocaleDateString('pt-BR')}</p>
-            </div>
+                <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 print:border-black print:bg-white print:text-black">
+                  <span className="text-xs text-gray-400 block mb-1 print:text-black font-semibold">🎯 Ticket Médio</span>
+                  <span className="text-2xl font-extrabold text-blue-400 print:text-black">R$ {avgTicket.toFixed(2)}</span>
+                  <span className="text-[10px] text-gray-500 block mt-1">Média gasta por pedido</span>
+                </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 print:border-black print:bg-white print:text-black">
-                <span className="text-xs text-gray-400 block mb-1 print:text-black">Faturamento Total</span>
-                <span className="text-2xl font-extrabold text-green-400 print:text-black">R$ {totalRevenue.toFixed(2)}</span>
+                <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 print:border-black print:bg-white print:text-black">
+                  <span className="text-xs text-gray-400 block mb-1 print:text-black font-semibold">🛵 Taxas de Entrega</span>
+                  <span className="text-2xl font-extrabold text-purple-400 print:text-black">R$ {totalDeliveryFees.toFixed(2)}</span>
+                  <span className="text-[10px] text-gray-500 block mt-1">Repasse total de motoboys</span>
+                </div>
               </div>
-              <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 print:border-black print:bg-white print:text-black">
-                <span className="text-xs text-gray-400 block mb-1 print:text-black">Total de Pedidos</span>
-                <span className="text-2xl font-extrabold text-orange-400 print:text-black">{filteredOrders.length}</span>
-              </div>
-              <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 print:border-black print:bg-white print:text-black">
-                <span className="text-xs text-gray-400 block mb-1 print:text-black">Subtotal Produtos</span>
-                <span className="text-2xl font-extrabold text-blue-400 print:text-black">R$ {totalSubtotal.toFixed(2)}</span>
-              </div>
-              <div className="bg-gray-900 p-5 rounded-2xl border border-gray-800 print:border-black print:bg-white print:text-black">
-                <span className="text-xs text-gray-400 block mb-1 print:text-black">Taxas de Entrega</span>
-                <span className="text-2xl font-extrabold text-purple-400 print:text-black">R$ {totalDeliveryFees.toFixed(2)}</span>
-              </div>
-            </div>
 
-            <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 no-print">
-              <h3 className="font-bold text-xs text-orange-400 uppercase">📋 Histórico Auditado de Pedidos</h3>
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {filteredOrders.map(o => (
-                  <div key={o.id} className="bg-gray-950 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
-                    <div>
-                      <span className="font-bold text-white block">{getOrderDisplayNumber(o)} - {o.customer_name} ({o.order_type || 'delivery'})</span>
-                      <span className="text-[10px] text-gray-400">{new Date(o.created_at).toLocaleString('pt-BR')} • {o.payment_method}</span>
+              {/* SEÇÃO ANALÍTICA: PRODUTOS MAIS VENDIDOS & GARÇONS */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 no-print">
+                {/* RANKING PRODUTOS MAIS VENDIDOS */}
+                <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4">
+                  <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+                    <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider flex items-center space-x-1">
+                      <span>🔥 Top 5 Produtos Mais Vendidos</span>
+                    </h3>
+                    <span className="text-[10px] text-gray-500">Por Qtd</span>
+                  </div>
+
+                  {topProducts.length === 0 ? (
+                    <p className="text-xs text-gray-500 text-center py-4">Nenhum produto registrado no período.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {topProducts.map((prod, idx) => {
+                        const percent = Math.round((prod.quantity / maxProductQty) * 100);
+                        return (
+                          <div key={idx} className="space-y-1">
+                            <div className="flex justify-between text-xs font-bold">
+                              <span className="text-white truncate max-w-[200px]">{idx + 1}. {prod.name}</span>
+                              <span className="text-orange-400">{prod.quantity} un <span className="text-gray-500 text-[10px]">(R$ {prod.revenue.toFixed(2)})</span></span>
+                            </div>
+                            <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+                              <div className="bg-orange-500 h-full rounded-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-green-400">R$ {Number(o.total).toFixed(2)}</span>
-                      <button onClick={() => setSelectedReceiptOrder(o)} className="bg-gray-800 hover:bg-gray-700 text-gray-200 px-2.5 py-1 rounded-lg text-[10px] font-bold">
-                        📄 Recibo
-                      </button>
+                  )}
+                </section>
+
+                {/* DESEMPENHO DA EQUIPE DE GARÇONS */}
+                <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-4">
+                  <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+                    <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider flex items-center space-x-1">
+                      <span>👤 Desempenho dos Garçons</span>
+                    </h3>
+                    <span className="text-[10px] text-gray-500">Por Faturamento</span>
+                  </div>
+
+                  {topWaiters.length === 0 ? (
+                    <p className="text-xs text-gray-500 text-center py-4">Nenhum atendimento por garçom registrado no período.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {topWaiters.map((w, idx) => {
+                        const percent = Math.round((w.total / maxWaiterTotal) * 100);
+                        return (
+                          <div key={idx} className="space-y-1">
+                            <div className="flex justify-between text-xs font-bold">
+                              <span className="text-white">{w.name} <span className="text-gray-500 text-[10px]">({w.count} pedidos)</span></span>
+                              <span className="text-green-400">R$ {w.total.toFixed(2)}</span>
+                            </div>
+                            <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+                              <div className="bg-green-500 h-full rounded-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              </div>
+
+              {/* DISTRIBUIÇÃO POR FORMA DE PAGAMENTO & CANAL */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 no-print">
+                {/* MÉTODOS DE PAGAMENTO */}
+                <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3">
+                  <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider border-b border-gray-800 pb-2">
+                    💳 Vendas por Meio de Pagamento
+                  </h3>
+                  <div className="space-y-2">
+                    {paymentStats.map((pay, idx) => (
+                      <div key={idx} className="flex justify-between items-center bg-gray-950 p-2.5 rounded-xl border border-gray-800 text-xs">
+                        <span className="font-bold text-gray-300">{pay.method}</span>
+                        <div className="text-right">
+                          <span className="font-bold text-green-400 block">R$ {pay.total.toFixed(2)}</span>
+                          <span className="text-[10px] text-gray-500">{pay.count} pedido(s)</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                {/* CANAIS DE VENDA */}
+                <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3">
+                  <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider border-b border-gray-800 pb-2">
+                    📊 Faturamento por Canal
+                  </h3>
+                  <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                    <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
+                      <span className="text-[10px] text-gray-400 block mb-1">🛵 Delivery</span>
+                      <span className="font-extrabold text-xs text-orange-400">R$ {channelMap.delivery.toFixed(2)}</span>
+                    </div>
+                    <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
+                      <span className="text-[10px] text-gray-400 block mb-1">🛍️ Balcão</span>
+                      <span className="font-extrabold text-xs text-blue-400">R$ {channelMap.balcao.toFixed(2)}</span>
+                    </div>
+                    <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
+                      <span className="text-[10px] text-gray-400 block mb-1">🪑 Mesas</span>
+                      <span className="font-extrabold text-xs text-purple-400">R$ {channelMap.mesa.toFixed(2)}</span>
                     </div>
                   </div>
-                ))}
+                </section>
               </div>
+
+              {/* TABELA COMPLETA DE AUDITORIA DE PEDIDOS */}
+              <section className="bg-gray-900 p-5 rounded-2xl border border-gray-800 space-y-3 no-print">
+                <h3 className="font-bold text-xs text-orange-400 uppercase">📋 Histórico Auditado de Pedidos</h3>
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {filteredOrders.map(o => (
+                    <div key={o.id} className="bg-gray-950 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
+                      <div>
+                        <span className="font-bold text-white block">{getOrderDisplayNumber(o)} - {o.customer_name} ({o.order_type || 'delivery'})</span>
+                        <span className="text-[10px] text-gray-400">{new Date(o.created_at).toLocaleString('pt-BR')} • {o.payment_method}</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-bold text-green-400">R$ {Number(o.total).toFixed(2)}</span>
+                        <button onClick={() => setSelectedReceiptOrder(o)} className="bg-gray-800 hover:bg-gray-700 text-gray-200 px-2.5 py-1 rounded-lg text-[10px] font-bold">
+                          📄 Recibo
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+
+            {/* LIMPAR DADOS */}
+            <section className="bg-gray-900 p-5 rounded-2xl border border-red-500/30 flex justify-between items-center no-print">
+              <div>
+                <h4 className="font-bold text-xs text-red-400">🧹 Zerar Dados de Teste</h4>
+                <p className="text-[11px] text-gray-400">Apaga todo o histórico de pedidos para recomeçar do zero.</p>
+              </div>
+              <button type="button" onClick={handleClearFinancialData} className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/40 px-4 py-2.5 rounded-xl text-xs font-bold transition">
+                🗑️ Limpar Pedidos
+              </button>
             </section>
           </div>
-
-          <section className="bg-gray-900 p-5 rounded-2xl border border-red-500/30 flex justify-between items-center no-print">
-            <div>
-              <h4 className="font-bold text-xs text-red-400">🧹 Zerar Dados de Teste</h4>
-              <p className="text-[11px] text-gray-400">Apaga todo o histórico de pedidos para recomeçar do zero.</p>
-            </div>
-            <button type="button" onClick={handleClearFinancialData} className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/40 px-4 py-2.5 rounded-xl text-xs font-bold transition">
-              🗑️ Limpar Pedidos
-            </button>
-          </section>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ABA MESAS QR CODE */}
       {activeTab === 'tables' && (tenant.has_tables ?? true) && (
@@ -1441,7 +1626,7 @@ export default function AdminTenant() {
                   <span className="text-orange-400 font-bold">Taxa: R$ {Number(n.fee).toFixed(2)}</span>
                 </div>
                 <div className="flex space-x-1.5">
-                  <button onClick={() => setEditingNeigh(n)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏️️</button>
+                  <button onClick={() => setEditingNeigh(n)} className="text-xs bg-blue-600/20 text-blue-400 p-2 rounded-xl font-bold border border-blue-500/30">✏</button>
                   <button onClick={async () => { if (confirm("Excluir?")) { const { error } = await supabase.from('neighborhoods').delete().eq('id', n.id); if (error) alert(error.message); else fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-2 rounded-xl font-bold">🗑</button>
                 </div>
               </div>
