@@ -116,7 +116,7 @@ export default function DeliveryCliente() {
           if (data && data.status === 'approved') {
             setPixStatus('approved');
             if (currentOrderId) {
-              await supabase.from('orders').update({ is_paid: true, status: 'em_preparo' }).eq('id', currentOrderId);
+              await supabase.from('orders').update({ is_paid: true, status: 'recebido' }).eq('id', currentOrderId);
             }
             clearInterval(interval);
           }
@@ -210,22 +210,16 @@ export default function DeliveryCliente() {
     setComboSelections({});
     setItemObservation('');
     setModalAddonSearch('');
-
-    const borders = getBordersArray(product.borders_list);
-    if (borders.length > 0) {
-      setSelectedBorder(borders[0]);
-    } else {
-      setSelectedBorder(null);
-    }
+    setSelectedBorder(null); // Inicia sem borda selecionada por padrão
   };
 
-  // LIMITAÇÃO PARA PRODUTOS NORMAIS
+  // LIMITAÇÃO PARA PRODUTOS NORMAIS E PIZZAS
   const toggleAddon = (addon) => {
     const exists = selectedAddons.some(a => 
       a.name.toLowerCase().trim() === addon.name.toLowerCase().trim() && 
       (a.category_type && addon.category_type ? a.category_type === addon.category_type : true)
     );
-    const maxAllowed = Number(selectedProduct?.max_addons || 0);
+    const maxAllowed = Number(selectedProduct?.max_addons || selectedProduct?.max_flavors || selectedProduct?.flavor_limit || 0);
 
     if (exists) {
       setSelectedAddons(selectedAddons.filter(a => !(
@@ -296,11 +290,11 @@ export default function DeliveryCliente() {
         items: comboSelections[idx] || []
       }));
     } else {
-      const addonsTotal = selectedAddons.reduce((sum, a) => sum + Number(a.price), 0);
+      const addonsTotal = selectedAddons.reduce((sum, a) => sum + Number(a.price || 0), 0);
       unitPrice += addonsTotal;
     }
 
-    const borderFee = selectedBorder ? Number(selectedBorder.price) : 0;
+    const borderFee = selectedBorder ? Number(selectedBorder.price || 0) : 0;
     unitPrice += borderFee;
 
     const cartItem = {
@@ -357,7 +351,7 @@ export default function DeliveryCliente() {
         txt += `\n    + Sabores/Adicionais: ${i.selectedAddons.map(a => `${a.name}${Number(a.price) > 0 ? ` (+R$ ${Number(a.price).toFixed(2)})` : ''}`).join(', ')}`;
       }
 
-      if (i.selectedBorder && i.selectedBorder.name !== 'Sem Borda') {
+      if (i.selectedBorder && i.selectedBorder.name && i.selectedBorder.name !== 'Sem Borda') {
         txt += `\n    + Borda: ${i.selectedBorder.name}${Number(i.selectedBorder.price) > 0 ? ` (+R$ ${Number(i.selectedBorder.price).toFixed(2)})` : ''}`;
       }
       if (i.observation) {
@@ -413,7 +407,7 @@ export default function DeliveryCliente() {
     // VALIDAÇÃO DO MÓDULO SELECIONADO
     if (deliveryType === 'ENTREGA') {
       if (!isDeliveryEnabled) {
-        return alert("A opção de Entrega (Delivery) está desativada de momento neste estabelecimento.");
+        return alert("A opção de Entrega (Delivery) está desativada no momento neste estabelecimento.");
       }
       if (!tableNumber && !customerAddress) {
         return alert("Preencha o seu Endereço para entrega!");
@@ -421,7 +415,7 @@ export default function DeliveryCliente() {
     }
 
     if (deliveryType === 'BALCAO' && !isBalcaoEnabled) {
-      return alert("A opção de Retirada no Balcão está desativada de momento neste estabelecimento.");
+      return alert("A opção de Retirada no Balcão está desativada no momento neste estabelecimento.");
     }
 
     setIsSubmitting(true);
@@ -446,6 +440,10 @@ export default function DeliveryCliente() {
         : 'Cartão (Levar Maquininha)';
     }
 
+    // Se for PIX ou Cartão Online, status inicial é 'aguardando_pagamento' para ficar oculto no KDS
+    const isDynamicPayment = (paymentMethod === 'PIX' && tenant.pix_enabled) || (paymentMethod.includes('Cartão') && cardPaymentType === 'online');
+    const initialStatus = isDynamicPayment ? 'aguardando_pagamento' : 'recebido';
+
     const orderData = {
       tenant_id: tenant.id,
       customer_name: customerName,
@@ -459,8 +457,8 @@ export default function DeliveryCliente() {
       delivery_fee: currentDeliveryFee,
       total: total,
       payment_method: finalPaymentLabel,
-      change_for: changeValue,
-      status: 'recebido',
+      change_for: changeValue || null,
+      status: initialStatus,
       is_paid: false
     };
 
@@ -477,6 +475,7 @@ export default function DeliveryCliente() {
       window.fbq('track', 'Purchase', { value: total, currency: 'BRL' });
     }
 
+    // GERAÇÃO DE PIX AUTOMÁTICO VIA MERCADO PAGO
     if (paymentMethod === 'PIX' && tenant.pix_enabled && tenant.pix_access_token) {
       try {
         const mpRes = await fetch('/api/create-pix', {
@@ -507,6 +506,7 @@ export default function DeliveryCliente() {
       }
     }
 
+    // PAGAMENTO DE CARTÃO ONLINE VIA MERCADO PAGO
     if (paymentMethod.includes('Cartão') && cardPaymentType === 'online' && tenant?.pix_access_token) {
       try {
         const prefRes = await fetch('/api/create-preference', {
@@ -778,36 +778,40 @@ export default function DeliveryCliente() {
 
       {/* LISTA DE PRODUTOS */}
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredProducts.map(p => (
-          <div 
-            key={p.id} 
-            onClick={() => handleOpenProductModal(p)}
-            style={{ backgroundColor: cardColor }} 
-            className="p-3.5 rounded-2xl border border-white/10 hover:border-orange-500/50 transition flex flex-col justify-between cursor-pointer space-y-3 group shadow-lg">
-            
-            <div className="flex items-start space-x-3">
-              <img src={p.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=200&auto=format&fit=crop&q=80'} alt={p.name} className="w-20 h-20 rounded-xl object-cover border border-white/10 bg-gray-800 shrink-0 group-hover:scale-105 transition" />
-              <div className="flex-1 min-w-0">
-                <h3 className="font-extrabold text-xs sm:text-sm flex items-center space-x-1 truncate" style={{ color: textColor }}>
-                  <span>{p.name}</span>
-                  {p.is_combo && <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.2 rounded font-bold">COMBO</span>}
-                </h3>
-                <p className="text-[11px] opacity-60 line-clamp-2 mt-1">{p.description || 'Sem descrição'}</p>
+        {filteredProducts.map(p => {
+          const maxFlavors = Number(p.max_addons || p.max_flavors || p.flavor_limit || 0);
+
+          return (
+            <div 
+              key={p.id} 
+              onClick={() => handleOpenProductModal(p)}
+              style={{ backgroundColor: cardColor }} 
+              className="p-3.5 rounded-2xl border border-white/10 hover:border-orange-500/50 transition flex flex-col justify-between cursor-pointer space-y-3 group shadow-lg">
+              
+              <div className="flex items-start space-x-3">
+                <img src={p.image || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=200&auto=format&fit=crop&q=80'} alt={p.name} className="w-20 h-20 rounded-xl object-cover border border-white/10 bg-gray-800 shrink-0 group-hover:scale-105 transition" />
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-extrabold text-xs sm:text-sm flex items-center space-x-1 truncate" style={{ color: textColor }}>
+                    <span>{p.name}</span>
+                    {p.is_combo && <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.2 rounded font-bold">COMBO</span>}
+                  </h3>
+                  <p className="text-[11px] opacity-60 line-clamp-2 mt-1">{p.description || 'Sem descrição'}</p>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center pt-2 border-t border-white/10">
+                <span className="font-extrabold text-sm sm:text-base" style={{ color: primaryColor }}>
+                  R$ {Number(p.price).toFixed(2)}
+                  {maxFlavors > 0 && !p.is_combo && <span className="text-[10px] opacity-70 font-normal ml-1 block sm:inline">(Até {maxFlavors} sab.)</span>}
+                </span>
+
+                <button style={{ backgroundColor: primaryColor, color: btnTextColor }} className="px-3.5 py-1.5 rounded-xl text-xs font-extrabold whitespace-nowrap shadow transition group-hover:opacity-90">
+                  + Adicionar
+                </button>
               </div>
             </div>
-
-            <div className="flex justify-between items-center pt-2 border-t border-white/10">
-              <span className="font-extrabold text-sm sm:text-base" style={{ color: primaryColor }}>
-                R$ {Number(p.price).toFixed(2)}
-                {p.max_addons > 0 && !p.is_combo && <span className="text-[10px] opacity-70 font-normal ml-1 block sm:inline">(Até {p.max_addons} sab.)</span>}
-              </span>
-
-              <button style={{ backgroundColor: primaryColor, color: btnTextColor }} className="px-3.5 py-1.5 rounded-xl text-xs font-extrabold whitespace-nowrap shadow transition group-hover:opacity-90">
-                + Adicionar
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <footer className="mt-16 border-t border-white/10 pt-8 pb-10 text-center space-y-4">
@@ -952,16 +956,16 @@ export default function DeliveryCliente() {
                 <div className="space-y-3 pt-2 border-t border-white/10">
                   <div className="flex justify-between items-center">
                     <label className="text-xs font-extrabold block opacity-90">
-                      {selectedProduct.max_addons > 0 ? '🍕 Escolha os Sabores:' : '➕ Adicionais Opcionais:'}
+                      {(selectedProduct.max_addons || selectedProduct.max_flavors || selectedProduct.flavor_limit) > 0 ? '🍕 Escolha os Sabores:' : '➕ Adicionais Opcionais:'}
                     </label>
 
-                    {selectedProduct.max_addons > 0 && (
+                    {(selectedProduct.max_addons || selectedProduct.max_flavors || selectedProduct.flavor_limit) > 0 && (
                       <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg border ${
-                        selectedAddons.length === Number(selectedProduct.max_addons)
+                        selectedAddons.length === Number(selectedProduct.max_addons || selectedProduct.max_flavors || selectedProduct.flavor_limit)
                           ? 'bg-green-500/20 text-green-400 border-green-500/30'
                           : 'bg-orange-500/20 text-orange-400 border-orange-500/30'
                       }`}>
-                        Selecionados: {selectedAddons.length} / {selectedProduct.max_addons}
+                        Selecionados: {selectedAddons.length} / {selectedProduct.max_addons || selectedProduct.max_flavors || selectedProduct.flavor_limit}
                       </span>
                     )}
                   </div>
@@ -1026,8 +1030,19 @@ export default function DeliveryCliente() {
             {/* BORDAS RECHEADAS */}
             {getBordersArray(selectedProduct.borders_list).length > 0 && (
               <div className="space-y-2 pt-2 border-t border-white/10">
-                <label className="text-xs font-extrabold block opacity-90">🫓 Escolha a Borda:</label>
+                <label className="text-xs font-extrabold block opacity-90">🫓 Escolha a Borda (Opcional):</label>
                 <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                  <div
+                    onClick={() => setSelectedBorder(null)}
+                    style={{ backgroundColor: selectedBorder === null ? `${primaryColor}22` : bgColor, borderColor: selectedBorder === null ? primaryColor : 'rgba(255,255,255,0.1)' }}
+                    className="p-2.5 rounded-xl border flex justify-between items-center text-xs cursor-pointer transition">
+                    <div className="flex items-center space-x-2">
+                      <input type="radio" checked={selectedBorder === null} onChange={() => {}} className="accent-orange-500 pointer-events-none" />
+                      <span className="font-bold">Sem Borda Recheada</span>
+                    </div>
+                    <span style={{ color: primaryColor }} className="font-bold text-[11px]">Grátis</span>
+                  </div>
+
                   {getBordersArray(selectedProduct.borders_list).map((border, idx) => {
                     const isSelected = selectedBorder?.name === border.name;
                     return (
@@ -1114,7 +1129,7 @@ export default function DeliveryCliente() {
                       )
                     )}
 
-                    {item.selectedBorder && item.selectedBorder.name !== 'Sem Borda' && (
+                    {item.selectedBorder && item.selectedBorder.name && item.selectedBorder.name !== 'Sem Borda' && (
                       <p className="text-[10px] opacity-60">Borda: {item.selectedBorder.name}</p>
                     )}
                     {item.observation && (
@@ -1250,7 +1265,7 @@ export default function DeliveryCliente() {
               )}
 
               {paymentMethod === 'Dinheiro' && (
-                <input type="text" placeholder="Troco para quanto? (Opcional)" value={changeValue} onChange={(e) => setChangeValue(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
+                <input type="text" placeholder="Troco para quanto? (Ex: 50.00)" value={changeValue} onChange={(e) => setChangeValue(e.target.value)} style={{ backgroundColor: bgColor, color: textColor }} className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none" />
               )}
 
               <div style={{ backgroundColor: bgColor }} className="p-3 rounded-xl border border-white/10 space-y-1 text-xs">
