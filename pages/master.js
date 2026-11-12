@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { isMasterPassword } from '../lib/checkMaster';
 
 // FUNÇÃO AUXILIAR PARA PARSE DE VALORES MONETÁRIOS
 const parsePrice = (val, defaultVal = 0) => {
@@ -70,11 +71,11 @@ export default function MasterAdmin() {
   const [editingTenant, setEditingTenant] = useState(null);
 
   // LOGIN MASTER
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (masterPassword === 'master123' || masterPassword === 'sinerge2026') {
+    // A senha mestra é conferida no servidor (variável MASTER_PASSWORD na Vercel)
+    if (await isMasterPassword(masterPassword)) {
       setIsAuthenticated(true);
-      fetchTenants();
     } else {
       alert('Senha master incorreta!');
     }
