@@ -340,7 +340,9 @@ export default function MasterAdmin() {
       card_bg_color: editingTenant.card_bg_color,
       text_color: editingTenant.text_color,
       price_color: editingTenant.price_color,
-      has_tables: editingTenant.has_tables ?? true
+      has_tables: editingTenant.has_tables ?? true,
+      // Módulo Locação (só envia se o banco já tiver a coluna — ver supabase/locacao_01_estrutura.sql do e-commerce)
+      ...('rental_module_enabled' in editingTenant ? { rental_module_enabled: !!editingTenant.rental_module_enabled } : {})
     }).eq('id', editingTenant.id);
 
     if (error) {
@@ -800,7 +802,7 @@ export default function MasterAdmin() {
                         <div className="flex items-center space-x-2 flex-wrap">
                           <h3 className="font-bold text-sm text-white">{t.name}</h3>
                           <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${isIgreja ? 'bg-amber-500/20 text-amber-400' : isEcommerce ? 'bg-blue-500/20 text-blue-400' : isAgendamento ? 'bg-purple-500/20 text-purple-400' : isAgencia ? 'bg-pink-500/20 text-pink-400' : 'bg-orange-500/20 text-orange-400'}`}>
-                            {isIgreja ? '✝️ Igreja' : isEcommerce ? '👕 E-commerce' : isAgendamento ? '✂️ Agendamento' : isAgencia ? '🚀 Agência Mkt' : '🍔 Delivery'}
+                            {isIgreja ? '✝️ Igreja' : isEcommerce ? (t.rental_module_enabled ? '👕 E-commerce + 🗓️ Locação' : '👕 E-commerce') : isAgendamento ? '✂️ Agendamento' : isAgencia ? '🚀 Agência Mkt' : '🍔 Delivery'}
                           </span>
                           <span className="text-[9px] font-bold px-2 py-0.5 rounded-full uppercase bg-gray-800 text-gray-300 border border-gray-700">
                             🔄 {getCycleLabel(t.billing_cycle)} ({t.contract_months ? `${t.contract_months}m` : '12m'})
@@ -931,6 +933,20 @@ export default function MasterAdmin() {
                 <input type="text" placeholder="Ex: fin123" value={editingTenant.financial_password || ''} onChange={(e) => setEditingTenant({ ...editingTenant, financial_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
               </div>
             </div>
+
+            {(editingTenant.has_ecommerce || editingTenant.business_type === 'ecommerce') && (
+              'rental_module_enabled' in editingTenant ? (
+                <label className="flex items-center justify-between bg-purple-500/10 border border-purple-500/30 p-3 rounded-xl cursor-pointer">
+                  <span className="text-xs">
+                    <b className="text-purple-300 block">🗓️ Módulo Locação (aluguel)</b>
+                    <span className="text-[10px] text-gray-400">Libera a aba "Locação" no painel da loja: aluguel por data, CNPJ, tabelas de preço e WhatsApp automático.</span>
+                  </span>
+                  <input type="checkbox" checked={!!editingTenant.rental_module_enabled} onChange={(e) => setEditingTenant({ ...editingTenant, rental_module_enabled: e.target.checked })} className="w-5 h-5 accent-purple-500" />
+                </label>
+              ) : (
+                <p className="text-[10px] text-gray-500">🗓️ Módulo Locação: rode o arquivo de banco da locação no Supabase para liberar esta opção.</p>
+              )
+            )}
 
             <div className="grid grid-cols-4 gap-3">
               <div>
