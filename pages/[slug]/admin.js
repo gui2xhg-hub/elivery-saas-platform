@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
+import { isMasterPassword } from '../../lib/checkMaster';
 
 // FUNÇÃO AUXILIAR PARA PARSE DE PREÇOS (ACEITA VÍRGULA E PONTO)
 const parsePrice = (val) => {
@@ -262,9 +263,9 @@ export default function AdminTenant() {
     }
   }, [slug, fetchTenant]);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (tenant && (password === tenant.admin_password || password === 'master123')) {
+    if (tenant && (password === tenant.admin_password || await isMasterPassword(password))) {
       setIsAuthenticated(true);
       fetchData(tenant.id);
     } else {

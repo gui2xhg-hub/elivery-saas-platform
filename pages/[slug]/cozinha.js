@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
+import { isMasterPassword } from '../../lib/checkMaster';
 
 const parsePrice = (val) => {
   if (!val) return 0;
@@ -303,9 +304,9 @@ export default function PdvKdsTenant() {
     }
   };
 
-  const handleAdminAuthSubmit = (e) => {
+  const handleAdminAuthSubmit = async (e) => {
     e.preventDefault();
-    if (tenant && (adminPasswordInput === tenant.admin_password || adminPasswordInput === 'master123')) {
+    if (tenant && (adminPasswordInput === tenant.admin_password || await isMasterPassword(adminPasswordInput))) {
       setIsAdminEditAuth(true);
       setShowAdminAuthModal(false);
       if (orderToEditPendingAuth) {
