@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
+
+// Garante que a categoria escolhida existe (evita erro "products_category_id_fkey"
+// quando uma categoria foi excluída e o formulário ainda guardava o código antigo)
+const resolveCategoryId = (chosen, categories) => {
+  const list = categories || [];
+  const found = list.find((c) => String(c.id) === String(chosen));
+  const id = found ? found.id : (list[0] ? list[0].id : null);
+  if (id === null || id === undefined) return null;
+  return isNaN(Number(id)) ? id : Number(id);
+};
 import { isMasterPassword } from '../../lib/checkMaster';
 
 // FUNÇÃO AUXILIAR PARA PARSE DE PREÇOS (ACEITA VÍRGULA E PONTO)
@@ -606,7 +616,7 @@ export default function AdminTenant() {
 
     const { error } = await supabase.from('products').insert([{
       tenant_id: tenant.id,
-      category_id: parseInt(newProd.category_id || categories[0]?.id),
+      category_id: resolveCategoryId(newProd.category_id, categories),
       name: newProd.name.trim(),
       description: newProd.description,
       price: formattedPrice,
@@ -633,7 +643,7 @@ export default function AdminTenant() {
       name: editingProduct.name.trim(),
       price: formattedPrice,
       description: editingProduct.description,
-      category_id: parseInt(editingProduct.category_id),
+      category_id: resolveCategoryId(editingProduct.category_id, categories),
       image: editingProduct.image,
       addons_list: editingProduct.addons_list,
       max_addons: parseInt(editingProduct.max_addons || 0),
