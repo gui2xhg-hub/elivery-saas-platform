@@ -1,0 +1,1070 @@
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { isMasterPassword } from '../lib/checkMaster';
+
+// FUNÇÃO AUXILIAR PARA PARSE DE VALORES MONETÁRIOS
+const parsePrice = (val, defaultVal = 0) => {
+  if (!val) return defaultVal;
+  const clean = String(val).replace(',', '.');
+  const num = parseFloat(clean);
+  return isNaN(num) ? defaultVal : num;
+};
+
+// AUXILIARES DE CICLO DE PAGAMENTO
+const getCycleText = (cycle) => {
+  switch (cycle) {
+    case 'weekly': return 'semanalidade';
+    case 'biweekly': return 'quinzenalidade';
+    default: return 'mensalidade';
+  }
+};
+
+const getCycleLabel = (cycle) => {
+  switch (cycle) {
+    case 'weekly': return 'Semanal';
+    case 'biweekly': return 'Quinzenal';
+    default: return 'Mensal';
+  }
+};
+
+export default function MasterAdmin() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [masterPassword, setMasterPassword] = useState('');
+
+  // ==========================================
+  // ESTADOS DO MÓDULO SAAS (CLIENTES DA PLATAFORMA)
+  // ==========================================
+  const [tenants, setTenants] = useState([]);
+  const [tenantStats, setTenantStats] = useState({});
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState('ALL');
+  const [copiedTenantId, setCopiedTenantId] = useState(null);
+
+  // CONTROLE DE INTERFACE (JANELAS E EXPANSÕES)
+  const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
+  const [expandedTenantId, setExpandedTenantId] = useState(null);
+
+  // FORMULÁRIO DE NOVO CLIENTE SAAS
+  const [newTenant, setNewTenant] = useState({
+    name: '',
+    slug: '',
+    whatsapp: '',
+    logo_url: '',
+    banner_url: '',
+    primary_color: '#FF8C00',
+    button_text_color: '#FFFFFF',
+    secondary_color: '#090D16',
+    card_bg_color: '#111827',
+    text_color: '#FFFFFF',
+    price_color: '#FF8C00',
+    due_date: '',
+    monthly_fee: '99.00',
+    billing_cycle: 'monthly',
+    contract_months: '12',
+    admin_password: '',
+    financial_password: '',
+    business_type: 'delivery',
+    has_tables: true
+  });
+
+  // ESTADO DE EDIÇÃO DE CLIENTE SAAS EXISTENTE
+  const [editingTenant, setEditingTenant] = useState(null);
+
+  // LOGIN MASTER
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    // A senha mestra é conferida no servidor (variável MASTER_PASSWORD na Vercel)
+    if (await isMasterPassword(masterPassword)) {
+      setIsAuthenticated(true);
+    } else {
+      alert('Senha master incorreta!');
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchTenants();
+    }
+  }, [isAuthenticated]);
+
+  // ==========================================
+  // BUSCA E AÇÕES DO MÓDULO SAAS
+  // ==========================================
+  const fetchTenants = async () => {
+    const { data: rawTenants } = await supabase.from('tenants').select('*').order('id', { ascending: false });
+
+    if (!rawTenants) return;
+
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const updatedTenants = await Promise.all(rawTenants.map(async (t) => {
+      if (t.due_date && t.active) {
+        if (t.due_date < todayStr) {
+          await supabase.from('tenants').update({ active: false }).eq('id', t.id);
+          return { ...t, active: false };
+        }
+      }
+      return t;
+    }));
+
+    setTenants(updatedTenants);
+
+    const validTenantIds = new Set(updatedTenants.map(t => t.id));
+    let statsMap = {};
+
+    validTenantIds.forEach(id => {
+      statsMap[id] = { count: 0, revenue: 0, lastOrderAt: null };
+    });
+
+    try {
+      const { data: oData } = await supabase
+        .from('orders')
+        .select('id, tenant_id, total, created_at, payment_method, status');
+
+      if (oData) {
+        oData.forEach(order => {
+          if (!validTenantIds.has(order.tenant_id)) return;
+
+          statsMap[order.tenant_id].count += 1;
+
+          const isPaid = order.payment_method?.toUpperCase().includes('PAGO') || order.status === 'concluido' || order.status === 'entregue';
+          if (isPaid) {
+            statsMap[order.tenant_id].revenue += parsePrice(order.total, 0);
+          }
+
+          if (order.created_at) {
+            const orderDate = new Date(order.created_at);
+            if (!statsMap[order.tenant_id].lastOrderAt || orderDate > new Date(statsMap[order.tenant_id].lastOrderAt)) {
+              statsMap[order.tenant_id].lastOrderAt = order.created_at;
+            }
+          }
+        });
+      }
+
+      const { data: aData } = await supabase
+        .from('appointments')
+        .select('id, tenant_id, total_price, created_at, appointment_date, status');
+
+      if (aData) {
+        aData.forEach(app => {
+          if (!validTenantIds.has(app.tenant_id)) return;
+          if (app.status === 'cancelado') return;
+
+          statsMap[app.tenant_id].count += 1;
+
+          const isPaidOrValid = app.status === 'concluido' || app.status === 'agendado';
+          if (isPaidOrValid) {
+            statsMap[app.tenant_id].revenue += parsePrice(app.total_price, 0);
+          }
+
+          const appDateStr = app.created_at || (app.appointment_date ? `${app.appointment_date}T00:00:00` : null);
+          if (appDateStr) {
+            const appDate = new Date(appDateStr);
+            if (!statsMap[app.tenant_id].lastOrderAt || appDate > new Date(statsMap[app.tenant_id].lastOrderAt)) {
+              statsMap[app.tenant_id].lastOrderAt = appDateStr;
+            }
+          }
+        });
+      }
+    } catch (err) {
+      console.log("Erro ao carregar estatísticas:", err);
+    }
+
+    setTenantStats(statsMap);
+  };
+
+  const getDueDateInfo = (dueDateStr) => {
+    if (!dueDateStr) return { diffDays: 999, isExpiring: false, isExpired: false, label: 'Livre / Perpétuo' };
+    
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    
+    const today = new Date(todayStr + 'T00:00:00');
+    const dueDate = new Date(dueDateStr + 'T00:00:00');
+
+    const diffTime = dueDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      return { diffDays, isExpiring: false, isExpired: true, label: '🔴 VENCIDO (SUSPENSO)' };
+    } else if (diffDays <= 3) {
+      return { diffDays, isExpiring: true, isExpired: false, label: `⚠️ VENCE EM ${diffDays === 0 ? 'HOJE' : diffDays + ' DIA(S)'}` };
+    } else {
+      return { diffDays, isExpiring: false, isExpired: false, label: `Vence em ${diffDays} dias` };
+    }
+  };
+
+  const handleSendWhatsAppBilling = (tenant, diffDays) => {
+    const formattedDate = tenant.due_date ? tenant.due_date.split('-').reverse().join('/') : '';
+    const phone = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
+    const formattedPhone = phone.startsWith('55') ? phone : `55${phone}`;
+    const cycleTerm = getCycleText(tenant.billing_cycle || 'monthly');
+    const cycleLabel = getCycleLabel(tenant.billing_cycle || 'monthly');
+
+    let text = '';
+    if (diffDays < 0) {
+      text = `🔴 *AVISO DE DESATIVAÇÃO DE SISTEMA — SINERGE*\n\n` +
+        `Olá, *${tenant.name}*!\n\n` +
+        `Sua ${cycleTerm} (${cycleLabel}) no valor de *R$ ${parsePrice(tenant.monthly_fee, 99).toFixed(2)}* venceu em *${formattedDate}*.\n\n` +
+        `⚠️ *Seu acesso ao sistema será desativado em breve.* Para reativar imediatamente e evitar interrupções no seu atendimento, efetue o pagamento via PIX:\n\n` +
+        `🔑 *Chave PIX:* financeiro@sinergemkt.com\n\n` +
+        `Após realizar o pagamento, envie o comprovante por aqui para liberação automática.`;
+    } else {
+      text = `⚠️ *AVISO DE RENOVAÇÃO DE SISTEMA — SINERGE*\n\n` +
+        `Olá, *${tenant.name}*!\n\n` +
+        `Passando para lembrar que sua ${cycleTerm} (${cycleLabel}) no valor de *R$ ${parsePrice(tenant.monthly_fee, 99).toFixed(2)}* vence ${diffDays === 0 ? '*HOJE*' : `em *${diffDays} dia(s)* (${formattedDate})`}.\n\n` +
+        `Por favor, confirme o pagamento para manter seu sistema ativo sem interrupções!\n\n` +
+        `🔑 *Chave PIX:* financeiro@sinergemkt.com`;
+    }
+
+    const encodedText = encodeURIComponent(text);
+    window.open(`https://wa.me/${formattedPhone}?text=${encodedText}`, '_blank');
+  };
+
+  const applyPreset = (type) => {
+    if (type === 'dark_orange') {
+      setNewTenant(prev => ({ ...prev, primary_color: '#FF8C00', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#FF8C00' }));
+    } else if (type === 'light_pink') {
+      setNewTenant(prev => ({ ...prev, primary_color: '#EC4899', button_text_color: '#FFFFFF', secondary_color: '#F9FAFB', card_bg_color: '#FFFFFF', text_color: '#111827', price_color: '#EC4899' }));
+    } else if (type === 'purple_barber') {
+      setNewTenant(prev => ({ ...prev, primary_color: '#A855F7', button_text_color: '#FFFFFF', secondary_color: '#0F172A', card_bg_color: '#1E293B', text_color: '#F8FAFC', price_color: '#A855F7' }));
+    } else if (type === 'blue_ecommerce') {
+      setNewTenant(prev => ({ ...prev, primary_color: '#3B82F6', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#3B82F6' }));
+    } else if (type === 'pink_agency') {
+      setNewTenant(prev => ({ ...prev, primary_color: '#EC4899', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#EC4899' }));
+    } else if (type === 'amber_church') {
+      setNewTenant(prev => ({ ...prev, primary_color: '#F59E0B', button_text_color: '#0F172A', secondary_color: '#020617', card_bg_color: '#0F172A', text_color: '#F8FAFC', price_color: '#F59E0B' }));
+    }
+  };
+
+  const applyEditPreset = (type) => {
+    if (!editingTenant) return;
+    if (type === 'dark_orange') {
+      setEditingTenant(prev => ({ ...prev, primary_color: '#FF8C00', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#FF8C00' }));
+    } else if (type === 'light_pink') {
+      setEditingTenant(prev => ({ ...prev, primary_color: '#EC4899', button_text_color: '#FFFFFF', secondary_color: '#F9FAFB', card_bg_color: '#FFFFFF', text_color: '#111827', price_color: '#EC4899' }));
+    } else if (type === 'purple_barber') {
+      setEditingTenant(prev => ({ ...prev, primary_color: '#A855F7', button_text_color: '#FFFFFF', secondary_color: '#0F172A', card_bg_color: '#1E293B', text_color: '#F8FAFC', price_color: '#A855F7' }));
+    } else if (type === 'blue_ecommerce') {
+      setEditingTenant(prev => ({ ...prev, primary_color: '#3B82F6', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#3B82F6' }));
+    } else if (type === 'pink_agency') {
+      setEditingTenant(prev => ({ ...prev, primary_color: '#EC4899', button_text_color: '#FFFFFF', secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF', price_color: '#EC4899' }));
+    } else if (type === 'amber_church') {
+      setEditingTenant(prev => ({ ...prev, primary_color: '#F59E0B', button_text_color: '#0F172A', secondary_color: '#020617', card_bg_color: '#0F172A', text_color: '#F8FAFC', price_color: '#F59E0B' }));
+    }
+  };
+
+  const handleCreateTenant = async (e) => {
+    e.preventDefault();
+    if (!newTenant.name || !newTenant.slug || !newTenant.whatsapp) return alert("Preencha Nome, Slug e WhatsApp!");
+
+    const cleanSlug = newTenant.slug.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const cleanPhone = newTenant.whatsapp.replace(/\D/g, '');
+
+    const isDelivery = newTenant.business_type === 'delivery';
+    const isAgendamento = newTenant.business_type === 'agendamento';
+    const isEcommerce = newTenant.business_type === 'ecommerce';
+    const isAgencia = newTenant.business_type === 'agencia';
+    const isIgreja = newTenant.business_type === 'igreja';
+
+    const { data, error } = await supabase.from('tenants').insert([{
+      name: newTenant.name.trim(),
+      slug: cleanSlug,
+      whatsapp: cleanPhone,
+      logo_url: newTenant.logo_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=150&auto=format&fit=crop&q=80',
+      banner_url: newTenant.banner_url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80',
+      admin_password: newTenant.admin_password || '123456',
+      financial_password: newTenant.financial_password || '',
+      primary_color: newTenant.primary_color || '#FF8C00',
+      button_text_color: newTenant.button_text_color || '#FFFFFF',
+      secondary_color: newTenant.secondary_color || '#090D16',
+      card_bg_color: newTenant.card_bg_color || '#111827',
+      text_color: newTenant.text_color || '#FFFFFF',
+      price_color: newTenant.price_color || '#FF8C00',
+      due_date: newTenant.due_date || null,
+      monthly_fee: parsePrice(newTenant.monthly_fee, 99.00),
+      billing_cycle: newTenant.billing_cycle || 'monthly',
+      contract_months: parseInt(newTenant.contract_months || 12),
+      active: true,
+      has_delivery: isDelivery,
+      has_agendamento: isAgendamento,
+      has_ecommerce: isEcommerce,
+      has_agencia: isAgencia,
+      has_igreja: isIgreja,
+      has_tables: newTenant.has_tables,
+      business_type: newTenant.business_type
+    }]).select().single();
+
+    if (error) {
+      alert("Erro ao criar cliente: " + error.message);
+    } else {
+      if (isDelivery) {
+        await supabase.from('categories').insert([{ tenant_id: data.id, name: 'Lanches' }, { tenant_id: data.id, name: 'Bebidas' }]);
+      } else if (isEcommerce) {
+        await supabase.from('categories').insert([{ tenant_id: data.id, name: 'Camisas' }, { tenant_id: data.id, name: 'Personalizados' }]);
+      }
+
+      alert(`Cliente "${data.name}" criado com sucesso!`);
+      setIsCreateFormOpen(false);
+      setNewTenant({
+        name: '', slug: '', whatsapp: '', logo_url: '', banner_url: '',
+        primary_color: '#FF8C00', button_text_color: '#FFFFFF',
+        secondary_color: '#090D16', card_bg_color: '#111827', text_color: '#FFFFFF',
+        price_color: '#FF8C00', due_date: '', monthly_fee: '99.00', billing_cycle: 'monthly', contract_months: '12', admin_password: '', financial_password: '', business_type: 'delivery',
+        has_tables: true
+      });
+      fetchTenants();
+    }
+  };
+
+  const handleUpdateTenant = async (e) => {
+    e.preventDefault();
+    if (!editingTenant) return;
+    const cleanPhone = editingTenant.whatsapp ? editingTenant.whatsapp.replace(/\D/g, '') : '';
+
+    const { error } = await supabase.from('tenants').update({
+      name: editingTenant.name.trim(),
+      whatsapp: cleanPhone,
+      admin_password: editingTenant.admin_password,
+      financial_password: editingTenant.financial_password || '',
+      monthly_fee: parsePrice(editingTenant.monthly_fee, 99.00),
+      billing_cycle: editingTenant.billing_cycle || 'monthly',
+      contract_months: parseInt(editingTenant.contract_months || 12),
+      due_date: editingTenant.due_date || null,
+      logo_url: editingTenant.logo_url,
+      banner_url: editingTenant.banner_url,
+      primary_color: editingTenant.primary_color,
+      button_text_color: editingTenant.button_text_color,
+      secondary_color: editingTenant.secondary_color,
+      card_bg_color: editingTenant.card_bg_color,
+      text_color: editingTenant.text_color,
+      price_color: editingTenant.price_color,
+      has_tables: editingTenant.has_tables ?? true,
+      // Módulo Locação (só envia se o banco já tiver a coluna — ver supabase/locacao_01_estrutura.sql do e-commerce)
+      ...('rental_module_enabled' in editingTenant ? { rental_module_enabled: !!editingTenant.rental_module_enabled } : {})
+    }).eq('id', editingTenant.id);
+
+    if (error) {
+      alert("Erro ao atualizar: " + error.message);
+    } else {
+      alert("Cliente atualizado com sucesso!");
+      setEditingTenant(null);
+      fetchTenants();
+    }
+  };
+
+  const toggleTenantActive = async (id, currentStatus) => {
+    await supabase.from('tenants').update({ active: !currentStatus }).eq('id', id);
+    fetchTenants();
+  };
+
+  const handleDeleteTenant = async (id, name) => {
+    if (confirm(`TEM CERTEZA que deseja apagar o cliente "${name}"?\nIsso apaga todos os dados definitivamente!`)) {
+      await supabase.from('tenants').delete().eq('id', id);
+      fetchTenants();
+    }
+  };
+
+  const handleCopyOnboardingMsg = (tenant) => {
+    const isEcommerce = tenant.has_ecommerce || tenant.business_type === 'ecommerce';
+    const isAgendamento = (tenant.has_agendamento || tenant.business_type === 'agendamento') && !tenant.has_delivery && !isEcommerce;
+    const isAgencia = tenant.has_agencia || tenant.business_type === 'agencia';
+    const isIgreja = tenant.has_igreja || tenant.business_type === 'igreja';
+
+    let portalUrl = 'https://delivery.sinergemkt.com';
+    let systemName = 'Sinerge Delivery';
+    let emoji = '🍔';
+
+    if (isEcommerce) {
+      portalUrl = 'https://loja.sinergemkt.com';
+      systemName = 'Sinerge Catálogo / E-commerce';
+      emoji = '👕';
+    } else if (isAgendamento) {
+      portalUrl = 'https://agendamento.sinergemkt.com';
+      systemName = 'Sinerge Agendamento';
+      emoji = '✂️';
+    } else if (isAgencia) {
+      portalUrl = 'https://agencia.sinergemkt.com';
+      systemName = 'Sinerge ERP Agência & Social Media';
+      emoji = '🚀';
+    } else if (isIgreja) {
+      portalUrl = `https://agencia.sinergemkt.com/igreja/${tenant.slug}`;
+      systemName = 'Sinerge Agenda Igreja & Eventos';
+      emoji = '✝️';
+    }
+
+    const text = `${emoji} *Seu Acesso ao ${systemName}!*\n\n` +
+      `Olá! Seu sistema está pronto e liberado.\n\n` +
+      `🔗 *Acesse o Portal:* ${portalUrl}\n` +
+      `🔑 *Seu Identificador (Slug):* \`${tenant.slug}\`\n` +
+      `🔐 *Sua Senha Admin:* \`${tenant.admin_password}\`\n` +
+      (tenant.financial_password ? `💰 *Senha Relatório Financeiro:* \`${tenant.financial_password}\`\n\n` : `\n`) +
+      `_Ao entrar, você poderá gerenciar seu painel, cadastrar eventos e compartilhar com os membros em tempo real!_`;
+
+    navigator.clipboard.writeText(text);
+    setCopiedTenantId(tenant.id);
+    setTimeout(() => setCopiedTenantId(null), 2500);
+  };
+
+  // FILTROS DE CLIENTES SAAS E CÁLCULO DE MRR PROJETADO
+  const activeTenants = tenants.filter(t => t.active);
+  
+  const totalMRR = activeTenants.reduce((acc, t) => {
+    const fee = parsePrice(t.monthly_fee, 0);
+    const cycle = t.billing_cycle || 'monthly';
+    if (cycle === 'weekly') return acc + (fee * 4.33);
+    if (cycle === 'biweekly') return acc + (fee * 2.16);
+    return acc + fee;
+  }, 0);
+
+  const deliveryCount = activeTenants.filter(t => (t.has_delivery || t.business_type === 'delivery') && !t.has_agendamento && !t.has_ecommerce && !t.has_agencia && !t.has_igreja && t.business_type !== 'agendamento' && t.business_type !== 'ecommerce' && t.business_type !== 'agencia' && t.business_type !== 'igreja').length;
+  const agendamentoCount = activeTenants.filter(t => (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !t.has_ecommerce && !t.has_agencia && !t.has_igreja && t.business_type !== 'ecommerce' && t.business_type !== 'agencia' && t.business_type !== 'igreja').length;
+  const ecommerceCount = activeTenants.filter(t => (t.has_ecommerce || t.business_type === 'ecommerce') && !t.has_agencia && !t.has_igreja && t.business_type !== 'agencia' && t.business_type !== 'igreja').length;
+  const agenciaCount = activeTenants.filter(t => (t.has_agencia || t.business_type === 'agencia') && !t.has_igreja && t.business_type !== 'igreja').length;
+  const igrejaCount = activeTenants.filter(t => t.has_igreja || t.business_type === 'igreja').length;
+
+  const expiringTenants = tenants.filter(t => {
+    const dueInfo = getDueDateInfo(t.due_date);
+    return t.active && dueInfo.isExpiring;
+  });
+
+  const filteredTenants = tenants.filter(t => {
+    const matchesSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase()) || t.slug.toLowerCase().includes(searchTerm.toLowerCase());
+    const isIgreja = t.has_igreja || t.business_type === 'igreja';
+    const isAgencia = (t.has_agencia || t.business_type === 'agencia') && !isIgreja;
+    const isEcommerce = (t.has_ecommerce || t.business_type === 'ecommerce') && !isAgencia && !isIgreja;
+    const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce && !isAgencia && !isIgreja;
+    const dueInfo = getDueDateInfo(t.due_date);
+
+    if (!matchesSearch) return false;
+    if (filterType === 'DELIVERY') return !isAgendamento && !isEcommerce && !isAgencia && !isIgreja;
+    if (filterType === 'AGENDAMENTO') return isAgendamento;
+    if (filterType === 'ECOMMERCE') return isEcommerce;
+    if (filterType === 'AGENCIA') return isAgencia;
+    if (filterType === 'IGREJA') return isIgreja;
+    if (filterType === 'EXPIRING') return t.active && dueInfo.isExpiring;
+    if (filterType === 'EXPIRED') return dueInfo.isExpired || !t.active;
+    return true;
+  });
+
+  const formatLastActivity = (dateStr) => {
+    if (!dateStr) return 'Sem movimentação';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffHours = Math.abs(now - date) / 36e5;
+    if (diffHours < 24 && now.getDate() === date.getDate()) {
+      return `Hoje às ${date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4 font-sans">
+        <form onSubmit={handleLogin} className="bg-gray-900 p-8 rounded-3xl border border-orange-500/30 w-full max-w-sm space-y-5 shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-orange-500 via-purple-500 to-blue-500"></div>
+
+          <div className="text-center space-y-1">
+            <div className="w-12 h-12 bg-orange-500/10 border border-orange-500/30 text-orange-400 rounded-2xl flex items-center justify-center text-xl mx-auto mb-2">⚡</div>
+            <h1 className="text-xl font-bold text-white">Sinerge Master</h1>
+            <p className="text-xs text-gray-400">Painel Geral de Gestão SaaS</p>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-gray-400 block mb-1">Senha Secreta Master:</label>
+            <input 
+              type="password" 
+              placeholder="Digite sua senha..."
+              value={masterPassword}
+              onChange={(e) => setMasterPassword(e.target.value)}
+              className="w-full bg-gray-950 border border-gray-800 p-3.5 rounded-xl text-sm text-white focus:outline-none focus:border-orange-500 transition"
+            />
+          </div>
+
+          <button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 font-bold py-3.5 rounded-xl text-xs transition text-white shadow-lg shadow-orange-500/20">
+            Acessar Painel de Controle 🚀
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white p-4 md:p-8 max-w-6xl mx-auto font-sans pb-16">
+      
+      {/* CABEÇALHO PRINCIPAL */}
+      <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-2xl bg-orange-500 flex items-center justify-center font-bold text-xl text-white shadow-lg shadow-orange-500/20">⚡</div>
+          <div>
+            <h1 className="font-bold text-lg text-white leading-tight">Sinerge Multi-SaaS Master</h1>
+            <p className="text-xs text-gray-400">Plataformas SaaS Integradas</p>
+          </div>
+        </div>
+
+        <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-900 hover:bg-gray-800 border border-gray-800 px-4 py-2 rounded-xl text-red-400 font-bold transition">
+          🚪 Sair
+        </button>
+      </header>
+
+      {/* CONTEÚDO PRINCIPAL: CLIENTES SAAS */}
+      <div className="space-y-6">
+        {/* BANNER DE AVISO DE CLIENTES A VENCER */}
+        {expiringTenants.length > 0 && (
+          <div className="bg-yellow-500/10 border border-yellow-500/40 p-4 rounded-2xl mb-6 flex justify-between items-center flex-wrap gap-3">
+            <div className="flex items-center space-x-3">
+              <span className="text-2xl animate-bounce">⚠️</span>
+              <div>
+                <h3 className="font-bold text-xs text-yellow-400">Atenção! {expiringTenants.length} cliente(s) vencendo nos próximos 3 dias:</h3>
+                <p className="text-[11px] text-gray-300">
+                  {expiringTenants.map(t => `${t.name} (${getDueDateInfo(t.due_date).label})`).join(', ')}
+                </p>
+              </div>
+            </div>
+            <button 
+              onClick={() => setFilterType('EXPIRING')}
+              className="bg-yellow-500 text-black font-bold px-3 py-1.5 rounded-xl text-xs hover:bg-yellow-400 transition">
+              🔍 Ver Apenas Vencendo
+            </button>
+          </div>
+        )}
+
+        {/* DASHBOARD DE MÉTRICAS */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-8">
+          <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl col-span-2">
+            <span className="text-[10px] font-bold text-gray-400 uppercase block">Faturamento Projetado (MRR)</span>
+            <span className="text-lg font-bold text-green-400">R$ {totalMRR.toFixed(2)}</span>
+          </div>
+
+          <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
+            <span className="text-[10px] font-bold text-gray-400 uppercase block">Total Clientes</span>
+            <span className="text-lg font-bold text-white">{tenants.length} <span className="text-[10px] text-green-400">({activeTenants.length})</span></span>
+          </div>
+
+          <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
+            <span className="text-[10px] font-bold text-orange-400 uppercase block">Delivery</span>
+            <span className="text-lg font-bold text-orange-400">{deliveryCount}</span>
+          </div>
+
+          <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
+            <span className="text-[10px] font-bold text-purple-400 uppercase block">Agenda</span>
+            <span className="text-lg font-bold text-purple-400">{agendamentoCount}</span>
+          </div>
+
+          <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
+            <span className="text-[10px] font-bold text-blue-400 uppercase block">Loja</span>
+            <span className="text-lg font-bold text-blue-400">{ecommerceCount}</span>
+          </div>
+
+          <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
+            <span className="text-[10px] font-bold text-pink-400 uppercase block">Agência</span>
+            <span className="text-lg font-bold text-pink-400">{agenciaCount}</span>
+          </div>
+
+          <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl">
+            <span className="text-[10px] font-bold text-amber-400 uppercase block">Igreja</span>
+            <span className="text-lg font-bold text-amber-400">{igrejaCount}</span>
+          </div>
+        </div>
+
+        {/* BOTÃO MESTRE / SANFONA PARA CADASTRAR NOVO CLIENTE */}
+        <section className="mb-8">
+          <button
+            onClick={() => setIsCreateFormOpen(!isCreateFormOpen)}
+            className="w-full bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-bold p-4 rounded-2xl flex justify-between items-center shadow-lg transition">
+            <span className="flex items-center space-x-2 text-sm">
+              <span>➕</span>
+              <span>Cadastrar Novo Cliente / Estabelecimento</span>
+            </span>
+            <span className="text-xs bg-black/30 px-3 py-1 rounded-lg">
+              {isCreateFormOpen ? '▲ Ocultar Formulário' : '▼ Expandir Formulário'}
+            </span>
+          </button>
+
+          {isCreateFormOpen && (
+            <form onSubmit={handleCreateTenant} className="bg-gray-900 p-6 rounded-b-3xl border border-orange-500/30 border-t-0 space-y-4 shadow-2xl transition-all">
+              <div className="bg-gray-950 p-3 rounded-2xl border border-gray-800 space-y-2">
+                <label className="text-[11px] font-bold text-gray-300 block uppercase tracking-wider">Selecione o Nicho do Cliente:</label>
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                  <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'delivery' ? 'bg-orange-500/20 text-orange-400 border-orange-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
+                    <input type="radio" name="business_type" value="delivery" checked={newTenant.business_type === 'delivery'} onChange={() => setNewTenant({ ...newTenant, business_type: 'delivery' })} className="hidden" />
+                    <span>🍔 Delivery</span>
+                  </label>
+
+                  <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'agendamento' ? 'bg-purple-500/20 text-purple-400 border-purple-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
+                    <input type="radio" name="business_type" value="agendamento" checked={newTenant.business_type === 'agendamento'} onChange={() => setNewTenant({ ...newTenant, business_type: 'agendamento' })} className="hidden" />
+                    <span>✂️ Agendamento</span>
+                  </label>
+
+                  <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'ecommerce' ? 'bg-blue-500/20 text-blue-400 border-blue-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
+                    <input type="radio" name="business_type" value="ecommerce" checked={newTenant.business_type === 'ecommerce'} onChange={() => setNewTenant({ ...newTenant, business_type: 'ecommerce' })} className="hidden" />
+                    <span>👕 E-commerce</span>
+                  </label>
+
+                  <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'agencia' ? 'bg-pink-500/20 text-pink-400 border-pink-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
+                    <input type="radio" name="business_type" value="agencia" checked={newTenant.business_type === 'agencia'} onChange={() => setNewTenant({ ...newTenant, business_type: 'agencia' })} className="hidden" />
+                    <span>🚀 Agência Mkt</span>
+                  </label>
+
+                  <label className={`flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer font-bold text-xs transition ${newTenant.business_type === 'igreja' ? 'bg-amber-500/20 text-amber-400 border-amber-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>
+                    <input type="radio" name="business_type" value="igreja" checked={newTenant.business_type === 'igreja'} onChange={() => setNewTenant({ ...newTenant, business_type: 'igreja' })} className="hidden" />
+                    <span>✝️ Igreja</span>
+                  </label>
+                </div>
+              </div>
+
+              {newTenant.business_type === 'delivery' && (
+                <div className="bg-gray-950 p-3.5 rounded-2xl border border-gray-800 flex justify-between items-center">
+                  <div>
+                    <span className="font-bold text-xs text-white block">🪑 Habilitar Módulo de Mesas / Autoatendimento (QR Code)</span>
+                    <span className="text-[10px] text-gray-400">Permite ao restaurante gerar QR Codes para os clientes pedirem direto da mesa.</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={newTenant.has_tables}
+                    onChange={(e) => setNewTenant({ ...newTenant, has_tables: e.target.checked })}
+                    className="w-4 h-4 accent-orange-500 cursor-pointer"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento / Agência / Igreja:</label>
+                <input type="text" placeholder="Ex: Igreja Batista Viva ou Hamburgueria Silva" value={newTenant.name} onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Slug / Identificador (Sem espaços):</label>
+                  <input type="text" placeholder="Ex: igrejabatista" value={newTenant.slug} onChange={(e) => setNewTenant({ ...newTenant, slug: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">WhatsApp (DDD + Número):</label>
+                  <input type="text" placeholder="Ex: 47996302864" value={newTenant.whatsapp} onChange={(e) => setNewTenant({ ...newTenant, whatsapp: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" />
+                </div>
+              </div>
+
+              <div className="bg-gray-950/80 p-4 rounded-2xl border border-gray-800 space-y-3">
+                <div className="flex justify-between items-center flex-wrap gap-2">
+                  <label className="text-[11px] font-bold text-orange-400 uppercase tracking-wider block">🎨 Personalização das Cores do Tema:</label>
+                  <div className="flex space-x-1.5 text-[10px] flex-wrap">
+                    <button type="button" onClick={() => applyPreset('dark_orange')} className="bg-gray-900 border border-orange-500/50 text-orange-400 px-2.5 py-1 rounded-lg font-bold">Dark Laranja</button>
+                    <button type="button" onClick={() => applyPreset('light_pink')} className="bg-pink-500/20 border border-pink-500 text-pink-300 px-2.5 py-1 rounded-lg font-bold">Rosa Claro</button>
+                    <button type="button" onClick={() => applyPreset('purple_barber')} className="bg-purple-500/20 border border-purple-500 text-purple-300 px-2.5 py-1 rounded-lg font-bold">Roxo Barber</button>
+                    <button type="button" onClick={() => applyPreset('blue_ecommerce')} className="bg-blue-500/20 border border-blue-500 text-blue-300 px-2.5 py-1 rounded-lg font-bold">Azul Loja</button>
+                    <button type="button" onClick={() => applyPreset('pink_agency')} className="bg-pink-500/20 border border-pink-500 text-pink-400 px-2.5 py-1 rounded-lg font-bold">Rosa Agência</button>
+                    <button type="button" onClick={() => applyPreset('amber_church')} className="bg-amber-500/20 border border-amber-500 text-amber-400 px-2.5 py-1 rounded-lg font-bold">Dourado Igreja</button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                  <div>
+                    <label className="text-[10px] text-gray-400 block mb-1">Cor do Botão:</label>
+                    <div className="flex space-x-1.5 items-center">
+                      <input type="color" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                      <input type="text" value={newTenant.primary_color} onChange={(e) => setNewTenant({ ...newTenant, primary_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-gray-400 block mb-1">Texto do Botão:</label>
+                    <div className="flex space-x-1.5 items-center">
+                      <input type="color" value={newTenant.button_text_color} onChange={(e) => setNewTenant({ ...newTenant, button_text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                      <input type="text" value={newTenant.button_text_color} onChange={(e) => setNewTenant({ ...newTenant, button_text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-gray-400 block mb-1">Fundo do Site:</label>
+                    <div className="flex space-x-1.5 items-center">
+                      <input type="color" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                      <input type="text" value={newTenant.secondary_color} onChange={(e) => setNewTenant({ ...newTenant, secondary_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-gray-400 block mb-1">Fundo dos Cards:</label>
+                    <div className="flex space-x-1.5 items-center">
+                      <input type="color" value={newTenant.card_bg_color} onChange={(e) => setNewTenant({ ...newTenant, card_bg_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                      <input type="text" value={newTenant.card_bg_color} onChange={(e) => setNewTenant({ ...newTenant, card_bg_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-gray-400 block mb-1">Cor da Fonte/Texto:</label>
+                    <div className="flex space-x-1.5 items-center">
+                      <input type="color" value={newTenant.text_color} onChange={(e) => setNewTenant({ ...newTenant, text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                      <input type="text" value={newTenant.text_color} onChange={(e) => setNewTenant({ ...newTenant, text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-orange-400 block mb-1">Cor do Preço / Valores:</label>
+                    <div className="flex space-x-1.5 items-center">
+                      <input type="color" value={newTenant.price_color} onChange={(e) => setNewTenant({ ...newTenant, price_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                      <input type="text" value={newTenant.price_color} onChange={(e) => setNewTenant({ ...newTenant, price_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Ciclo de Pagamento:</label>
+                  <select value={newTenant.billing_cycle} onChange={(e) => setNewTenant({ ...newTenant, billing_cycle: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none">
+                    <option value="monthly">📅 Mensal</option>
+                    <option value="biweekly">🗓️ Quinzenal</option>
+                    <option value="weekly">⚡ Semanal</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Fidelidade do Plano:</label>
+                  <select value={newTenant.contract_months} onChange={(e) => setNewTenant({ ...newTenant, contract_months: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-orange-400 font-bold focus:outline-none">
+                    <option value="3">3 Meses (Trimestral)</option>
+                    <option value="6">6 Meses (Semestral)</option>
+                    <option value="9">9 Meses</option>
+                    <option value="12">12 Meses (Anual)</option>
+                    <option value="0">∞ Indeterminado / Sem Fidelidade</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Valor do Ciclo (R$):</label>
+                  <input type="text" placeholder="99.00" value={newTenant.monthly_fee} onChange={(e) => setNewTenant({ ...newTenant, monthly_fee: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Data de Vencimento:</label>
+                  <input type="date" value={newTenant.due_date} onChange={(e) => setNewTenant({ ...newTenant, due_date: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none cursor-pointer" style={{ colorScheme: 'dark' }} />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Senha Admin:</label>
+                  <input type="text" placeholder="123456" value={newTenant.admin_password} onChange={(e) => setNewTenant({ ...newTenant, admin_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-green-400 font-bold block mb-1">Senha Financeira:</label>
+                  <input type="text" placeholder="Ex: fin123" value={newTenant.financial_password} onChange={(e) => setNewTenant({ ...newTenant, financial_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+                </div>
+              </div>
+
+              <button type="submit" className="w-full bg-green-600 hover:bg-green-700 font-bold py-3.5 rounded-xl text-xs transition text-white shadow-lg shadow-green-600/20">
+                🚀 Cadastrar Cliente Agora
+              </button>
+            </form>
+          )}
+        </section>
+
+        {/* LISTA DE CLIENTES E PESQUISA */}
+        <section className="space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-gray-900 p-4 rounded-2xl border border-gray-800">
+            <h2 className="font-bold text-sm text-gray-200">🏢 Clientes Cadastrados ({filteredTenants.length})</h2>
+
+            <div className="flex space-x-2 w-full sm:w-auto flex-wrap gap-y-2">
+              <input type="text" placeholder="🔍 Buscar por nome..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-gray-950 border border-gray-800 px-3 py-1.5 rounded-xl text-xs text-white focus:outline-none w-full sm:w-48" />
+              <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="bg-gray-950 border border-gray-800 px-3 py-1.5 rounded-xl text-xs text-white focus:outline-none">
+                <option value="ALL">Todos os Nichos</option>
+                <option value="EXPIRING">⚠️ Vencendo em 3 Dias</option>
+                <option value="EXPIRED">🔴 Vencidos / Bloqueados</option>
+                <option value="DELIVERY">🍔 Delivery</option>
+                <option value="AGENDAMENTO">✂️ Agendamento</option>
+                <option value="ECOMMERCE">👕 E-commerce</option>
+                <option value="AGENCIA">🚀 Agência Mkt</option>
+                <option value="IGREJA">✝️ Igreja</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3">
+            {filteredTenants.map(t => {
+              const isIgreja = t.has_igreja || t.business_type === 'igreja';
+              const isEcommerce = (t.has_ecommerce || t.business_type === 'ecommerce') && !t.has_agencia && !isIgreja && t.business_type !== 'agencia';
+              const isAgendamento = (t.has_agendamento || t.business_type === 'agendamento') && !t.has_delivery && !isEcommerce && !t.has_agencia && !isIgreja && t.business_type !== 'agencia';
+              const isAgencia = (t.has_agencia || t.business_type === 'agencia') && !isIgreja;
+              const isCopied = copiedTenantId === t.id;
+
+              const stats = tenantStats[t.id] || { count: 0, revenue: 0, lastOrderAt: null };
+              const dueInfo = getDueDateInfo(t.due_date);
+              const isExpanded = expandedTenantId === t.id;
+
+              return (
+                <div key={t.id} className={`bg-gray-900 p-4 rounded-2xl border transition ${dueInfo.isExpiring ? 'border-yellow-500/80 shadow-lg shadow-yellow-500/10' : dueInfo.isExpired || !t.active ? 'border-red-500/50 bg-red-950/10' : 'border-gray-800'}`}>
+                  
+                  {/* LINHA PRINCIPAL RESUMIDA */}
+                  <div className="flex justify-between items-center flex-wrap gap-3">
+                    <div className="flex items-center space-x-3">
+                      <span className={`w-3 h-3 rounded-full shrink-0 ${t.active ? 'bg-green-500 shadow-lg shadow-green-500/50' : 'bg-red-500'}`}></span>
+                      <div>
+                        <div className="flex items-center space-x-2 flex-wrap">
+                          <h3 className="font-bold text-sm text-white">{t.name}</h3>
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${isIgreja ? 'bg-amber-500/20 text-amber-400' : isEcommerce ? 'bg-blue-500/20 text-blue-400' : isAgendamento ? 'bg-purple-500/20 text-purple-400' : isAgencia ? 'bg-pink-500/20 text-pink-400' : 'bg-orange-500/20 text-orange-400'}`}>
+                            {isIgreja ? '✝️ Igreja' : isEcommerce ? (t.rental_module_enabled ? '👕 E-commerce + 🗓️ Locação' : '👕 E-commerce') : isAgendamento ? '✂️ Agendamento' : isAgencia ? '🚀 Agência Mkt' : '🍔 Delivery'}
+                          </span>
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full uppercase bg-gray-800 text-gray-300 border border-gray-700">
+                            🔄 {getCycleLabel(t.billing_cycle)} ({t.contract_months ? `${t.contract_months}m` : '12m'})
+                          </span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${dueInfo.isExpiring ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40 animate-pulse' : dueInfo.isExpired ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
+                            {dueInfo.label}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-0.5">
+                          Slug: <b className="text-orange-400">/{t.slug}</b> • Zap: <b className="text-gray-300">{t.whatsapp}</b> • R$ <b className="text-green-400">{parsePrice(t.monthly_fee, 99).toFixed(2)}</b> / {getCycleLabel(t.billing_cycle).toLowerCase()}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* AÇÕES RÁPIDAS */}
+                    <div className="flex items-center space-x-1.5 flex-wrap">
+                      <button 
+                        onClick={() => handleSendWhatsAppBilling(t, dueInfo.diffDays)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${dueInfo.isExpiring || dueInfo.isExpired ? 'bg-yellow-500 text-black hover:bg-yellow-400 shadow-md' : 'bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600/40'}`}>
+                        <span>📩 Cobrar Zap</span>
+                      </button>
+
+                      <button 
+                        onClick={() => toggleTenantActive(t.id, t.active)}
+                        className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition ${t.active ? 'bg-green-500/10 text-green-400 border-green-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30'}`}>
+                        {t.active ? '🟢 Autorizado' : '🔴 Bloqueado'}
+                      </button>
+
+                      <button 
+                        onClick={() => setExpandedTenantId(isExpanded ? null : t.id)}
+                        className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-xl text-xs font-bold transition">
+                        {isExpanded ? '▲ Ocultar' : '👁️ Links/Detalhes'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* DETALHES RETRÁTEIS */}
+                  {isExpanded && (
+                    <div className="mt-3 pt-3 border-t border-gray-800/80 space-y-3 bg-gray-950/60 p-3 rounded-xl">
+                      <div className="flex justify-between items-center text-xs flex-wrap gap-2">
+                        <div className="text-gray-400 space-x-3">
+                          <span>Senha Admin: <b className="font-mono text-white">{t.admin_password}</b></span>
+                          <span>Senha Fin: <b className="font-mono text-green-400">{t.financial_password || 'Não configurada'}</b></span>
+                          <span>Uso: <b className="text-green-400">{stats.count} registros</b></span>
+                          <span>Vendas: <b className="text-green-400">R$ {stats.revenue.toFixed(2)}</b></span>
+                          <span>Último: <b className="text-white">{formatLastActivity(stats.lastOrderAt)}</b></span>
+                        </div>
+
+                        <div className="flex space-x-1.5">
+                          <button onClick={() => handleCopyOnboardingMsg(t)} className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${isCopied ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300'}`}>
+                            {isCopied ? '✓ Copiado' : '💬 Msg Acesso'}
+                          </button>
+                          <button onClick={() => setEditingTenant(t)} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2.5 py-1 rounded-lg text-xs font-bold">✏️ Editar</button>
+                          <button onClick={() => handleDeleteTenant(t.id, t.name)} className="bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-1 rounded-lg text-xs font-bold">🗑</button>
+                        </div>
+                      </div>
+
+                      {/* LINKS RÁPIDOS */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs pt-1">
+                        {isIgreja ? (
+                          <>
+                            <a href={`https://agencia.sinergemkt.com/igreja/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-amber-400 font-bold hover:bg-gray-800">✝️ Agenda Pública</a>
+                            <a href={`https://agencia.sinergemkt.com/igreja/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-orange-400 font-bold hover:bg-gray-800">⚙️ Admin Igreja</a>
+                          </>
+                        ) : isEcommerce ? (
+                          <>
+                            <a href={`https://loja.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-gray-300 font-bold hover:bg-gray-800">🛍️ Catálogo Público</a>
+                            <a href={`https://loja.sinergemkt.com/${t.slug}/producao`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-blue-400 font-bold hover:bg-gray-800">👕 Fila Produção</a>
+                            <a href={`https://loja.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-orange-400 font-bold hover:bg-gray-800">⚙️ Admin Loja</a>
+                          </>
+                        ) : isAgendamento ? (
+                          <>
+                            <a href={`https://agendamento.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-gray-300 font-bold hover:bg-gray-800">🛍️ Página Cliente</a>
+                            <a href={`https://agendamento.sinergemkt.com/${t.slug}/agenda`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-purple-400 font-bold hover:bg-gray-800">📅 Painel Agenda</a>
+                            <a href={`https://agendamento.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-blue-400 font-bold hover:bg-gray-800">⚙️ Admin Agenda</a>
+                          </>
+                        ) : isAgencia ? (
+                          <>
+                            <a href={`https://agencia.sinergemkt.com/${t.slug}/dashboard`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-pink-400 font-bold hover:bg-gray-800">📊 ERP Agência</a>
+                            <a href={`https://agencia.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-orange-400 font-bold hover:bg-gray-800">⚙️ Admin Agência</a>
+                            <a href={`https://agencia.sinergemkt.com/portal`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-gray-300 font-bold hover:bg-gray-800">🌐 Portal Clientes</a>
+                          </>
+                        ) : (
+                          <>
+                            <a href={`https://delivery.sinergemkt.com/${t.slug}`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-gray-300 font-bold hover:bg-gray-800">🍔 Cardápio Digital</a>
+                            <a href={`https://delivery.sinergemkt.com/${t.slug}/cozinha`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-orange-400 font-bold hover:bg-gray-800">🍳 Cozinha / Pedidos</a>
+                            <a href={`https://delivery.sinergemkt.com/${t.slug}/admin`} target="_blank" rel="noreferrer" className="bg-gray-900 border border-gray-800 text-center py-1.5 rounded-lg text-blue-400 font-bold hover:bg-gray-800">⚙️ Admin Delivery</a>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+
+      {/* MODAL DE EDIÇÃO DE CLIENTE SAAS */}
+      {editingTenant && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleUpdateTenant} className="bg-gray-900 w-full max-w-xl rounded-3xl p-6 border border-blue-500/40 space-y-4 max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-3">
+              <h3 className="font-bold text-sm text-blue-400">✏️ Editar Cliente SaaS: <span className="text-white">{editingTenant.name}</span></h3>
+              <button type="button" onClick={() => setEditingTenant(null)} className="text-xs text-gray-400 hover:text-white font-bold">✕ Fechar</button>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento / Igreja:</label>
+              <input type="text" value={editingTenant.name || ''} onChange={(e) => setEditingTenant({ ...editingTenant, name: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">WhatsApp (DDD + Número):</label>
+                <input type="text" value={editingTenant.whatsapp || ''} onChange={(e) => setEditingTenant({ ...editingTenant, whatsapp: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Senha de Admin:</label>
+                <input type="text" value={editingTenant.admin_password || ''} onChange={(e) => setEditingTenant({ ...editingTenant, admin_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-green-400 font-bold block mb-1">Senha Financeira:</label>
+                <input type="text" placeholder="Ex: fin123" value={editingTenant.financial_password || ''} onChange={(e) => setEditingTenant({ ...editingTenant, financial_password: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+              </div>
+            </div>
+
+            {(editingTenant.has_ecommerce || editingTenant.business_type === 'ecommerce') && (
+              'rental_module_enabled' in editingTenant ? (
+                <label className="flex items-center justify-between bg-purple-500/10 border border-purple-500/30 p-3 rounded-xl cursor-pointer">
+                  <span className="text-xs">
+                    <b className="text-purple-300 block">🗓️ Módulo Locação (aluguel)</b>
+                    <span className="text-[10px] text-gray-400">Libera a aba "Locação" no painel da loja: aluguel por data, CNPJ, tabelas de preço e WhatsApp automático.</span>
+                  </span>
+                  <input type="checkbox" checked={!!editingTenant.rental_module_enabled} onChange={(e) => setEditingTenant({ ...editingTenant, rental_module_enabled: e.target.checked })} className="w-5 h-5 accent-purple-500" />
+                </label>
+              ) : (
+                <p className="text-[10px] text-gray-500">🗓️ Módulo Locação: rode o arquivo de banco da locação no Supabase para liberar esta opção.</p>
+              )
+            )}
+
+            <div className="grid grid-cols-4 gap-3">
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Ciclo:</label>
+                <select value={editingTenant.billing_cycle || 'monthly'} onChange={(e) => setEditingTenant({ ...editingTenant, billing_cycle: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none">
+                  <option value="monthly">📅 Mensal</option>
+                  <option value="biweekly">🗓️ Quinzenal</option>
+                  <option value="weekly">⚡ Semanal</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Fidelidade:</label>
+                <select value={editingTenant.contract_months || '12'} onChange={(e) => setEditingTenant({ ...editingTenant, contract_months: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-orange-400 font-bold focus:outline-none">
+                  <option value="3">3 Meses</option>
+                  <option value="6">6 Meses</option>
+                  <option value="9">9 Meses</option>
+                  <option value="12">12 Meses</option>
+                  <option value="21">21 Meses</option>
+                  <option value="0">∞ Indeterminado</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Valor do Ciclo (R$):</label>
+                <input type="text" value={editingTenant.monthly_fee || ''} onChange={(e) => setEditingTenant({ ...editingTenant, monthly_fee: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Data Vencimento:</label>
+                <input type="date" value={editingTenant.due_date || ''} onChange={(e) => setEditingTenant({ ...editingTenant, due_date: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none cursor-pointer" style={{ colorScheme: 'dark' }} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">URL da Logo:</label>
+                <input type="text" value={editingTenant.logo_url || ''} onChange={(e) => setEditingTenant({ ...editingTenant, logo_url: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">URL do Banner:</label>
+                <input type="text" value={editingTenant.banner_url || ''} onChange={(e) => setEditingTenant({ ...editingTenant, banner_url: e.target.value })} className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+              </div>
+            </div>
+
+            <div className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-3">
+              <div className="flex justify-between items-center flex-wrap gap-2">
+                <label className="text-[11px] font-bold text-blue-400 uppercase tracking-wider block">🎨 Alterar Cores do Tema:</label>
+                <div className="flex space-x-1 text-[10px] flex-wrap">
+                  <button type="button" onClick={() => applyEditPreset('dark_orange')} className="bg-gray-900 border border-orange-500/50 text-orange-400 px-2 py-0.5 rounded font-bold">Dark</button>
+                  <button type="button" onClick={() => applyEditPreset('light_pink')} className="bg-pink-500/20 border border-pink-500 text-pink-300 px-2 py-0.5 rounded font-bold">Rosa</button>
+                  <button type="button" onClick={() => applyEditPreset('purple_barber')} className="bg-purple-500/20 border border-purple-500 text-purple-300 px-2 py-0.5 rounded font-bold">Roxo</button>
+                  <button type="button" onClick={() => applyEditPreset('blue_ecommerce')} className="bg-blue-500/20 border border-blue-500 text-blue-300 px-2 py-0.5 rounded font-bold">Azul</button>
+                  <button type="button" onClick={() => applyEditPreset('pink_agency')} className="bg-pink-500/20 border border-pink-500 text-pink-400 px-2 py-0.5 rounded font-bold">Agência</button>
+                  <button type="button" onClick={() => applyEditPreset('amber_church')} className="bg-amber-500/20 border border-amber-500 text-amber-400 px-2 py-0.5 rounded font-bold">Igreja</button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Cor do Botão:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={editingTenant.primary_color || '#FF8C00'} onChange={(e) => setEditingTenant({ ...editingTenant, primary_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={editingTenant.primary_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, primary_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Texto do Botão:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={editingTenant.button_text_color || '#FFFFFF'} onChange={(e) => setEditingTenant({ ...editingTenant, button_text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={editingTenant.button_text_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, button_text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Fundo do Site:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={editingTenant.secondary_color || '#090D16'} onChange={(e) => setEditingTenant({ ...editingTenant, secondary_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={editingTenant.secondary_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, secondary_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Fundo dos Cards:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={editingTenant.card_bg_color || '#111827'} onChange={(e) => setEditingTenant({ ...editingTenant, card_bg_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={editingTenant.card_bg_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, card_bg_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Cor da Fonte/Texto:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={editingTenant.text_color || '#FFFFFF'} onChange={(e) => setEditingTenant({ ...editingTenant, text_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={editingTenant.text_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, text_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-blue-400 block mb-1">Cor do Preço / Valores:</label>
+                  <div className="flex space-x-1.5 items-center">
+                    <input type="color" value={editingTenant.price_color || '#FF8C00'} onChange={(e) => setEditingTenant({ ...editingTenant, price_color: e.target.value })} className="h-8 w-8 bg-gray-900 border border-gray-700 rounded cursor-pointer" />
+                    <input type="text" value={editingTenant.price_color || ''} onChange={(e) => setEditingTenant({ ...editingTenant, price_color: e.target.value })} className="w-full bg-gray-900 border border-gray-700 p-1.5 rounded text-[11px] text-white font-mono" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex space-x-2 pt-2">
+              <button type="button" onClick={() => setEditingTenant(null)} className="w-1/2 bg-gray-800 text-gray-300 font-bold py-3 rounded-xl text-xs">Cancelar</button>
+              <button type="submit" className="w-1/2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-xs transition">Salvar Alterações 💾</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+    </div>
+  );
+}
