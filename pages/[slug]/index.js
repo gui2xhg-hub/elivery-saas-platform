@@ -138,8 +138,7 @@ export default function DeliveryCliente() {
     try {
       const r = await fetch(`/api/public-store?slug=${encodeURIComponent(cleanSlug)}`);
       if (r.ok) tData = (await r.json()).tenant || null;
-      else if (r.status === 404) tData = null;
-      else throw new Error('api');
+      if (!tData) throw new Error('api'); // servidor não achou: confere direto no banco
     } catch (e) {
       const { data } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
       if (data) {

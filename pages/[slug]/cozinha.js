@@ -166,9 +166,9 @@ export default function PdvKdsTenant() {
   const loadPublicTenant = async () => {
     try {
       const r = await fetch(`/api/public-store?slug=${encodeURIComponent(slug)}`);
-      if (r.ok) return (await r.json()).tenant || null;
-      if (r.status === 404) return null;
+      if (r.ok) { const t = (await r.json()).tenant; if (t) return t; }
     } catch (e) {}
+    // servidor não achou ou falhou: confere direto no banco (como o Admin faz)
     const { data } = await supabase.from('tenants').select('*').eq('slug', slug).single();
     if (data) { const c = { ...data }; delete c.admin_password; delete c.pix_access_token; return c; }
     return null;
