@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
+import { isOpenNow, todayHoursText, nextOpeningText } from '../../lib/schedule';
 
 // MÁSCARA AUXILIAR DE WHATSAPP / TELEFONE
 const maskPhone = (value) => {
@@ -61,6 +62,7 @@ export default function DeliveryCliente() {
   const [pixCopyPaste, setPixCopyPaste] = useState('');
   const [pixPaymentId, setPixPaymentId] = useState(null);
   const [pixStatus, setPixStatus] = useState('pending');
+  const [currentOrderNumber, setCurrentOrderNumber] = useState(null);
   const [pixCopySuccess, setPixCopySuccess] = useState(false);
   const [currentOrderId, setCurrentOrderId] = useState(null);
 
@@ -106,18 +108,18 @@ export default function DeliveryCliente() {
   // POLLING EM TEMPO REAL DO PIX DINÂMICO
   useEffect(() => {
     let interval = null;
-    if (showPixModal && pixPaymentId && tenant?.pix_access_token && pixStatus !== 'approved') {
+    if (showPixModal && pixPaymentId && tenant?.pix_ready && pixStatus !== 'approved') {
       interval = setInterval(async () => {
         try {
-          const res = await fetch(`https://api.mercadopago.com/v1/payments/${pixPaymentId}`, {
-            headers: { 'Authorization': `Bearer ${tenant.pix_access_token}` }
+          // A conferência é feita pelo servidor (o token do Mercado Pago não fica no celular do cliente)
+          const res = await fetch('/api/pix-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenant_id: tenant.id, payment_id: pixPaymentId, order_id: currentOrderId })
           });
           const data = await res.json();
           if (data && data.status === 'approved') {
             setPixStatus('approved');
-            if (currentOrderId) {
-              await supabase.from('orders').update({ is_paid: true, status: 'recebido' }).eq('id', currentOrderId);
-            }
             clearInterval(interval);
           }
         } catch (e) {
@@ -131,7 +133,20 @@ export default function DeliveryCliente() {
   const fetchTenantData = async () => {
     setLoading(true);
     const cleanSlug = String(slug).toLowerCase().trim();
-    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
+    // Dados públicos da loja pelo servidor (sem senha e sem token do Mercado Pago)
+    let tData = null;
+    try {
+      const r = await fetch(`/api/public-store?slug=${encodeURIComponent(cleanSlug)}`);
+      if (r.ok) tData = (await r.json()).tenant || null;
+      else if (r.status === 404) tData = null;
+      else throw new Error('api');
+    } catch (e) {
+      const { data } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
+      if (data) {
+        tData = { ...data, pix_ready: !!(data.pix_enabled && data.pix_access_token), card_ready: !!data.pix_access_token };
+        delete tData.pix_access_token; delete tData.admin_password;
+      }
+    }
 
     if (tData) {
       setTenant(tData);
@@ -175,33 +190,8 @@ export default function DeliveryCliente() {
     setLoading(false);
   };
 
-  const isStoreOpen = () => {
-    if (!tenant) return true;
-    if (!tenant.opening_time || !tenant.closing_time) return true;
-
-    const now = new Date();
-    const currentDay = now.getDay();
-    const workDays = tenant.work_days || [1, 2, 3, 4, 5, 6, 0];
-
-    if (!workDays.includes(currentDay)) return false;
-
-    const currentMins = now.getHours() * 60 + now.getMinutes();
-    const [openH, openM] = tenant.opening_time.split(':').map(Number);
-    const [closeH, closeM] = tenant.closing_time.split(':').map(Number);
-
-    const openMins = openH * 60 + openM;
-    let closeMins = closeH * 60 + closeM;
-
-    if (closeMins < openMins) {
-      closeMins += 24 * 60;
-      if (currentMins < openMins) {
-        const adjustedCurrent = currentMins + 24 * 60;
-        return adjustedCurrent >= openMins && adjustedCurrent <= closeMins;
-      }
-    }
-
-    return currentMins >= openMins && currentMins <= closeMins;
-  };
+  // Mesma regra de horário do painel admin (por dia da semana, com almoço, horário de Brasília)
+  const isStoreOpen = () => isOpenNow(tenant);
 
   const handleOpenProductModal = (product) => {
     setSelectedProduct(product);
@@ -418,6 +408,11 @@ export default function DeliveryCliente() {
       return alert("A opção de Retirada no Balcão está desativada no momento neste estabelecimento.");
     }
 
+    if (!tableNumber && !isStoreOpen()) {
+      const next = nextOpeningText(tenant);
+      if (!confirm(`🔴 A loja está fechada agora${next ? ` (abre ${next})` : ''}.\n\nDeseja enviar o pedido mesmo assim? Ele será preparado quando a loja abrir.`)) return;
+    }
+
     setIsSubmitting(true);
 
     if (typeof window !== 'undefined') {
@@ -441,7 +436,13 @@ export default function DeliveryCliente() {
     }
 
     // Se for PIX ou Cartão Online, status inicial é 'aguardando_pagamento' para ficar oculto no KDS
-    const isDynamicPayment = (paymentMethod === 'PIX' && tenant.pix_enabled) || (paymentMethod.includes('Cartão') && cardPaymentType === 'online');
+    // Só fica "aguardando pagamento" quando a loja tem cobrança automática configurada.
+    // PIX manual (chave PIX) entra direto na cozinha, como pedido normal.
+    const wantsOnlineCard = paymentMethod.includes('Cartão') && cardPaymentType === 'online' && !!tenant.card_ready;
+    const isDynamicPayment = (paymentMethod === 'PIX' && !!tenant.pix_ready) || wantsOnlineCard;
+    if (paymentMethod.includes('Cartão') && cardPaymentType === 'online' && !tenant.card_ready) {
+      finalPaymentLabel = 'Cartão (Levar Maquininha)';
+    }
     const initialStatus = isDynamicPayment ? 'aguardando_pagamento' : 'recebido';
 
     const orderData = {
@@ -470,21 +471,29 @@ export default function DeliveryCliente() {
     }
 
     setCurrentOrderId(createdOrder.id);
+    const orderNumber = createdOrder.daily_number ? String(createdOrder.daily_number).padStart(2, '0') : createdOrder.id;
+    setCurrentOrderNumber(orderNumber);
+
+    // Se a cobrança online falhar, o pedido NÃO pode sumir da cozinha: volta a ser pedido normal
+    const releaseToKitchen = async (newLabel) => {
+      const patch = { status: 'recebido' };
+      if (newLabel) patch.payment_method = newLabel;
+      await supabase.from('orders').update(patch).eq('id', createdOrder.id);
+    };
 
     if (window.fbq) {
       window.fbq('track', 'Purchase', { value: total, currency: 'BRL' });
     }
 
     // GERAÇÃO DE PIX AUTOMÁTICO VIA MERCADO PAGO
-    if (paymentMethod === 'PIX' && tenant.pix_enabled && tenant.pix_access_token) {
+    if (paymentMethod === 'PIX' && tenant.pix_ready) {
       try {
         const mpRes = await fetch('/api/create-pix', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            amount: Number(total.toFixed(2)),
-            description: `Pedido #${createdOrder.id} - ${tenant.name}`,
-            accessToken: tenant.pix_access_token,
+            tenant_id: tenant.id,
+            description: `Pedido #${orderNumber} - ${tenant.name}`,
             orderId: createdOrder.id,
             payer: { email: `${cleanPhone || 'cliente'}@delivery.com`, name: customerName }
           })
@@ -504,20 +513,21 @@ export default function DeliveryCliente() {
       } catch (err) {
         console.error("Erro ao gerar PIX:", err);
       }
+      // QR Code não foi gerado: o pedido vai para a cozinha como PIX a conferir
+      await releaseToKitchen('PIX (conferir pagamento)');
+      alert('Não foi possível gerar o QR Code do PIX agora. Seu pedido foi enviado e o restaurante vai combinar o pagamento com você.');
+      finalPaymentLabel = 'PIX (conferir pagamento)';
     }
 
     // PAGAMENTO DE CARTÃO ONLINE VIA MERCADO PAGO
-    if (paymentMethod.includes('Cartão') && cardPaymentType === 'online' && tenant?.pix_access_token) {
+    if (wantsOnlineCard) {
       try {
         const prefRes = await fetch('/api/create-preference', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            items: cart,
-            deliveryFee: currentDeliveryFee,
-            accessToken: tenant.pix_access_token,
+            tenant_id: tenant.id,
             orderId: createdOrder.id,
-            tenantName: tenant.name,
             customerName: customerName,
             customerPhone: cleanPhone
           })
@@ -533,15 +543,18 @@ export default function DeliveryCliente() {
         }
       } catch (err) {
         console.error("Erro ao gerar link de pagamento online:", err);
-        alert("Não foi possível iniciar o pagamento online. O pedido foi registrado para pagamento na entrega.");
       }
+      // Link de pagamento falhou: pedido vai para a cozinha para pagar na entrega
+      finalPaymentLabel = 'Cartão (Levar Maquininha)';
+      await releaseToKitchen(finalPaymentLabel);
+      alert("Não foi possível iniciar o pagamento online. O pedido foi registrado para pagamento na entrega (maquininha).");
     }
 
-    sendWhatsAppNotification(createdOrder.id, false, finalPaymentLabel);
+    sendWhatsAppNotification(orderNumber, false, finalPaymentLabel);
     setIsSubmitting(false);
     setCart([]);
     setShowCartModal(false);
-    alert(`Pedido #${createdOrder.id} enviado com sucesso!`);
+    alert(`Pedido #${orderNumber} enviado com sucesso!`);
   };
 
   // PARSER DE SABORES COM INGREDIENTES E CATEGORIA AGRUPADA
@@ -679,7 +692,7 @@ export default function DeliveryCliente() {
       {!isOpen && (
         <div className="mt-6">
           <div className="bg-red-500/20 border border-red-500/40 text-red-400 p-3.5 rounded-2xl text-xs sm:text-sm text-center font-bold">
-            🔴 Loja Fechada no Momento. (Horário: {tenant.opening_time || '18:00'} às {tenant.closing_time || '23:30'})
+            🔴 Loja Fechada no Momento.{nextOpeningText(tenant) ? ` Abrimos ${nextOpeningText(tenant)}.` : ''}
           </div>
         </div>
       )}
@@ -822,9 +835,9 @@ export default function DeliveryCliente() {
             className="w-14 h-14 rounded-2xl border border-white/10 object-cover bg-gray-800 shadow"
           />
           <h3 className="font-bold text-base" style={{ color: textColor }}>{tenant.name}</h3>
-          {tenant.opening_time && tenant.closing_time && (
+          {(tenant.weekly_schedule || (tenant.opening_time && tenant.closing_time)) && (
             <p className="text-xs opacity-70">
-              🕒 Horário: {tenant.opening_time} às {tenant.closing_time}
+              🕒 Hoje: {todayHoursText(tenant)}
             </p>
           )}
         </div>
@@ -1250,7 +1263,7 @@ export default function DeliveryCliente() {
                       🛵 Na Maquininha
                     </button>
 
-                    <button
+                    {tenant?.card_ready && <button
                       type="button"
                       onClick={() => setCardPaymentType('online')}
                       style={{
@@ -1259,7 +1272,7 @@ export default function DeliveryCliente() {
                       }}
                       className="py-2 px-2 rounded-xl text-[10px] font-bold border border-white/10 transition text-center">
                       🌐 Pagar Agora Online
-                    </button>
+                    </button>}
                   </div>
                 </div>
               )}
@@ -1336,7 +1349,7 @@ export default function DeliveryCliente() {
               <button
                 type="button"
                 onClick={() => {
-                  sendWhatsAppNotification(currentOrderId, pixStatus === 'approved');
+                  sendWhatsAppNotification(currentOrderNumber || currentOrderId, pixStatus === 'approved');
                   setShowPixModal(false);
                   setCart([]);
                 }}

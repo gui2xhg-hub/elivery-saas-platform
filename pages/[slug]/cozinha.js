@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
-import { isMasterPassword } from '../../lib/checkMaster';
+import { shopLogin, shopSessionValid, clearShopToken, checkAdminPassword } from '../../lib/shopAuth';
 
 const parsePrice = (val) => {
   if (!val) return 0;
@@ -59,6 +59,11 @@ export default function PdvKdsTenant() {
   const [globalAddons, setGlobalAddons] = useState([]);
   const [neighborhoods, setNeighborhoods] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [authed, setAuthed] = useState(null); // null = conferindo, false = pedir senha, true = liberado
+  const [loginPass, setLoginPass] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const tenantIdRef = useRef(null);
+  const announcedRef = useRef(null); // pedidos já avisados (som/impressão), para não repetir
 
   // ABAS PRINCIPAIS: 'kds' | 'pdv' | 'mesas' | 'arquivados'
   const [activeTab, setActiveTab] = useState('kds');
@@ -113,29 +118,82 @@ export default function PdvKdsTenant() {
   useEffect(() => { autoPrintRef.current = autoPrintEnabled; }, [autoPrintEnabled]);
   useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
 
+  // 1) Confere se este aparelho já entrou com a senha da loja
+  useEffect(() => {
+    if (!slug) return;
+    shopSessionValid(slug).then((ok) => { setAuthed(ok); if (!ok) setLoading(false); });
+  }, [slug]);
+
+  // 2) Liberado: carrega tudo, liga o tempo real e a conferência automática
   useEffect(() => {
     let unsubscribeRealtime = null;
-    if (slug) {
+    if (slug && authed) {
       fetchTenantAndData().then((tenantData) => {
         if (tenantData?.id) {
           unsubscribeRealtime = subscribeRealtime(tenantData.id);
         }
       });
+      // Confere pedidos a cada 10s (funciona mesmo se o "tempo real" do Supabase falhar)
       const interval = setInterval(() => {
-        if (tenant?.id) fetchOrders(tenant.id, true);
+        if (tenantIdRef.current) fetchOrders(tenantIdRef.current, true);
       }, 10000);
+      // Cardápio, preços e configurações alterados no Admin chegam aqui a cada 1 minuto
+      const catalogInterval = setInterval(() => {
+        if (tenantIdRef.current) refreshCatalog(tenantIdRef.current);
+      }, 60000);
+      const onFocus = () => {
+        if (tenantIdRef.current) { fetchOrders(tenantIdRef.current, true); refreshCatalog(tenantIdRef.current); }
+      };
+      window.addEventListener('focus', onFocus);
 
       return () => {
         clearInterval(interval);
+        clearInterval(catalogInterval);
+        window.removeEventListener('focus', onFocus);
         if (unsubscribeRealtime) unsubscribeRealtime();
       };
     }
-  }, [slug]);
+  }, [slug, authed]);
+
+  const handleKitchenLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    const r = await shopLogin(slug, loginPass);
+    if (r.ok) { setLoginPass(''); setLoading(true); setAuthed(true); }
+    else setLoginError(r.error || 'Senha incorreta.');
+  };
+
+  const loadPublicTenant = async () => {
+    try {
+      const r = await fetch(`/api/public-store?slug=${encodeURIComponent(slug)}`);
+      if (r.ok) return (await r.json()).tenant || null;
+      if (r.status === 404) return null;
+    } catch (e) {}
+    const { data } = await supabase.from('tenants').select('*').eq('slug', slug).single();
+    if (data) { const c = { ...data }; delete c.admin_password; delete c.pix_access_token; return c; }
+    return null;
+  };
+
+  const refreshCatalog = async (tenantId) => {
+    const [tData, { data: pData }, { data: cData }, { data: aData }, { data: nData }] = await Promise.all([
+      loadPublicTenant(),
+      supabase.from('products').select('*').eq('tenant_id', tenantId).eq('active', true),
+      supabase.from('categories').select('*').eq('tenant_id', tenantId).order('id', { ascending: true }),
+      supabase.from('global_addons').select('*').eq('tenant_id', tenantId),
+      supabase.from('neighborhoods').select('*').eq('tenant_id', tenantId)
+    ]);
+    if (tData) setTenant(tData);
+    if (pData) setProducts(pData);
+    if (cData) setCategories(cData);
+    if (aData) setGlobalAddons(aData);
+    if (nData) setNeighborhoods(nData);
+  };
 
   const fetchTenantAndData = async () => {
-    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
+    const tData = await loadPublicTenant();
     if (tData) {
       setTenant(tData);
+      tenantIdRef.current = tData.id;
       await fetchOrders(tData.id, false);
 
       const { data: pData } = await supabase.from('products').select('*').eq('tenant_id', tData.id).eq('active', true);
@@ -157,11 +215,7 @@ export default function PdvKdsTenant() {
   const subscribeRealtime = (tenantId) => {
     const channel = supabase
       .channel(`schema-db-changes-pdv-${tenantId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `tenant_id=eq.${tenantId}` }, (payload) => {
-        if (payload.eventType === 'INSERT' && payload.new) {
-          if (soundEnabledRef.current) playBeepSound();
-          if (autoPrintRef.current) handlePrintOrder(payload.new, 'kitchen');
-        }
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `tenant_id=eq.${tenantId}` }, () => {
         fetchOrders(tenantId, true);
       })
       .subscribe();
@@ -201,12 +255,24 @@ export default function PdvKdsTenant() {
       .from('orders')
       .select('*')
       .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(1000);
 
     if (oData) {
-      const activeRecebidos = oData.filter(o => (!o.status || o.status === 'recebido' || o.status === 'pendente' || o.status === 'novo') && !o.archived && !isUnpaidDynamicOrder(o)).length;
-      if (isInterval && activeRecebidos > prevOrdersCountRef.current && soundEnabledRef.current) playBeepSound();
-      prevOrdersCountRef.current = activeRecebidos;
+      // Pedido NOVO que entrou na fila da cozinha (inclusive PIX/cartão que acabou de ser pago):
+      // toca o som e imprime UMA vez, venha pelo tempo real ou pela conferência de 10s.
+      const inQueue = oData.filter(o => (!o.status || o.status === 'recebido' || o.status === 'pendente' || o.status === 'novo') && !o.archived && !isUnpaidDynamicOrder(o));
+      if (announcedRef.current === null) {
+        announcedRef.current = new Set(oData.filter(o => !isUnpaidDynamicOrder(o)).map(o => o.id));
+      } else {
+        const fresh = inQueue.filter(o => !announcedRef.current.has(o.id));
+        oData.forEach(o => { if (!isUnpaidDynamicOrder(o)) announcedRef.current.add(o.id); });
+        if (fresh.length > 0) {
+          if (soundEnabledRef.current) playBeepSound();
+          if (autoPrintRef.current) handlePrintOrder(fresh[fresh.length - 1], 'kitchen');
+        }
+      }
+      prevOrdersCountRef.current = inQueue.length;
       setOrders(oData);
     }
     setLoading(false);
@@ -306,7 +372,7 @@ export default function PdvKdsTenant() {
 
   const handleAdminAuthSubmit = async (e) => {
     e.preventDefault();
-    if (tenant && (adminPasswordInput === tenant.admin_password || await isMasterPassword(adminPasswordInput))) {
+    if (tenant && await checkAdminPassword(slug, adminPasswordInput)) {
       setIsAdminEditAuth(true);
       setShowAdminAuthModal(false);
       if (orderToEditPendingAuth) {
@@ -626,13 +692,30 @@ export default function PdvKdsTenant() {
     const status = (o.status || '').toLowerCase();
     if (status === 'aguardando_pagamento' || status === 'pendente_pagamento') return true;
 
+    // Antes: qualquer pedido com "PIX" no pagamento e não pago sumia da cozinha (inclusive PIX por chave).
+    // Agora ele aparece. Só os antigos (mais de 12h) continuam ocultos, para a fila não encher de pedidos velhos.
     const pay = (o.payment_method || '').toUpperCase();
-    const isDynamic = pay.includes('PIX') || pay.includes('ONLINE');
-    
-    if (isDynamic && !o.is_paid && (status === 'pendente' || status === 'novo' || status === 'recebido')) {
-      return true;
-    }
+    const legacyHidden = (pay.includes('PIX') || pay.includes('ONLINE')) && !o.is_paid && (status === 'pendente' || status === 'novo' || status === 'recebido');
+    if (legacyHidden && (Date.now() - new Date(o.created_at).getTime()) > 12 * 3600 * 1000) return true;
     return false;
+  };
+
+  // Pedidos aguardando pagamento online (últimas 24h) — aparecem numa faixa para a equipe conferir
+  const awaitingPayment = orders.filter(o => !o.archived && ['aguardando_pagamento', 'pendente_pagamento'].includes((o.status || '').toLowerCase()) && (Date.now() - new Date(o.created_at).getTime()) < 24 * 3600 * 1000);
+
+  const releaseAwaitingOrder = async (order) => {
+    if (!confirm(`Confirmar que o pagamento do pedido ${getOrderDisplayNumber(order)} (${order.customer_name}) foi recebido e mandar para a cozinha?`)) return;
+    setOrders(prev => prev.map(o => o.id === order.id ? { ...o, is_paid: true, status: 'recebido' } : o));
+    const { error } = await supabase.from('orders').update({ is_paid: true, status: 'recebido' }).eq('id', order.id);
+    if (error) alert('Erro: ' + error.message);
+    fetchOrders(tenant.id, true);
+  };
+
+  const cancelAwaitingOrder = async (order) => {
+    if (!confirm(`Cancelar o pedido ${getOrderDisplayNumber(order)} (${order.customer_name}) que não foi pago?`)) return;
+    const { error } = await supabase.from('orders').update({ archived: true, status: 'cancelado' }).eq('id', order.id);
+    if (error) alert('Erro: ' + error.message);
+    fetchOrders(tenant.id, true);
   };
 
   // HELPER DE IMPRESSÃO COMPLETA DOS ITENS COM SABORES, COMBOS, BORDAS E OBSERVAÇÕES
@@ -693,7 +776,22 @@ export default function PdvKdsTenant() {
     return elements;
   };
 
-  if (loading) return <div className="p-4 text-white text-center font-sans">Carregando Painel...</div>;
+  if (authed === false) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4 font-sans">
+        <form onSubmit={handleKitchenLogin} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 w-full max-w-sm space-y-4 shadow-2xl">
+          <div className="text-center space-y-1">
+            <h1 className="text-xl font-extrabold text-orange-500">👨‍🍳 Cozinha / PDV</h1>
+            <p className="text-xs text-gray-400">Digite a senha de administrador da loja. Este aparelho fica conectado; não precisa digitar de novo.</p>
+          </div>
+          <input type="password" autoFocus value={loginPass} onChange={(e) => setLoginPass(e.target.value)} placeholder="Senha do admin" className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-sm focus:outline-none focus:border-orange-500" />
+          {loginError && <p className="text-xs text-red-400 font-bold">{loginError}</p>}
+          <button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 font-bold py-3 rounded-xl text-sm">Entrar</button>
+        </form>
+      </div>
+    );
+  }
+  if (authed === null || loading) return <div className="p-4 text-white text-center font-sans">Carregando Painel...</div>;
   if (!tenant) return <div className="p-4 text-white text-center font-sans">Restaurante não encontrado.</div>;
 
   const getOrderCategory = (o) => {
@@ -1146,7 +1244,8 @@ export default function PdvKdsTenant() {
           <button onClick={() => setAutoPrintEnabled(!autoPrintEnabled)} className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${autoPrintEnabled ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' : 'bg-gray-800 text-gray-400'}`}>
             {autoPrintEnabled ? '🖨️ Auto Print: ON' : '🖨️ Auto Print: OFF'}
           </button>
-          <button onClick={() => fetchOrders(tenant.id)} className="bg-orange-500 hover:bg-orange-600 px-3.5 py-2 rounded-xl text-xs font-bold">🔄</button>
+          <button onClick={() => { fetchOrders(tenant.id); refreshCatalog(tenant.id); }} className="bg-orange-500 hover:bg-orange-600 px-3.5 py-2 rounded-xl text-xs font-bold">🔄</button>
+          <button onClick={() => { if (confirm('Sair deste aparelho? Será preciso digitar a senha de novo.')) { clearShopToken(slug); window.location.reload(); } }} className="bg-gray-800 hover:bg-gray-700 px-3 py-2 rounded-xl text-xs font-bold text-gray-300">Sair</button>
         </div>
       </header>
 
@@ -1161,6 +1260,25 @@ export default function PdvKdsTenant() {
       {/* ABA 1: KDS COZINHA */}
       {activeTab === 'kds' && (
         <div className="space-y-6">
+          {awaitingPayment.length > 0 && (
+            <div className="bg-yellow-500/10 border border-yellow-500/40 rounded-2xl p-3 space-y-2 no-print">
+              <p className="text-xs font-extrabold text-yellow-300">💳 Aguardando pagamento online ({awaitingPayment.length}) — entram na fila sozinhos quando o pagamento for aprovado</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                {awaitingPayment.map(o => (
+                  <div key={o.id} className="bg-gray-900 border border-gray-800 rounded-xl p-2.5 flex items-center justify-between gap-2 text-xs">
+                    <div className="min-w-0">
+                      <p className="font-bold text-white truncate">{getOrderDisplayNumber(o)} • {o.customer_name || 'Cliente'}</p>
+                      <p className="text-[10px] text-gray-400">{o.payment_method} • R$ {Number(o.total || 0).toFixed(2)} • {getElapsedTime(o.created_at).text}</p>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <button onClick={() => releaseAwaitingOrder(o)} className="bg-green-600 hover:bg-green-700 text-white font-bold px-2.5 py-1.5 rounded-lg text-[10px]">✅ Já pagou</button>
+                      <button onClick={() => cancelAwaitingOrder(o)} className="bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold px-2 py-1.5 rounded-lg text-[10px]">✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex space-x-2 no-print overflow-x-auto text-xs font-bold">
             <button onClick={() => setFilterType('ALL')} className={`px-4 py-2 rounded-xl border ${filterType === 'ALL' ? 'bg-orange-500 border-orange-500' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>Todos</button>
             <button onClick={() => setFilterType('DELIVERY')} className={`px-4 py-2 rounded-xl border ${filterType === 'DELIVERY' ? 'bg-purple-600 border-purple-600' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>🛵 Delivery</button>

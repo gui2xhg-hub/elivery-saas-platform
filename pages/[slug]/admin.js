@@ -12,6 +12,7 @@ const resolveCategoryId = (chosen, categories) => {
   return isNaN(Number(id)) ? id : Number(id);
 };
 import { isMasterPassword } from '../../lib/checkMaster';
+import { shopLogin, shopSessionValid, clearShopToken } from '../../lib/shopAuth';
 
 // FUNÇÃO AUXILIAR PARA PARSE DE PREÇOS (ACEITA VÍRGULA E PONTO)
 const parsePrice = (val) => {
@@ -247,11 +248,13 @@ export default function AdminTenant() {
 
         if (updatedTenant.auto_reset_orders) {
           const lastReset = updatedTenant.order_reset_at ? new Date(updatedTenant.order_reset_at) : new Date(0);
-          const now = new Date();
-          const isDifferentDay = now.toDateString() !== lastReset.toDateString();
+          // Início de hoje no horário de Brasília (zera na virada do dia, não na hora em que o painel é aberto)
+          const todaySP = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+          const startOfTodaySP = new Date(`${todaySP}T00:00:00-03:00`);
+          const isDifferentDay = lastReset < startOfTodaySP;
 
           if (isDifferentDay) {
-            const nowIso = now.toISOString();
+            const nowIso = startOfTodaySP.toISOString();
             await supabase.from('tenants').update({ order_reset_at: nowIso }).eq('id', updatedTenant.id);
             updatedTenant.order_reset_at = nowIso;
           }
@@ -266,6 +269,14 @@ export default function AdminTenant() {
     }
   }, [slug, getDefaultWeeklySchedule]);
 
+  // Aparelho que já entrou antes não precisa digitar a senha de novo
+  useEffect(() => {
+    if (!tenant?.id || isAuthenticated) return;
+    let alive = true;
+    shopSessionValid(slug).then((ok) => { if (alive && ok) { setIsAuthenticated(true); fetchData(tenant.id); } });
+    return () => { alive = false; };
+  }, [tenant?.id]);
+
   useEffect(() => {
     if (slug) fetchTenant();
     if (typeof window !== 'undefined') {
@@ -275,7 +286,9 @@ export default function AdminTenant() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    if (tenant && (password === tenant.admin_password || await isMasterPassword(password))) {
+    // Confere no servidor e deixa o aparelho conectado (vale também para a Cozinha neste aparelho)
+    const r = tenant ? await shopLogin(slug, password) : { ok: false };
+    if (r.ok || (tenant && (password === tenant.admin_password || await isMasterPassword(password)))) {
       setIsAuthenticated(true);
       fetchData(tenant.id);
     } else {
@@ -890,7 +903,7 @@ export default function AdminTenant() {
           <h1 className="font-bold text-xl sm:text-2xl text-orange-500">{tenant.name}</h1>
           <p className="text-xs sm:text-sm text-gray-400">Painel ERP & Gestão do Restaurante</p>
         </div>
-        <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-xl text-red-400 font-bold transition">
+        <button onClick={() => { clearShopToken(slug); setIsAuthenticated(false); }} className="text-xs bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-xl text-red-400 font-bold transition">
           Sair
         </button>
       </header>

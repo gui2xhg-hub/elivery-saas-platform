@@ -32,7 +32,11 @@ export default function GarcomPDV() {
   const [itemObservation, setItemObservation] = useState('');
 
   useEffect(() => {
-    if (slug) loadData();
+    if (!slug) return;
+    loadData();
+    // Cardápio e garçons alterados no Admin chegam aqui a cada 1 minuto
+    const it = setInterval(loadData, 60000);
+    return () => clearInterval(it);
   }, [slug]);
 
   // RESTAURAR SESSÃO DO GARÇOM VIA LOCALSTORAGE
@@ -50,7 +54,16 @@ export default function GarcomPDV() {
   }, [slug]);
 
   const loadData = async () => {
-    const { data: t } = await supabase.from('tenants').select('*').eq('slug', slug).single();
+    // Dados públicos da loja (sem senhas/tokens)
+    let t = null;
+    try {
+      const r = await fetch(`/api/public-store?slug=${encodeURIComponent(slug)}`);
+      if (r.ok) t = (await r.json()).tenant || null;
+    } catch (e) {}
+    if (!t) {
+      const { data } = await supabase.from('tenants').select('*').eq('slug', slug).single();
+      if (data) { t = { ...data }; delete t.admin_password; delete t.pix_access_token; }
+    }
     if (!t) return;
     setTenant(t);
 
@@ -61,7 +74,18 @@ export default function GarcomPDV() {
       supabase.from('global_addons').select('*').eq('tenant_id', t.id).order('id')
     ]);
 
-    if (w) setWaiters(w);
+    if (w) {
+      setWaiters(w);
+      // Garçom desativado ou excluído no Admin perde o acesso neste aparelho
+      try {
+        const saved = JSON.parse(localStorage.getItem(`waiter_session_${slug}`) || 'null');
+        if (saved && !w.some((x) => String(x.id) === String(saved.id))) {
+          localStorage.removeItem(`waiter_session_${slug}`);
+          setIsLogged(false);
+          setSelectedWaiter(null);
+        }
+      } catch (e) {}
+    }
     if (c) setCategories(c);
     if (p) setProducts(p);
     if (a) setGlobalAddons(a);
